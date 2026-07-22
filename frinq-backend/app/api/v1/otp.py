@@ -1,43 +1,25 @@
 """Phone OTP endpoints — no auth required.
 
 POST /api/v1/otp/send    — trigger Twilio Verify SMS
-POST /api/v1/otp/verify  — check code, return signed phone token + prior session
+POST /api/v1/otp/verify  — check code, create/resume the account, return
+                           a session (access + refresh token) + prior session
 """
 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException
-from jose import jwt
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from app.api.deps import get_pool
-from app.config import settings
 from app.core.otp import send_otp, verify_otp
+from app.core.session import TokenPair, create_session
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/otp", tags=["otp"])
-
-_JWT_ALG = "HS256"
-_JWT_TTL_HOURS = 24
-
-
-def make_phone_token(phone: str) -> str:
-    now = datetime.now(tz=timezone.utc)
-    return jwt.encode(
-        {
-            "sub": phone,
-            "type": "phone_verified",
-            "iat": int(now.timestamp()),
-            "exp": int((now + timedelta(hours=_JWT_TTL_HOURS)).timestamp()),
-        },
-        settings.SECRET_KEY,
-        algorithm=_JWT_ALG,
-    )
 
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -53,6 +35,7 @@ class SendOTPResponse(BaseModel):
 class VerifyOTPRequest(BaseModel):
     phone: str
     code: str
+    platform: Literal["ios", "android", "web"]
 
 
 class PriorSession(BaseModel):
@@ -63,9 +46,16 @@ class PriorSession(BaseModel):
     last_page: str | None = None
 
 
+class AccountState(BaseModel):
+    id: str
+    onboarding_state: str
+    banned: bool
+
+
 class VerifyOTPResponse(BaseModel):
-    verified: bool
-    token: str
+    access_token: str
+    refresh_token: str
+    user: AccountState
     prior_session: PriorSession | None = None
 
 
@@ -88,8 +78,25 @@ async def send_otp_route(body: SendOTPRequest) -> SendOTPResponse:
     return SendOTPResponse(ok=True)
 
 
-async def _fetch_prior_session(pool: asyncpg.Pool, digits: str) -> PriorSession | None:
-    """Lookup the best prior submission for this phone.
+def _row_to_prior_session(row: dict[str, Any]) -> PriorSession:
+    answers: dict[str, Any] = {}
+    raw = row["answers"]
+    if raw:
+        try:
+            answers = json.loads(raw) if isinstance(raw, str) else dict(raw)
+        except Exception:
+            answers = {}
+    return PriorSession(
+        submission_id=str(row["id"]),
+        answers=answers,
+        is_complete=bool(row["is_complete"]),
+        status=str(row["status"] or "pending"),
+        last_page=row["last_page"],
+    )
+
+
+async def _fetch_prior_session(conn: asyncpg.Connection, user_id: Any) -> PriorSession | None:
+    """Lookup the best prior submission owned by this user.
 
     PREFERS a completed submission over an incomplete one — this fixes
     the "session flush" bug where users who'd already finished the quiz
@@ -108,40 +115,24 @@ async def _fetch_prior_session(pool: asyncpg.Pool, digits: str) -> PriorSession 
     fall back to the most recent overall (covers true new users + users
     who are mid-quiz).
     """
-    async with pool.acquire() as conn:
-        # Pass 1: completed submission, if any
+    row = await conn.fetchrow(
+        """SELECT id, answers, is_complete, status, last_page FROM quiz_submissions
+           WHERE user_id = $1 AND is_complete = TRUE
+           ORDER BY completed_at DESC NULLS LAST, created_at DESC
+           LIMIT 1""",
+        user_id,
+    )
+    if row is None:
         row = await conn.fetchrow(
             """SELECT id, answers, is_complete, status, last_page FROM quiz_submissions
-               WHERE phone = $1 AND is_complete = TRUE
-               ORDER BY completed_at DESC NULLS LAST, created_at DESC
+               WHERE user_id = $1
+               ORDER BY created_at DESC
                LIMIT 1""",
-            digits,
+            user_id,
         )
-        # Pass 2: most recent overall (incomplete or empty)
-        if row is None:
-            row = await conn.fetchrow(
-                """SELECT id, answers, is_complete, status, last_page FROM quiz_submissions
-                   WHERE phone = $1
-                   ORDER BY created_at DESC
-                   LIMIT 1""",
-                digits,
-            )
     if not row:
         return None
-    answers: dict[str, Any] = {}
-    raw = row["answers"]
-    if raw:
-        try:
-            answers = json.loads(raw) if isinstance(raw, str) else dict(raw)
-        except Exception:
-            answers = {}
-    return PriorSession(
-        submission_id=str(row["id"]),
-        answers=answers,
-        is_complete=bool(row["is_complete"]),
-        status=str(row["status"] or "pending"),
-        last_page=row["last_page"],
-    )
+    return _row_to_prior_session(row)
 
 
 @router.post("/verify", response_model=VerifyOTPResponse)
@@ -177,13 +168,56 @@ async def verify_otp_route(
             detail="Incorrect code. Check your WhatsApp and try again.",
         )
 
-    # Step 2: lookup prior session (non-fatal — verify already succeeded).
-    prior: PriorSession | None = None
-    try:
-        prior = await _fetch_prior_session(pool, digits)
-    except Exception as exc:
-        logger.warning("otp.prior_lookup_failed", error=str(exc))
+    # Step 2: upsert the account and issue a session, all in one transaction
+    # so a crash mid-way never leaves an orphaned user or a linked-but-
+    # sessionless submission.
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            user_row = await conn.fetchrow(
+                "SELECT * FROM users WHERE RIGHT(regexp_replace(phone, '\\D', '', 'g'), 10) = $1 "
+                "FOR UPDATE",
+                digits,
+            )
+            if user_row is None:
+                user_row = await conn.fetchrow(
+                    "INSERT INTO users (phone) VALUES ($1) RETURNING *",
+                    digits,
+                )
+            data = dict(user_row)
 
-    token = make_phone_token(digits)
+            if data["banned"]:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="account banned",
+                )
+
+            # Link legacy phone-only submissions (pre-dates user_id) to this
+            # account. Submissions already linked to a different user are
+            # left untouched. Normalized match (last 10 digits) — same idiom
+            # as the migration backfill and users lookup above — so this
+            # keeps working regardless of how the phone was formatted.
+            await conn.execute(
+                "UPDATE quiz_submissions SET user_id = $1 "
+                "WHERE RIGHT(regexp_replace(phone, '\\D', '', 'g'), 10) = $2 AND user_id IS NULL",
+                data["id"], digits,
+            )
+
+            prior: PriorSession | None = None
+            try:
+                prior = await _fetch_prior_session(conn, data["id"])
+            except Exception as exc:
+                logger.warning("otp.prior_lookup_failed", error=str(exc))
+
+            pair: TokenPair = await create_session(conn, data["id"], body.platform)
+
     logger.info("otp.verified", phone=digits[:4] + "****", has_prior=prior is not None)
-    return VerifyOTPResponse(verified=True, token=token, prior_session=prior)
+    return VerifyOTPResponse(
+        access_token=pair.access_token,
+        refresh_token=pair.refresh_token,
+        user=AccountState(
+            id=str(data["id"]),
+            onboarding_state=data["onboarding_state"],
+            banned=data["banned"],
+        ),
+        prior_session=prior,
+    )

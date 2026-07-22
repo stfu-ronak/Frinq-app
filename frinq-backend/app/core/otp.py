@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.config import settings
@@ -84,6 +85,41 @@ def _dev_bypass_allowed() -> bool:
     )
 
 
+def _test_phones() -> set[str]:
+    return {p.strip() for p in settings.TEST_PHONES.split(",") if p.strip()}
+
+
+def _test_phone_bypass_allowed(phone: str) -> bool:
+    """Multiple phones may share DUMMY_OTP in dev/staging. Hard-ignored in
+    production, same as SKIP_OTP_VERIFICATION."""
+    return (
+        settings.APP_ENV != "production"
+        and bool(settings.DUMMY_OTP)
+        and phone in _test_phones()
+    )
+
+
+def _review_bypass_allowed(phone: str) -> bool:
+    """One phone/code pair, safe to leave configured in production because
+    it fails closed the moment REVIEW_OTP_EXPIRES_AT lapses or is more than
+    30 days out. main.py's boot guard requires the expiry to be set at all
+    whenever REVIEW_PHONE/REVIEW_OTP are configured in production."""
+    if not settings.REVIEW_PHONE or not settings.REVIEW_OTP:
+        return False
+    if phone != settings.REVIEW_PHONE:
+        return False
+    if not settings.REVIEW_OTP_EXPIRES_AT:
+        return False
+    try:
+        expires_at = datetime.fromisoformat(settings.REVIEW_OTP_EXPIRES_AT)
+    except ValueError:
+        return False
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    now = datetime.now(tz=timezone.utc)
+    return now < expires_at <= now + timedelta(days=30)
+
+
 async def send_otp(phone: str) -> None:
     """Send OTP via Twilio Verify. Raises RuntimeError on failure."""
     if _skip_all_otp():
@@ -91,6 +127,12 @@ async def send_otp(phone: str) -> None:
         return
     if _dev_bypass_allowed() and phone == settings.DEV_PHONE:
         logger.info("otp.dev_bypass")
+        return
+    if _test_phone_bypass_allowed(phone):
+        logger.info("otp.test_phone_bypass_send", phone=phone[:4] + "****")
+        return
+    if _review_bypass_allowed(phone):
+        logger.info("otp.review_bypass_send", phone=phone[:4] + "****")
         return
 
     to = _e164(phone)
@@ -150,6 +192,18 @@ async def verify_otp(phone: str, code: str) -> None:
 
     if _dev_bypass_allowed() and phone == settings.DEV_PHONE:
         if code == settings.DUMMY_OTP:
+            return
+        raise ValueError("invalid_code")
+
+    if _test_phone_bypass_allowed(phone):
+        if code == settings.DUMMY_OTP:
+            logger.info("otp.test_phone_bypass_verify", phone=phone[:4] + "****")
+            return
+        raise ValueError("invalid_code")
+
+    if _review_bypass_allowed(phone):
+        if code == settings.REVIEW_OTP:
+            logger.info("otp.review_bypass_verify", phone=phone[:4] + "****")
             return
         raise ValueError("invalid_code")
 

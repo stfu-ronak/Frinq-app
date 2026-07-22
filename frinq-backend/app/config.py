@@ -68,6 +68,19 @@ class Settings(BaseSettings):
     # in production regardless of value (see otp.py); remove from env before
     # launch anyway.
     SKIP_OTP_VERIFICATION: bool = False
+    # Multi-phone test bypass (dev/staging only) — every phone in this list
+    # accepts DUMMY_OTP, so testers don't have to fight over one DEV_PHONE.
+    # Hard-ignored in production, same as SKIP_OTP_VERIFICATION.
+    TEST_PHONES: str = ""  # comma-separated 10-digit numbers
+
+    # App Store / Play Store reviewer bypass — the only OTP shortcut allowed
+    # in production. One phone/code pair, valid only while
+    # REVIEW_OTP_EXPIRES_AT is set, in the future, and no more than 30 days
+    # out. main.py's production boot guard refuses to start if
+    # REVIEW_PHONE/REVIEW_OTP are set without an expiry.
+    REVIEW_PHONE: str = ""
+    REVIEW_OTP: str = ""
+    REVIEW_OTP_EXPIRES_AT: str = ""  # ISO 8601, e.g. 2026-08-15T00:00:00+00:00
 
     # Twilio Messaging API — proactive WhatsApp send after quiz complete.
     # TWILIO_WHATSAPP_FROM = WhatsApp-enabled Twilio number with prefix,
@@ -103,6 +116,11 @@ class Settings(BaseSettings):
     # App
     APP_ENV: Literal["development", "staging", "production"] = "development"
     SECRET_KEY: str = Field(default="dev-secret-change-me")
+
+    # Sessions — refresh-token secrets are HMACed with this pepper before
+    # storage (never the JWT signing key, so rotating one doesn't invalidate
+    # the other). Deliberately separate from SECRET_KEY.
+    SESSION_HASH_PEPPER: str = Field(default="dev-pepper-change-me")
 
 
 @lru_cache

@@ -1,7 +1,19 @@
-"""Unauthenticated quiz submission endpoints.
+"""Quiz submission endpoints.
 
-POST /quiz/submit  — save answers, start async AI insights generation
-GET  /quiz/summary/{id} — poll for status + results
+POST /quiz/start   — create a tracking row before phone entry (no account —
+                      this is the one genuinely pre-OTP anonymous path)
+POST /quiz/submit  — save answers + start async AI insights; owner-only (this
+                      is the vibe-box fallback when PATCH .../complete fails,
+                      so it needs the same guarantees complete does)
+PATCH /quiz/partial/{id}  — save progress; owner-only
+PATCH /quiz/complete/{id} — finalize + trigger AI insights; owner-only
+GET  /quiz/summary/{id}   — poll for status + results; owner-only
+
+Ownership: once OTP verify links a submission to a user_id (app/api/v1/otp.py),
+every endpoint above except /start requires a session and filters mutations by
+`WHERE id = $1 AND user_id = $2` (submit sets user_id directly on insert
+instead), returning 404 (never 403) on a mismatch so a guessed UUID can't be
+used to probe for another user's submission.
 """
 
 from __future__ import annotations
@@ -13,52 +25,34 @@ from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from pydantic import BaseModel, Field
 
-from app.api.deps import get_pool
+from app.api.deps import CurrentAccount, get_current_account, get_pool
+from app.core.age_gate import AgeGateError, validate_frinq_dob
 from app.core.ai.insights import generate_insights
 from app.core.ai.openai_client import generate_deep_report
+from app.schemas.quiz import (
+    InsightItem,
+    QuizStartRequest,
+    QuizSubmitRequest,
+    QuizSubmitResponse,
+    QuizSummaryResponse,
+)
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/quiz", tags=["quiz"])
 
 
-# ─── Request / Response schemas ──────────────────────────────────────────────
-
-class QuizSubmitRequest(BaseModel):
-    phone: str | None = Field(default=None, description="Phone number (optional at this step)")
-    answers: dict[str, Any] = Field(default_factory=dict)
-    is_complete: bool = False
-    last_page: str | None = Field(default=None)
-
-
-class QuizSubmitResponse(BaseModel):
-    submission_id: str
-    status: str
-
-
-class InsightItem(BaseModel):
-    label: str
-    text: str
-
-
-class QuizSummaryResponse(BaseModel):
-    submission_id: str
-    status: str  # pending | processing | done | error
-    # First name for the report tape ("an insight into <name>, by frinq").
-    # Sourced from answers so previews of other users show the right name.
-    name: str | None = None
-    headline: str | None = None
-    archetype: str | None = None
-    archetype_desc: str | None = None
-    share_quote: str | None = None
-    # Legacy aliases for older frontend builds — keep until clients migrate.
-    spirit_animal: str | None = None
-    spirit_desc: str | None = None
-    insights: list[InsightItem] = []
-    tags: list[str] = []
-    share_card: dict[str, Any] | None = None
-    deep_summary: dict[str, Any] | None = None
+def _check_age_gate(answers: dict) -> None:
+    """Validate frinq_dob whenever this save includes it — on partial saves
+    (as soon as the field appears) and again on completion. Never skipped
+    just because a client-side check already ran."""
+    dob = answers.get("dob")
+    if not dob:
+        return
+    try:
+        validate_frinq_dob(str(dob))
+    except AgeGateError as exc:
+        raise HTTPException(status_code=422, detail={"code": exc.code}) from exc
 
 
 # ─── Background AI task ──────────────────────────────────────────────────────
@@ -125,13 +119,20 @@ async def _run_insights(submission_id: UUID, answers: dict[str, Any], pool: asyn
 async def submit_quiz(
     body: QuizSubmitRequest,
     background_tasks: BackgroundTasks,
+    account: CurrentAccount = Depends(get_current_account),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> QuizSubmitResponse:
+    """Owner-only, same as complete_quiz — this is the vibe-box fallback path
+    when a PATCH /quiz/complete/{id} attempt fails, so it needs the identical
+    auth/age-gate treatment or it becomes a bypass for both."""
+    _check_age_gate(body.answers)
+
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            """INSERT INTO quiz_submissions (phone, answers, is_complete)
-               VALUES ($1, $2::jsonb, $3)
+            """INSERT INTO quiz_submissions (user_id, phone, answers, is_complete)
+               VALUES ($1, $2, $3::jsonb, $4)
                RETURNING id""",
+            account.id,
             body.phone,
             json.dumps(body.answers),
             body.is_complete,
@@ -149,6 +150,7 @@ async def submit_quiz(
 @router.get("/summary/{submission_id}", response_model=QuizSummaryResponse)
 async def get_summary(
     submission_id: str,
+    account: CurrentAccount = Depends(get_current_account),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> QuizSummaryResponse:
     try:
@@ -161,8 +163,8 @@ async def get_summary(
             """SELECT status, headline, spirit_animal, spirit_desc,
                       insights, tags, share_card, deep_summary,
                       answers->>'name' AS name
-               FROM quiz_submissions WHERE id = $1""",
-            uid,
+               FROM quiz_submissions WHERE id = $1 AND user_id = $2""",
+            uid, account.id,
         )
 
     if row is None:
@@ -203,6 +205,7 @@ async def get_summary(
 async def save_partial(
     submission_id: str,
     body: QuizSubmitRequest,
+    account: CurrentAccount = Depends(get_current_account),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict:
     """Save partial answers mid-quiz so nothing is lost if user drops off."""
@@ -211,22 +214,21 @@ async def save_partial(
     except ValueError:
         raise HTTPException(status_code=400, detail="invalid submission id")
 
+    _check_age_gate(body.answers)
+
     async with pool.acquire() as conn:
         result = await conn.execute(
             """UPDATE quiz_submissions
-               SET answers = $2::jsonb, last_page = COALESCE($3, last_page), updated_at = now()
-               WHERE id = $1""",
+               SET answers = $3::jsonb, last_page = COALESCE($4, last_page), updated_at = now()
+               WHERE id = $1 AND user_id = $2""",
             uid,
+            account.id,
             json.dumps(body.answers),
             body.last_page,
         )
     if result == "UPDATE 0":
         raise HTTPException(status_code=404, detail="submission not found")
     return {"ok": True}
-
-
-class QuizStartRequest(BaseModel):
-    phone: str | None = Field(default=None)
 
 
 @router.post("/start", status_code=status.HTTP_201_CREATED)
@@ -269,6 +271,7 @@ async def complete_quiz(
     submission_id: str,
     body: QuizSubmitRequest,
     background_tasks: BackgroundTasks,
+    account: CurrentAccount = Depends(get_current_account),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict:
     """Mark an existing partial submission as complete and trigger AI insights."""
@@ -277,13 +280,16 @@ async def complete_quiz(
     except ValueError:
         raise HTTPException(status_code=400, detail="invalid submission id")
 
+    _check_age_gate(body.answers)
+
     async with pool.acquire() as conn:
         result = await conn.execute(
             """UPDATE quiz_submissions
-               SET answers=$2::jsonb, is_complete=TRUE, status='pending',
+               SET answers=$3::jsonb, is_complete=TRUE, status='pending',
                    updated_at=now()
-               WHERE id=$1""",
+               WHERE id=$1 AND user_id=$2""",
             uid,
+            account.id,
             json.dumps(body.answers),
         )
     if result == "UPDATE 0":

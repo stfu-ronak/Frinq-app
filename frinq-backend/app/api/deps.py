@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -8,8 +9,37 @@ from fastapi import Depends, Header, HTTPException, status
 from jose import JWTError, jwt
 
 from app.config import settings
+from app.core.session import decode_access_token
 from app.database import get_pool as _get_pool
 from app.utils.logger import logger
+
+
+class CurrentAccount:
+    """Auth principal for the OTP-native session system (app/core/session.py).
+
+    Distinct from CurrentUser (legacy Supabase-JWT auth, kept only for
+    endpoints not yet migrated) — every new endpoint depends on this instead.
+    """
+
+    __slots__ = ("id", "phone", "row", "session_id", "onboarding_state", "community_slug", "banned")
+
+    def __init__(
+        self,
+        id: UUID,
+        phone: str | None,
+        row: dict[str, Any],
+        session_id: UUID,
+        onboarding_state: str,
+        community_slug: str | None,
+        banned: bool,
+    ) -> None:
+        self.id = id
+        self.phone = phone
+        self.row = row
+        self.session_id = session_id
+        self.onboarding_state = onboarding_state
+        self.community_slug = community_slug
+        self.banned = banned
 
 
 class CurrentUser:
@@ -110,3 +140,73 @@ async def get_current_user(
         )
     data = dict(row)
     return CurrentUser(id=data["id"], supabase_uid=data["supabase_uid"], row=data)
+
+
+async def get_current_account(
+    authorization: str | None = Header(default=None),
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> CurrentAccount:
+    """Auth dependency for the rotating-session system. Rejects missing,
+    expired, or wrong-type access tokens, revoked/expired sessions, deleted
+    users (401), and banned users (403 — a real, addressable account state,
+    not an invalid-credential response)."""
+    token = _extract_bearer(authorization)
+    try:
+        claims = decode_access_token(token)
+    except JWTError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid access token",
+        ) from exc
+
+    async with pool.acquire() as conn:
+        session_row = await conn.fetchrow(
+            "SELECT * FROM user_sessions WHERE id = $1", claims.sid
+        )
+        if session_row is None or session_row["revoked_at"] is not None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="session revoked",
+            )
+        expires_at = session_row["expires_at"]
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < datetime.now(tz=timezone.utc):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="session expired",
+            )
+        if session_row["user_id"] != claims.sub:
+            # Defense in depth: sid and sub are minted together and the JWT
+            # is signature-verified, so this shouldn't diverge — but never
+            # trust a session row for a user other than the one the token claims.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="session does not match token",
+            )
+
+        user_row = await conn.fetchrow(
+            "SELECT * FROM users WHERE id = $1 AND deleted_at IS NULL", claims.sub
+        )
+        if user_row is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="account not found",
+            )
+
+    data = dict(user_row)
+    if data["banned"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="account banned",
+        )
+
+    return CurrentAccount(
+        id=data["id"],
+        phone=data.get("phone"),
+        row=data,
+        session_id=claims.sid,
+        onboarding_state=data["onboarding_state"],
+        community_slug=None,  # wired in Phase 2 once community_members exists
+        banned=data["banned"],
+    )

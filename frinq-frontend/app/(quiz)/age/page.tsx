@@ -12,10 +12,28 @@ function storedDobPart(index: number): string {
   return s.split("/")[index] ?? "";
 }
 
+// Mirrors app/core/age_gate.py — feedback only, the server is the
+// authority (it re-validates on both partial save and quiz completion).
+function parseDob(day: string, month: string, year: string): Date | null {
+  const d = Number(day), m = Number(month), y = Number(year);
+  if (!d || !m || !y) return null;
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) {
+    return null; // rejects impossible calendar dates (e.g. 31/02) instead of letting them roll over
+  }
+  return date;
+}
+
+function isAtLeast18(dob: Date, today: Date): boolean {
+  const eighteenth = new Date(Date.UTC(dob.getUTCFullYear() + 18, dob.getUTCMonth(), dob.getUTCDate()));
+  return today.getTime() >= eighteenth.getTime();
+}
+
 export default function AgePage() {
   const [day, setDay] = useState(() => storedDobPart(0));
   const [month, setMonth] = useState(() => storedDobPart(1));
   const [year, setYear] = useState(() => storedDobPart(2));
+  const [error, setError] = useState<string | null>(null);
   const monthRef = useRef<HTMLInputElement>(null);
   const yearRef = useRef<HTMLInputElement>(null);
   const submitRef = useRef<HTMLButtonElement>(null);
@@ -24,24 +42,40 @@ export default function AgePage() {
   function handleDay(raw: string) {
     const v = raw.replace(/\D/g, "").slice(0, 2);
     setDay(v);
+    setError(null);
     if (v.length === 2) monthRef.current?.focus();
   }
 
   function handleMonth(raw: string) {
     const v = raw.replace(/\D/g, "").slice(0, 2);
     setMonth(v);
+    setError(null);
     if (v.length === 2) yearRef.current?.focus();
   }
 
   function handleYear(raw: string) {
     const v = raw.replace(/\D/g, "").slice(0, 4);
     setYear(v);
+    setError(null);
     if (v.length === 4) submitRef.current?.focus();
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!day || !month || !year || year.length < 4) return;
+
+    const dob = parseDob(day, month, year);
+    const today = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z");
+    if (!dob || dob.getTime() > today.getTime()) {
+      setError("that doesn't look like a real date");
+      return;
+    }
+    if (!isAtLeast18(dob, today)) {
+      setError("frinq is for 18+ right now");
+      return;
+    }
+    setError(null);
+
     setQuizState("frinq_dob", `${day}/${month}/${year}`);
     if (document.startViewTransition) {
       document.startViewTransition(() => { router.push("/ready"); });
@@ -84,6 +118,11 @@ export default function AgePage() {
                 </div>
               ))}
             </div>
+            {error && (
+              <p className="mt-4 font-[family-name:var(--font-motive)] text-[11px] tracking-[0.1em] text-[#7C1C0B]">
+                {error}
+              </p>
+            )}
             <button
               ref={submitRef}
               type="submit"

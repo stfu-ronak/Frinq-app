@@ -10,12 +10,27 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from app.api.deps import CurrentUser, get_current_user, get_pool, get_supabase_claims
+from app.api.deps import (
+    CurrentAccount,
+    CurrentUser,
+    get_current_account,
+    get_current_user,
+    get_pool,
+    get_supabase_claims,
+)
 from app.main import app as fastapi_app
 from app.workers import queue as queue_module
 
 
 # ─── Fake asyncpg pool ────────────────────────────────────────────────
+
+class _NoopTransaction:
+    async def __aenter__(self) -> "_NoopTransaction":
+        return self
+
+    async def __aexit__(self, *exc: Any) -> bool:
+        return False
+
 
 class FakeConnection:
     """Records queries and returns canned rows.
@@ -43,13 +58,19 @@ class FakeConnection:
 
     async def execute(self, query: str, *args: Any) -> str:
         self.store.queries.append((query, args))
+        if self.store.execute_handler is not None:
+            return self.store.execute_handler(query, args)
         return "OK"
+
+    def transaction(self) -> _NoopTransaction:
+        return _NoopTransaction()
 
 
 class FakePoolStore:
     def __init__(self) -> None:
         self.queries: list[tuple[str, tuple[Any, ...]]] = []
         self.next_rows: list[dict[str, Any] | None] = []
+        self.execute_handler: Callable[[str, tuple[Any, ...]], str] | None = None
         self.fetchrow_handler: Callable[[str, tuple[Any, ...]], dict[str, Any] | None] | None = None
         self.fetch_handler: Callable[[str, tuple[Any, ...]], list[dict[str, Any]]] | None = None
 
@@ -84,6 +105,13 @@ def user_row() -> dict[str, Any]:
         "max_travel_km": 15,
         "schedule": ["saturday"],
         "onboarding_complete": False,
+        "onboarding_state": "quiz_in_progress",
+        "banned": False,
+        "banned_reason": None,
+        "banned_at": None,
+        "last_seen_at": None,
+        "terms_version": None,
+        "terms_accepted_at": None,
         "created_at": now,
         "updated_at": now,
         "deleted_at": None,
@@ -108,10 +136,24 @@ def supabase_claims(user_row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@pytest.fixture
+def current_account(user_row: dict[str, Any]) -> CurrentAccount:
+    return CurrentAccount(
+        id=user_row["id"],
+        phone=user_row["phone"],
+        row=user_row,
+        session_id=uuid4(),
+        onboarding_state=user_row["onboarding_state"],
+        community_slug=None,
+        banned=user_row["banned"],
+    )
+
+
 @pytest_asyncio.fixture
 async def client(
     fake_pool: FakePool,
     current_user: CurrentUser,
+    current_account: CurrentAccount,
     supabase_claims: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[AsyncClient]:
@@ -120,6 +162,9 @@ async def client(
 
     async def _override_user() -> CurrentUser:
         return current_user
+
+    async def _override_account() -> CurrentAccount:
+        return current_account
 
     async def _override_claims() -> dict[str, Any]:
         return supabase_claims
@@ -137,6 +182,7 @@ async def client(
 
     fastapi_app.dependency_overrides[get_pool] = _override_pool
     fastapi_app.dependency_overrides[get_current_user] = _override_user
+    fastapi_app.dependency_overrides[get_current_account] = _override_account
     fastapi_app.dependency_overrides[get_supabase_claims] = _override_claims
 
     transport = ASGITransport(app=fastapi_app)

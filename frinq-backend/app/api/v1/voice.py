@@ -16,7 +16,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
-from app.api.deps import get_pool
+from app.api.deps import CurrentAccount, get_current_account, get_pool
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/voice", tags=["voice"])
@@ -31,6 +31,7 @@ async def upload_voice(
     question_key: str = Form(...),
     duration_sec: int = Form(0),
     audio: UploadFile = File(...),
+    account: CurrentAccount = Depends(get_current_account),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict:
     """Accept an audio blob from the voice recorder, upsert into voice_clips.
@@ -57,6 +58,13 @@ async def upload_voice(
 
     try:
         async with pool.acquire() as conn:
+            owned = await conn.fetchrow(
+                "SELECT id FROM quiz_submissions WHERE id = $1 AND user_id = $2",
+                sid, account.id,
+            )
+            if owned is None:
+                raise HTTPException(status_code=404, detail="submission not found")
+
             await conn.execute(
                 """INSERT INTO voice_clips (submission_id, question_key, audio_data, mime_type, duration_sec)
                    VALUES ($1, $2, $3, $4, $5)
@@ -67,6 +75,8 @@ async def upload_voice(
                          created_at = NOW()""",
                 sid, question_key, content, mime, max(0, min(duration_sec, 600)),
             )
+    except HTTPException:
+        raise
     except Exception as exc:
         # Surface the real reason rather than the generic 500 so we can
         # diagnose from the client side (FK violation, missing table,

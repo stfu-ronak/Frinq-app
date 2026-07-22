@@ -11,6 +11,7 @@ from app.api.v1 import otp as otp_routes
 from app.api.v1 import profile as profile_routes
 from app.api.v1 import questionnaire as questionnaire_routes
 from app.api.v1 import quiz as quiz_routes
+from app.api.v1 import sessions as sessions_routes
 from app.api.v1 import tracking as tracking_routes
 from app.api.v1 import users as users_routes
 from app.api.v1 import voice as voice_routes
@@ -34,6 +35,11 @@ async def lifespan(app: FastAPI):
             raise RuntimeError("ADMIN_ACTION_PASSWORD must be set in production")
         if not settings.CORS_ORIGINS:
             raise RuntimeError("CORS_ORIGINS must be set in production")
+        if (settings.REVIEW_PHONE or settings.REVIEW_OTP) and not settings.REVIEW_OTP_EXPIRES_AT:
+            raise RuntimeError(
+                "REVIEW_OTP_EXPIRES_AT must be set when REVIEW_PHONE/REVIEW_OTP "
+                "are configured in production"
+            )
     logger.info("app.startup", env=settings.APP_ENV)
     try:
         await init_pool()
@@ -92,6 +98,7 @@ app.include_router(users_routes.router, prefix=API_V1_PREFIX)
 app.include_router(questionnaire_routes.router, prefix=API_V1_PREFIX)
 app.include_router(profile_routes.router, prefix=API_V1_PREFIX)
 app.include_router(quiz_routes.router, prefix=API_V1_PREFIX)
+app.include_router(sessions_routes.router, prefix=API_V1_PREFIX)
 app.include_router(tracking_routes.router, prefix=API_V1_PREFIX)
 app.include_router(voice_routes.router, prefix=API_V1_PREFIX)
 app.include_router(whatsapp_routes.router, prefix=API_V1_PREFIX)
