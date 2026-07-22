@@ -7,7 +7,10 @@ from arq import create_pool
 from arq.connections import ArqRedis, RedisSettings
 
 from app.config import settings
+from app.database import close_pool, init_pool
 from app.utils.logger import logger
+from app.workers.tasks.build_profile import build_profile
+from app.workers.tasks.quiz_insights import generate_quiz_insights
 
 _pool: ArqRedis | None = None
 
@@ -43,9 +46,6 @@ async def close_queue() -> None:
 
 
 async def enqueue_build_profile(user_id: UUID) -> str | None:
-    """Placeholder enqueue — the worker function `build_profile` is added in a
-    later session. We only need the job to be persisted in Redis.
-    """
     queue = await get_queue()
     if queue is None:
         return None
@@ -53,3 +53,33 @@ async def enqueue_build_profile(user_id: UUID) -> str | None:
     if job is None:
         return None
     return str(job.job_id)
+
+
+async def enqueue_quiz_insights(submission_id: UUID) -> str | None:
+    """Returns None if Redis is unreachable — callers must treat that as
+    'job not queued' (503), same convention as enqueue_build_profile."""
+    queue = await get_queue()
+    if queue is None:
+        return None
+    job: Any = await queue.enqueue_job("generate_quiz_insights", str(submission_id))
+    if job is None:
+        return None
+    return str(job.job_id)
+
+
+async def _on_startup(ctx: dict[str, Any]) -> None:
+    await init_pool()
+
+
+async def _on_shutdown(ctx: dict[str, Any]) -> None:
+    await close_pool()
+
+
+class WorkerSettings:
+    functions = [build_profile, generate_quiz_insights]
+    redis_settings = _redis_settings()
+    on_startup = _on_startup
+    on_shutdown = _on_shutdown
+    max_jobs = 4
+    job_timeout = 300
+    max_tries = 3

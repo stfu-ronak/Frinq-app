@@ -53,7 +53,7 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    supabase_uid: UUID
+    supabase_uid: UUID | None = None
     phone: str | None = None
     display_name: str | None = None
     gender: Gender | None = None
@@ -62,6 +62,11 @@ class UserResponse(BaseModel):
     max_travel_km: int | None = None
     schedule: list[str] = Field(default_factory=list)
     onboarding_complete: bool = False
+    onboarding_state: str = "quiz_in_progress"
+    community_slug: str | None = None
+    banned: bool = False
+    terms_version: str | None = None
+    terms_accepted_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

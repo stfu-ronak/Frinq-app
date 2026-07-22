@@ -3,8 +3,7 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { getQuizState, setQuizState } from "@/app/lib/storage";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
+import { apiFetch } from "@/app/lib/api";
 
 function collectAnswers(): Record<string, unknown> {
   const safeJson = (key: string, fallback: unknown = []) => {
@@ -51,14 +50,12 @@ export default function QuizProgressTracker() {
     setQuizState("frinq_current_page", pathname);
 
     const submissionId = getQuizState("frinq_submission_id");
-    if (!submissionId || !API_URL) return;
+    if (!submissionId) return;
     const answers = collectAnswers();
     if (Object.keys(answers).length === 0) return;
 
-    console.log("[QuizProgressTracker] PATCH partial", pathname, answers);
-    fetch(`${API_URL}/api/v1/quiz/partial/${submissionId}`, {
+    apiFetch(`/api/v1/quiz/partial/${submissionId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ answers, last_page: pathname }),
     }).catch(() => {});
   }, [pathname]);

@@ -10,9 +10,14 @@ interface Props {
   style?: CSSProperties;
   replace?: boolean;
   onClick?: () => void;
+  "aria-current"?: "page";
+  "aria-label"?: string;
 }
 
-export default function NavLink({ href, children, className, style, replace, onClick }: Props) {
+export default function NavLink({
+  href, children, className, style, replace, onClick,
+  "aria-current": ariaCurrent, "aria-label": ariaLabel,
+}: Props) {
   const router = useRouter();
 
   function navigate(e: MouseEvent) {
@@ -27,7 +32,14 @@ export default function NavLink({ href, children, className, style, replace, onC
   }
 
   return (
-    <a href={href} onClick={navigate} className={className} style={style}>
+    <a
+      href={href}
+      onClick={navigate}
+      className={className}
+      style={style}
+      aria-current={ariaCurrent}
+      aria-label={ariaLabel}
+    >
       {children}
     </a>
   );

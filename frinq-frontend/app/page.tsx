@@ -7,20 +7,39 @@ import StaggerWords from "@/app/components/motion/StaggerWords";
 import Float from "@/app/components/motion/Float";
 import { getQuizState, clearQuizState, hardResetQuizState, syncDevFlagFromURL, isDevMode } from "@/app/lib/storage";
 import { getIdentity } from "@/app/lib/identity";
+import { restoreSession } from "@/app/lib/session";
+import { apiFetch } from "@/app/lib/api";
 
 const DEV_PHONE = process.env.NEXT_PUBLIC_DEV_PHONE ?? "";
 
-// Force-dynamic — Next 16 was prerendering this page at build time and the CDN
-// then served the stale HTML with s-maxage=31536000 (one year), so deploys
-// weren't reaching users. This route reads localStorage and routes on mount,
-// so it has no reason to be static anyway.
-export const dynamic = "force-dynamic";
+// force-dynamic is unsupported under output: "export" (static export) and
+// would fail the build — this page reads localStorage and routes on mount
+// entirely client-side, so it doesn't need it: the exported HTML is just a
+// static shell, all the actual routing logic runs after hydration.
 
 export default function SplashPage() {
   const router = useRouter();
   const [pressed, setPressed] = useState(false);
 
   useEffect(() => {
+    function navigate(path: string) {
+      if (document.startViewTransition) {
+        document.startViewTransition(() => router.replace(path));
+      } else {
+        router.replace(path);
+      }
+    }
+
+    function resumeLocalPageIfAny() {
+      // No authoritative session — fall back to the local last-visited-page
+      // heuristic (pre-account quiz progress, never for active/processing
+      // accounts, which are always routed from server state below).
+      const currentPage = getQuizState("frinq_current_page");
+      if (currentPage && currentPage !== "/" && currentPage !== "/vibe-box") {
+        navigate(currentPage);
+      }
+    }
+
     // Sync ?dev=1 / ?dev=0 from URL into localStorage flag FIRST so all
     // subsequent dev checks see the current value.
     syncDevFlagFromURL();
@@ -39,17 +58,36 @@ export default function SplashPage() {
       clearQuizState();
       return;
     }
-    // Auto-resume INCOMPLETE sessions only. Completed users land on splash
-    // and can tap through (the routing to /vibe-box happens on next OTP
-    // verify via prior_session.is_complete).
-    const currentPage = getQuizState("frinq_current_page");
-    if (currentPage && currentPage !== "/" && currentPage !== "/vibe-box") {
-      if (document.startViewTransition) {
-        document.startViewTransition(() => router.replace(currentPage));
-      } else {
-        router.replace(currentPage);
+
+    (async () => {
+      const { authenticated } = await restoreSession();
+      if (!authenticated) {
+        resumeLocalPageIfAny();
+        return;
       }
-    }
+
+      try {
+        const res = await apiFetch("/api/v1/users/me");
+        if (!res.ok) {
+          resumeLocalPageIfAny();
+          return;
+        }
+        const user = await res.json();
+        if (user.onboarding_state === "active") {
+          navigate("/community");
+        } else if (user.onboarding_state === "profile_processing") {
+          navigate("/vibe-box");
+        } else if (user.onboarding_state === "error") {
+          navigate("/vibe-box?state=error");
+        } else {
+          // quiz_in_progress — resume locally, same as an unauthenticated visitor.
+          resumeLocalPageIfAny();
+        }
+      } catch {
+        // Network failure reaching /users/me — stay on splash rather than
+        // guess; the user can still tap through manually.
+      }
+    })();
   }, [router]);
 
   function go() {

@@ -5,8 +5,7 @@ import { useRouter } from "next/navigation";
 import Header from "@/app/components/Header";
 import QuestionLabel from "@/app/components/QuestionLabel";
 import { getQuizState, setQuizState } from "@/app/lib/storage";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
+import { apiFetch } from "@/app/lib/api";
 
 type RecordState = "idle" | "recording" | "uploading" | "done" | "failed";
 
@@ -38,7 +37,6 @@ export default function StoryPage() {
     // the admin with the "[voice response]" placeholder and no audio row.
     const submissionId = getQuizState("frinq_submission_id");
     if (!submissionId) { setUploadError("no submission id — please retry"); return false; }
-    if (!API_URL) { setUploadError("api not configured"); return false; }
     if (blob.size === 0) { setUploadError("empty recording"); return false; }
     const fd = new FormData();
     fd.append("submission_id", submissionId);
@@ -46,7 +44,7 @@ export default function StoryPage() {
     fd.append("duration_sec", String(secondsRef.current));
     fd.append("audio", blob, "story.webm");
     try {
-      const res = await fetch(`${API_URL}/api/v1/voice`, { method: "POST", body: fd });
+      const res = await apiFetch("/api/v1/voice", { method: "POST", body: fd });
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         setUploadError(`upload failed (${res.status}) ${body.slice(0, 80)}`);

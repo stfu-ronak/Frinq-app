@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
-import { getIdentity } from "@/app/lib/identity";
+import { apiUrl } from "@/app/lib/session";
 
 declare global {
   interface Window {
@@ -20,8 +20,11 @@ function getSession(): string {
   return s;
 }
 
+// Straight to the backend — no local Node route, no PII. Never include
+// phone/name/dob/quiz content here; Clarity identification (opaque user id
+// only) happens once, at login, in verify/page.tsx — not here.
 function sendTrack(payload: Record<string, unknown>) {
-  fetch("/api/track", {
+  fetch(apiUrl("/api/v1/track"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -32,20 +35,16 @@ function sendTrack(payload: Record<string, unknown>) {
 export default function Tracker() {
   const pathname = usePathname();
   const lastPath = useRef<string | null>(null);
-  const clarityTagged = useRef(false);
 
   // Expose global click tracker
   useEffect(() => {
     window.frinqTrack = (label: string, metadata?: Record<string, unknown>) => {
       try {
-        const session = getSession();
-        const identity = getIdentity();
         sendTrack({
-          session,
+          session_id: getSession(),
           page: window.location.pathname,
           action: "click",
           element: label,
-          identity,
           data: metadata,
         });
       } catch {}
@@ -53,22 +52,12 @@ export default function Tracker() {
     return () => { window.frinqTrack = undefined; };
   }, []);
 
-  // Page view tracking + Clarity identity
+  // Page view tracking
   useEffect(() => {
     if (pathname === lastPath.current) return;
     lastPath.current = pathname;
     try {
-      const session = getSession();
-      const identity = getIdentity();
-
-      sendTrack({ session, page: pathname, action: "view", identity });
-
-      // Tag Clarity once per session when phone is known
-      if (!clarityTagged.current && identity.phone && window.clarity) {
-        window.clarity("set", "phone", identity.phone);
-        window.clarity("identify", identity.phone);
-        clarityTagged.current = true;
-      }
+      sendTrack({ session_id: getSession(), page: pathname, action: "view" });
     } catch {}
   }, [pathname]);
 

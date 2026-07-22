@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef, Fragment } from "react";
 
-// Admin must never serve stale data from CDN cache.
-export const dynamic = "force-dynamic";
+// force-dynamic removed for static export (Task 13) — unsupported under
+// output: "export". This page is "use client" and fetches its data
+// client-side regardless, so a static shell is fine.
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 

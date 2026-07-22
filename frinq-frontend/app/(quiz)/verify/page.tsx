@@ -3,11 +3,21 @@
 import Image from "next/image";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { Capacitor } from "@capacitor/core";
 import { getQuizState, setQuizState, isDevMode } from "@/app/lib/storage";
 import { setIdentityField } from "@/app/lib/identity";
+import { apiUrl, saveRefreshToken, setAccessToken } from "@/app/lib/session";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 const DEV_PHONE = process.env.NEXT_PUBLIC_DEV_PHONE ?? "";
+
+function platform(): "ios" | "android" | "web" {
+  const p = Capacitor.getPlatform();
+  return p === "ios" || p === "android" ? p : "web";
+}
+
+// last_page values that are part of the pre-OTP auth flow itself — routing
+// back to one of these would loop (verify → phone → verify → ...).
+const AUTH_PAGES = ["/", "/s0", "/name", "/phone", "/verify"];
 const RESEND_COOLDOWN = 30; // seconds
 
 /** Rotating loading copy + animated dots — replaces the static "verifying..."
@@ -73,7 +83,7 @@ const JSON_KEYS: Record<string, string> = {
   frinq_scene: "scene",
 };
 
-function restoreSession(answers: Record<string, unknown>) {
+function restoreQuizAnswers(answers: Record<string, unknown>) {
   for (const [lsKey, ansKey] of Object.entries(RESTORE_MAP)) {
     const v = answers[ansKey];
     if (v !== undefined && v !== null && v !== "") {
@@ -105,12 +115,6 @@ export default function VerifyPage() {
     return () => clearInterval(t);
   }, [resendCooldown]);
 
-  useEffect(() => {
-    if (typeof localStorage !== "undefined" && localStorage.getItem("frinq_phone_token")) {
-      router.replace("/social-verify");
-    }
-  }, [router]);
-
   const submit = useCallback(async (code: string) => {
     if (loading) return;
     setLoading(true);
@@ -123,10 +127,10 @@ export default function VerifyPage() {
     const verifyTimer = setTimeout(() => verifyController.abort(), 12000);
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/otp/verify`, {
+      const res = await fetch(apiUrl("/api/v1/otp/verify"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code }),
+        body: JSON.stringify({ phone, code, platform: platform() }),
         signal: verifyController.signal,
       });
       clearTimeout(verifyTimer);
@@ -153,68 +157,62 @@ export default function VerifyPage() {
         return;
       }
 
-      // OTP verified. Persist token + identity, then route per state.
-      localStorage.setItem("frinq_phone_token", data.token);
+      // OTP verified. Persist the rotating session, then route from the
+      // server-authoritative user.onboarding_state — never from a client
+      // heuristic. Identify analytics with the opaque backend user id only.
+      await saveRefreshToken(data.refresh_token);
+      setAccessToken(data.access_token);
       setIdentityField("phone", phone);
-      if (window.clarity) {
-        window.clarity("set", "phone", phone);
-        window.clarity("identify", phone);
+      if (window.clarity && data.user?.id) {
+        window.clarity("identify", data.user.id);
       }
 
-      // Routing rules (strict, in priority order):
-      //   1. Dev mode (URL flag or env match)  → always /social-verify fresh
-      //   2. prior_session.is_complete = true  → /vibe-box (their summary)
-      //   3. prior_session with answers + last_page → resume at last_page
-      //   4. prior_session with answers, no last_page → /social-verify
-      //   5. No prior_session at all → /social-verify (new user)
       const isDev = isDevMode() || (DEV_PHONE && phone === DEV_PHONE);
+      const ps = data.prior_session;
+      if (ps?.submission_id) setQuizState("frinq_submission_id", ps.submission_id);
+      if (ps?.answers && Object.keys(ps.answers).length > 0) restoreQuizAnswers(ps.answers);
+
+      // Routing (strict, in priority order):
+      //   1. Dev mode (URL flag or env match) → always /social-verify fresh
+      //   2. onboarding_state === "active"             → /community
+      //   3. onboarding_state === "profile_processing"  → /vibe-box
+      //   4. onboarding_state === "error"               → /vibe-box?state=error
+      //   5. onboarding_state === "quiz_in_progress"    → saved last_page or /social-verify
       let route = "/social-verify";
+      const onboardingState: string | undefined = data.user?.onboarding_state;
 
-      if (data.prior_session && !isDev) {
-        const ps = data.prior_session;
-        // Always persist the submission_id we got back so subsequent PATCH
-        // /quiz/partial calls update the right row.
-        if (ps.submission_id) setQuizState("frinq_submission_id", ps.submission_id);
+      if (isDev) {
+        route = "/social-verify";
+      } else if (onboardingState === "active") {
+        route = "/community";
+      } else if (onboardingState === "profile_processing") {
+        route = "/vibe-box";
+      } else if (onboardingState === "error") {
+        route = "/vibe-box?state=error";
+      } else {
+        // quiz_in_progress (or unknown/legacy) — resume at last_page unless
+        // that's one of the pre-OTP auth pages themselves (would loop).
+        const lp = ps?.last_page;
+        route = (lp && !AUTH_PAGES.includes(lp)) ? lp : "/social-verify";
 
-        if (ps.is_complete) {
-          // Completed: flag for vibe-box to skip the build flow + poll the
-          // existing summary directly.
-          setQuizState("frinq_resuming", "true");
-          if (ps.answers) restoreSession(ps.answers);
-          route = "/vibe-box";
-        } else if (ps.answers && Object.keys(ps.answers).length > 0) {
-          // Incomplete but has data — true resume. Sanitize last_page:
-          // pre-OTP routes (/, /s0, /name, /phone, /verify) are the auth
-          // flow itself; routing back there would create a verify → /phone
-          // → /verify → /phone loop. Fall through to /social-verify instead.
-          restoreSession(ps.answers);
-          const AUTH_PAGES = ["/", "/s0", "/name", "/phone", "/verify"];
-          const lp = ps.last_page;
-          route = (lp && !AUTH_PAGES.includes(lp)) ? lp : "/social-verify";
-        } else {
-          // prior_session exists but is empty (just an early /quiz/start
-          // row). Treat as new user.
-          route = "/social-verify";
+        if (!ps || Object.keys(ps.answers ?? {}).length === 0) {
+          // No usable prior session — create the partial tracking row in
+          // the background. Fire-and-forget with its own timeout so it
+          // can't block navigation.
+          const startController = new AbortController();
+          setTimeout(() => startController.abort(), 6000);
+          fetch(apiUrl("/api/v1/quiz/start"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phone }),
+            signal: startController.signal,
+            keepalive: true,
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => { if (d?.submission_id) setQuizState("frinq_submission_id", d.submission_id); })
+            .catch(() => { /* non-fatal */ });
         }
-      } else if (!isDev) {
-        // No prior session and not dev → create the partial row in the
-        // background. Fire-and-forget with its own timeout so it can't
-        // block navigation. Drop-off tracking recovers from the next page's
-        // /quiz/partial PATCH if /start fails.
-        const startController = new AbortController();
-        setTimeout(() => startController.abort(), 6000);
-        fetch(`${API_URL}/api/v1/quiz/start`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone }),
-          signal: startController.signal,
-          keepalive: true,
-        })
-          .then((r) => (r.ok ? r.json() : null))
-          .then((d) => { if (d?.submission_id) setQuizState("frinq_submission_id", d.submission_id); })
-          .catch(() => { /* non-fatal */ });
       }
-      // Dev branch: no /quiz/start call. Dev intentionally starts fresh.
 
       setLoading(false);
       if (document.startViewTransition) {
@@ -272,7 +270,7 @@ export default function VerifyPage() {
     setResending(true);
     setError("");
     try {
-      await fetch(`${API_URL}/api/v1/otp/send`, {
+      await fetch(apiUrl("/api/v1/otp/send"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone }),

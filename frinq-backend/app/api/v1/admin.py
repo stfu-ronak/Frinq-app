@@ -10,7 +10,7 @@ from typing import Any
 from uuid import UUID
 
 import asyncpg
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
@@ -18,11 +18,10 @@ import asyncio
 
 from app.api.deps import get_pool
 from app.config import settings
-from app.core.ai.insights import generate_insights
-from app.core.ai.openai_client import generate_deep_report
 from app.core.export.raw_responses import to_csv as raw_to_csv
 from app.core.export.raw_responses import to_xlsx as raw_to_xlsx
 from app.utils.logger import logger
+from app.workers.queue import enqueue_quiz_insights
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -261,10 +260,13 @@ async def export_submission_csv(
 @router.post("/submissions/{submission_id}/retry-ai", dependencies=[Depends(_require_admin)])
 async def retry_ai(
     submission_id: str,
-    background_tasks: BackgroundTasks,
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict[str, Any]:
-    """Re-trigger AI insights generation for a failed or errored submission."""
+    """Re-trigger AI insights generation for a failed or errored submission —
+    routed through the same durable worker + community-assignment pipeline
+    every other completion path uses (generate_quiz_insights), not a
+    separate ad-hoc regeneration. No FastAPI BackgroundTask: a crash between
+    the admin click and the AI call finishing must not silently lose the job."""
     try:
         uid = UUID(submission_id)
     except ValueError:
@@ -272,70 +274,41 @@ async def retry_ai(
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT answers, status FROM quiz_submissions WHERE id = $1", uid
+            "SELECT user_id, status FROM quiz_submissions WHERE id = $1", uid
         )
 
     if not row:
         raise HTTPException(status_code=404, detail="not found")
     if row["status"] == "processing":
         return {"ok": False, "msg": "already processing"}
+    if row["user_id"] is None:
+        raise HTTPException(
+            status_code=400,
+            detail="submission has no owning account — link it to a user before retrying",
+        )
+    user_id = row["user_id"]
 
-    answers_raw = row["answers"]
-    if isinstance(answers_raw, str):
-        try:
-            answers = json.loads(answers_raw)
-        except Exception:
-            answers = {}
-    else:
-        answers = dict(answers_raw) if answers_raw else {}
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE quiz_submissions SET status='processing', error_msg=NULL, updated_at=now() WHERE id=$1",
+            uid,
+        )
+        await conn.execute(
+            "UPDATE users SET onboarding_state='profile_processing', updated_at=now() WHERE id=$1",
+            user_id,
+        )
 
-    async def _run(sid: UUID, ans: dict, p: asyncpg.Pool) -> None:
-        async with p.acquire() as conn:
+    job_id = await enqueue_quiz_insights(uid)
+    if job_id is None:
+        async with pool.acquire() as conn:
             await conn.execute(
-                "UPDATE quiz_submissions SET status='processing', error_msg=NULL, updated_at=now() WHERE id=$1", sid
+                "UPDATE users SET onboarding_state='error', updated_at=now() WHERE id=$1",
+                user_id,
             )
-        try:
-            # Regenerate both halves, same as the original quiz.py flow —
-            # previously this only refreshed the hero-card fields and left
-            # share_card/deep_summary stale (or, for old submissions, in the
-            # pre-OpenAI schema the new "know more" panel can't render).
-            insights_task = asyncio.create_task(generate_insights(ans))
-            deep_report_task = asyncio.create_task(generate_deep_report(ans))
-            result, deep_report = await asyncio.gather(
-                insights_task, deep_report_task, return_exceptions=True
-            )
+        raise HTTPException(status_code=503, detail="queue unavailable, try again")
 
-            if isinstance(result, Exception):
-                raise result
-            deep_report_result = deep_report if not isinstance(deep_report, Exception) else None
-            if isinstance(deep_report, Exception):
-                logger.error("admin.retry_ai.deep_report_failed", submission_id=str(sid), error=str(deep_report))
-
-            async with p.acquire() as conn:
-                await conn.execute(
-                    """UPDATE quiz_submissions SET status='done', headline=$2, spirit_animal=$3,
-                       spirit_desc=$4, insights=$5::jsonb, tags=$6, share_card=$7::jsonb,
-                       deep_summary=$8::jsonb, completed_at=now(), updated_at=now()
-                       WHERE id=$1""",
-                    sid, result.get("headline"), result.get("spirit_animal"), result.get("spirit_desc"),
-                    json.dumps(result.get("insights", [])), result.get("tags", []),
-                    json.dumps(result.get("share_card") or {}),
-                    json.dumps(deep_report_result) if deep_report_result else None,
-                )
-        # Broad catch (matches quiz.py): generate_insights normally raises
-        # InsightsError, but a pre-loop failure (e.g. prompt building) can
-        # surface another type — without this the row would stay stuck in
-        # 'processing' instead of being marked 'error'.
-        except Exception as exc:
-            async with p.acquire() as conn:
-                await conn.execute(
-                    "UPDATE quiz_submissions SET status='error', error_msg=$2, updated_at=now() WHERE id=$1",
-                    sid, str(exc),
-                )
-
-    background_tasks.add_task(_run, uid, answers, pool)
-    logger.info("admin.retry_ai", submission_id=submission_id)
-    return {"ok": True, "msg": "AI reprocessing started"}
+    logger.info("admin.retry_ai", submission_id=submission_id, job_id=job_id)
+    return {"ok": True, "msg": "AI reprocessing queued", "job_id": job_id}
 
 
 @router.delete("/submissions/{submission_id}",

@@ -172,6 +172,9 @@ async def client(
     async def _fake_enqueue(user_id: UUID) -> str | None:
         return f"job-{user_id}"
 
+    async def _fake_enqueue_quiz_insights(submission_id: UUID) -> str | None:
+        return f"job-{submission_id}"
+
     monkeypatch.setattr(
         "app.api.v1.questionnaire.enqueue_build_profile", _fake_enqueue
     )
@@ -179,6 +182,9 @@ async def client(
         "app.api.v1.profile.enqueue_build_profile", _fake_enqueue
     )
     monkeypatch.setattr(queue_module, "enqueue_build_profile", _fake_enqueue)
+    monkeypatch.setattr(
+        "app.api.v1.quiz.enqueue_quiz_insights", _fake_enqueue_quiz_insights
+    )
 
     fastapi_app.dependency_overrides[get_pool] = _override_pool
     fastapi_app.dependency_overrides[get_current_user] = _override_user

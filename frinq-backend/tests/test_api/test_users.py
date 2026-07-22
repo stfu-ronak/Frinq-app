@@ -65,5 +65,7 @@ async def test_delete_me_soft_deletes(
     body = resp.json()
     assert body["id"] == str(user_row["id"])
 
-    last_query, _ = fake_pool.store.queries[-1]
-    assert "UPDATE users SET deleted_at" in last_query
+    queries = [q for q, _ in fake_pool.store.queries]
+    assert any("UPDATE users SET deleted_at" in q for q in queries)
+    # DELETE /users/me must also revoke every session for the account.
+    assert any("UPDATE user_sessions SET revoked_at" in q for q in queries)

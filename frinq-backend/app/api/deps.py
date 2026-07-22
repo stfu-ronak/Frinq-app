@@ -9,6 +9,7 @@ from fastapi import Depends, Header, HTTPException, status
 from jose import JWTError, jwt
 
 from app.config import settings
+from app.core.communities import get_user_community
 from app.core.session import decode_access_token
 from app.database import get_pool as _get_pool
 from app.utils.logger import logger
@@ -194,12 +195,14 @@ async def get_current_account(
                 detail="account not found",
             )
 
-    data = dict(user_row)
-    if data["banned"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="account banned",
-        )
+        data = dict(user_row)
+        if data["banned"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="account banned",
+            )
+
+        membership = await get_user_community(conn, data["id"])
 
     return CurrentAccount(
         id=data["id"],
@@ -207,6 +210,6 @@ async def get_current_account(
         row=data,
         session_id=claims.sid,
         onboarding_state=data["onboarding_state"],
-        community_slug=None,  # wired in Phase 2 once community_members exists
+        community_slug=membership.archetype_slug if membership is not None else None,
         banned=data["banned"],
     )

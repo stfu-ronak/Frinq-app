@@ -4,10 +4,10 @@ import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import NavLink from "@/app/components/NavLink";
 import { getQuizState, setQuizState } from "@/app/lib/storage";
+import { apiFetch } from "@/app/lib/api";
 
-// See app/page.tsx — Next 16 was prerendering with year-long s-maxage so live
-// deploys never reached users. Force-dynamic kills the CDN cache.
-export const dynamic = "force-dynamic";
+// force-dynamic removed for static export (Task 13) — unsupported under
+// output: "export" and would fail the build. See app/page.tsx.
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -858,7 +858,7 @@ export default function VibeBoxPage() {
         return;
       }
       try {
-        const r = await fetch(`${API_URL}/api/v1/quiz/summary/${submissionId}`);
+        const r = await apiFetch(`/api/v1/quiz/summary/${submissionId}`);
         if (!r.ok) return;
         const d = await r.json();
         if (d.status === "done" && d.insights?.length > 0) {
@@ -929,18 +929,16 @@ export default function VibeBoxPage() {
     const phone = answers.phone || null;
     try {
       let submissionId: string | null = getQuizState("frinq_submission_id");
-      if (submissionId && API_URL) {
-        const res = await fetch(`${API_URL}/api/v1/quiz/complete/${submissionId}`, {
+      if (submissionId) {
+        const res = await apiFetch(`/api/v1/quiz/complete/${submissionId}`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phone, answers, is_complete: true }),
         });
         if (!res.ok) submissionId = null;
       }
-      if (!submissionId && API_URL) {
-        const res = await fetch(`${API_URL}/api/v1/quiz/submit`, {
+      if (!submissionId) {
+        const res = await apiFetch("/api/v1/quiz/submit", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phone, answers, is_complete: true }),
         });
         if (res.ok) {
@@ -956,18 +954,28 @@ export default function VibeBoxPage() {
 
   // Auto-start the build flow on mount.
   //
-  // Returning completed-profile users (resuming=true) have a profile that
-  // already exists — they should NOT see the "frinq is thinking…" loader
-  // again. We do a single direct fetch (not polling) and go straight to
-  // the sealed envelope as soon as the data is in hand. The loader is
-  // only for the brand-new build flow where Claude is actually working.
+  // Resume signal is server-authoritative now: a submission id existing at
+  // all (from a prior /quiz/start, OTP-verify's prior_session, or a
+  // previous visit) means the backend already has a row — check its real
+  // status directly instead of trusting a separately-tracked local flag.
+  // Returning users with an existing profile should NOT see the "frinq is
+  // thinking…" loader again; a single direct fetch goes straight to the
+  // sealed envelope as soon as the data is in hand. The loader is only for
+  // the brand-new build flow where the AI is actually working.
   useEffect(() => {
+    // verify/page.tsx routes onboarding_state="error" here with ?state=error
+    // — the backend's durable AI job already failed, no need to fetch again.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("state") === "error") {
+      submittedRef.current = true;
+      queueMicrotask(() => setPhase("error"));
+      return;
+    }
+
     // Preview mode (previewId captured at first render, see above): jump
     // straight to an already-generated summary without filling the quiz.
-    const resuming = getQuizState("frinq_resuming") === "true" || !!previewId;
     const existingId = previewId || getQuizState("frinq_submission_id");
-    if (resuming && existingId && API_URL) {
-      localStorage.removeItem("frinq_resuming");
+    if (existingId) {
       submittedRef.current = true;  // never submit on resume
       // Skip the LoaderScreen entirely — go to a blank cream background
       // while the single fetch completes (~150-400ms typical), then jump
@@ -976,14 +984,16 @@ export default function VibeBoxPage() {
       // the effect body) for the same reason as the else-branch below;
       // still resolves within the same frame in practice.
       queueMicrotask(() => setPhase("sealed"));
-      fetch(`${API_URL}/api/v1/quiz/summary/${existingId}`)
+      apiFetch(`/api/v1/quiz/summary/${existingId}`)
         .then((r) => r.ok ? r.json() : null)
         .then((d) => {
           if (d && d.status === "done" && d.insights?.length > 0) {
             setSummary(d);
+          } else if (d && d.status === "error") {
+            setPhase("error");
           } else {
-            // Fall back to polling if the summary isn't ready yet — rare
-            // (would mean their "complete" flag is stale), but covers it.
+            // Not ready yet (still processing, or the fetch failed) — fall
+            // back to polling.
             setPhase("loading");
             pollForSummary(existingId);
           }

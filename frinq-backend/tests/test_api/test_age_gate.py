@@ -55,6 +55,8 @@ async def test_complete_accepts_18th_birthday_today(
     today = datetime.now(timezone.utc).date()
     exactly_18 = today.replace(year=today.year - 18)
 
+    fake_pool.store.fetchrow_handler = lambda query, args: {"status": "pending"}
+
     def _execute_handler(query: str, args: tuple[Any, ...]) -> str:
         return "UPDATE 1"
 
@@ -64,7 +66,7 @@ async def test_complete_accepts_18th_birthday_today(
         f"/api/v1/quiz/complete/{uuid4()}",
         json={"answers": {"dob": _fmt(exactly_18)}},
     )
-    assert response.status_code == 200, response.text
+    assert response.status_code == 202, response.text
 
 
 async def test_submit_rejects_under_18(

@@ -4,8 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Header from "@/app/components/Header";
 import { getQuizState, setQuizState, clearQuizState, isDevMode } from "@/app/lib/storage";
+import { apiUrl } from "@/app/lib/session";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 const DEV_PHONE = process.env.NEXT_PUBLIC_DEV_PHONE ?? "";
 
 export default function PhonePage() {
@@ -25,14 +25,15 @@ export default function PhonePage() {
     setLoading(true);
     setError("");
 
-    if (isDevMode() || (DEV_PHONE && digits === DEV_PHONE)) {
+    const previousPhone = getQuizState("frinq_phone");
+    if (isDevMode() || (DEV_PHONE && digits === DEV_PHONE) || (previousPhone && previousPhone !== digits)) {
       clearQuizState();
     }
 
     setQuizState("frinq_phone", digits);
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/otp/send`, {
+      const res = await fetch(apiUrl("/api/v1/otp/send"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: digits }),
@@ -58,18 +59,16 @@ export default function PhonePage() {
     // Create a quiz_submissions row NOW (before OTP verify) so users who
     // drop off between OTP-sent and OTP-entered still show up in admin.
     // Fire-and-forget; if it fails, /verify will retry.
-    if (API_URL) {
-      fetch(`${API_URL}/api/v1/quiz/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: digits }),
+    fetch(apiUrl("/api/v1/quiz/start"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: digits }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.submission_id) setQuizState("frinq_submission_id", d.submission_id);
       })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => {
-          if (d?.submission_id) setQuizState("frinq_submission_id", d.submission_id);
-        })
-        .catch(() => {});
-    }
+      .catch(() => {});
 
     setLoading(false);
     if (document.startViewTransition) {

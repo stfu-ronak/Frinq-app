@@ -8,6 +8,7 @@ POST /quiz/submit  — save answers + start async AI insights; owner-only (this
 PATCH /quiz/partial/{id}  — save progress; owner-only
 PATCH /quiz/complete/{id} — finalize + trigger AI insights; owner-only
 GET  /quiz/summary/{id}   — poll for status + results; owner-only
+POST /quiz/{id}/retry     — requeue an error submission; owner-only, max 3 attempts
 
 Ownership: once OTP verify links a submission to a user_id (app/api/v1/otp.py),
 every endpoint above except /start requires a session and filters mutations by
@@ -18,18 +19,14 @@ used to probe for another user's submission.
 
 from __future__ import annotations
 
-import asyncio
 import json
-from typing import Any
 from uuid import UUID
 
 import asyncpg
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import CurrentAccount, get_current_account, get_pool
 from app.core.age_gate import AgeGateError, validate_frinq_dob
-from app.core.ai.insights import generate_insights
-from app.core.ai.openai_client import generate_deep_report
 from app.schemas.quiz import (
     InsightItem,
     QuizStartRequest,
@@ -38,6 +35,7 @@ from app.schemas.quiz import (
     QuizSummaryResponse,
 )
 from app.utils.logger import logger
+from app.workers.queue import enqueue_quiz_insights
 
 router = APIRouter(prefix="/quiz", tags=["quiz"])
 
@@ -55,62 +53,32 @@ def _check_age_gate(answers: dict) -> None:
         raise HTTPException(status_code=422, detail={"code": exc.code}) from exc
 
 
-# ─── Background AI task ──────────────────────────────────────────────────────
+async def _enqueue_or_503(
+    pool: asyncpg.Pool, submission_id: UUID, user_id: UUID, *, reset_submission_to_error: bool = False,
+) -> str:
+    """Enqueues the durable insights job; on Redis being unreachable, resets
+    the user to 'error' (so the UI can offer retry) and raises 503 instead
+    of leaving the account stuck in 'profile_processing' forever.
 
-async def _run_insights(submission_id: UUID, answers: dict[str, Any], pool: asyncpg.Pool) -> None:
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE quiz_submissions SET status='processing', updated_at=now() WHERE id=$1",
-            submission_id,
-        )
-    try:
-        # Run the hero-card profile and the deep report concurrently. Both
-        # are OpenAI-backed by default (see settings.INSIGHTS_PROVIDER to
-        # switch the profile call back to Claude).
-        insights_task = asyncio.create_task(generate_insights(answers))
-        deep_summary_task = asyncio.create_task(generate_deep_report(answers))
-
-        result, deep_summary = await asyncio.gather(insights_task, deep_summary_task, return_exceptions=True)
-
-        if isinstance(result, Exception):
-            raise result
-
-        deep_summary_result = deep_summary if not isinstance(deep_summary, Exception) else None
-        if isinstance(deep_summary, Exception):
-            logger.error("quiz.deep_summary_failed", submission_id=str(submission_id), error=str(deep_summary))
-
+    reset_submission_to_error is for retry_quiz specifically: without it,
+    a failed enqueue leaves the submission at status='pending', which no
+    longer matches retry_quiz's own `WHERE status='error'` filter — the
+    caller would be locked out of ever retrying again even though the
+    attempt never actually queued."""
+    job_id = await enqueue_quiz_insights(submission_id)
+    if job_id is None:
         async with pool.acquire() as conn:
             await conn.execute(
-                """UPDATE quiz_submissions SET
-                    status       = 'done',
-                    headline     = $2,
-                    spirit_animal = $3,
-                    spirit_desc  = $4,
-                    insights     = $5::jsonb,
-                    tags         = $6,
-                    share_card   = $7::jsonb,
-                    deep_summary = $8::jsonb,
-                    completed_at = now(),
-                    updated_at   = now()
-                WHERE id = $1""",
-                submission_id,
-                result.get("headline"),
-                result.get("spirit_animal"),
-                result.get("spirit_desc"),
-                json.dumps(result.get("insights", [])),
-                result.get("tags", []),
-                json.dumps(result.get("share_card") or {}),
-                json.dumps(deep_summary_result) if deep_summary_result else None,
+                "UPDATE users SET onboarding_state = 'error', updated_at = now() WHERE id = $1",
+                user_id,
             )
-        logger.info("quiz.insights_done", submission_id=str(submission_id))
-    except Exception as exc:
-        logger.error("quiz.insights_failed", submission_id=str(submission_id), error=str(exc))
-        async with pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE quiz_submissions SET status='error', error_msg=$2, updated_at=now() WHERE id=$1",
-                submission_id,
-                str(exc),
-            )
+            if reset_submission_to_error:
+                await conn.execute(
+                    "UPDATE quiz_submissions SET status = 'error', updated_at = now() WHERE id = $1",
+                    submission_id,
+                )
+        raise HTTPException(status_code=503, detail="queue unavailable, try again")
+    return job_id
 
 
 # ─── Routes ──────────────────────────────────────────────────────────────────
@@ -118,13 +86,12 @@ async def _run_insights(submission_id: UUID, answers: dict[str, Any], pool: asyn
 @router.post("/submit", response_model=QuizSubmitResponse, status_code=status.HTTP_201_CREATED)
 async def submit_quiz(
     body: QuizSubmitRequest,
-    background_tasks: BackgroundTasks,
     account: CurrentAccount = Depends(get_current_account),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> QuizSubmitResponse:
     """Owner-only, same as complete_quiz — this is the vibe-box fallback path
     when a PATCH /quiz/complete/{id} attempt fails, so it needs the identical
-    auth/age-gate treatment or it becomes a bypass for both."""
+    auth/age-gate/durability treatment or it becomes a bypass for all three."""
     _check_age_gate(body.answers)
 
     async with pool.acquire() as conn:
@@ -140,11 +107,16 @@ async def submit_quiz(
     submission_id: UUID = row["id"]
     logger.info("quiz.submitted", submission_id=str(submission_id), is_complete=body.is_complete)
 
-    # Only generate insights for complete submissions
+    job_id = None
     if body.is_complete:
-        background_tasks.add_task(_run_insights, submission_id, body.answers, pool)
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET onboarding_state = 'profile_processing', updated_at = now() WHERE id = $1",
+                account.id,
+            )
+        job_id = await _enqueue_or_503(pool, submission_id, account.id)
 
-    return QuizSubmitResponse(submission_id=str(submission_id), status="pending")
+    return QuizSubmitResponse(submission_id=str(submission_id), status="pending", job_id=job_id)
 
 
 @router.get("/summary/{submission_id}", response_model=QuizSummaryResponse)
@@ -266,21 +238,36 @@ async def start_quiz(
     return {"submission_id": submission_id}
 
 
-@router.patch("/complete/{submission_id}", status_code=200)
+@router.patch("/complete/{submission_id}", status_code=202)
 async def complete_quiz(
     submission_id: str,
     body: QuizSubmitRequest,
-    background_tasks: BackgroundTasks,
     account: CurrentAccount = Depends(get_current_account),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict:
-    """Mark an existing partial submission as complete and trigger AI insights."""
+    """Mark an existing partial submission as complete and enqueue the
+    durable insights job — no FastAPI BackgroundTask, no in-process work
+    that a restart could silently drop."""
     try:
         uid = UUID(submission_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="invalid submission id")
 
     _check_age_gate(body.answers)
+
+    async with pool.acquire() as conn:
+        current = await conn.fetchrow(
+            "SELECT status FROM quiz_submissions WHERE id = $1 AND user_id = $2",
+            uid, account.id,
+        )
+    if current is None:
+        raise HTTPException(status_code=404, detail="submission not found")
+    if current["status"] in ("processing", "done"):
+        # Already durably in-flight or finished — resetting to 'pending' and
+        # re-enqueuing here would defeat generate_quiz_insights' own
+        # idempotency guard and risk desyncing an already-active user if the
+        # model returns a different archetype on a rerun. No-op instead.
+        return {"submission_id": submission_id, "status": current["status"], "job_id": None}
 
     async with pool.acquire() as conn:
         result = await conn.execute(
@@ -295,6 +282,56 @@ async def complete_quiz(
     if result == "UPDATE 0":
         raise HTTPException(status_code=404, detail="submission not found")
 
-    background_tasks.add_task(_run_insights, uid, body.answers, pool)
-    logger.info("quiz.completed", submission_id=submission_id)
-    return {"ok": True, "submission_id": submission_id, "status": "pending"}
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET onboarding_state = 'profile_processing', updated_at = now() WHERE id = $1",
+            account.id,
+        )
+
+    job_id = await _enqueue_or_503(pool, uid, account.id)
+    logger.info("quiz.completed", submission_id=submission_id, job_id=job_id)
+    return {"submission_id": submission_id, "status": "pending", "job_id": job_id}
+
+
+_MAX_RETRIES = 3
+
+
+@router.post("/{submission_id}/retry", status_code=202)
+async def retry_quiz(
+    submission_id: str,
+    account: CurrentAccount = Depends(get_current_account),
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> dict:
+    """Requeue a submission that failed durable processing. Only the owner
+    may retry, only while status='error' (an active/processing submission
+    can't be duplicated this way), and only up to 3 total attempts."""
+    try:
+        uid = UUID(submission_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid submission id")
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                "SELECT retry_count FROM quiz_submissions "
+                "WHERE id = $1 AND user_id = $2 AND status = 'error' FOR UPDATE",
+                uid, account.id,
+            )
+            if row is None:
+                raise HTTPException(status_code=404, detail="submission not found or not in error state")
+            if row["retry_count"] >= _MAX_RETRIES:
+                raise HTTPException(status_code=429, detail="retry limit reached")
+
+            await conn.execute(
+                "UPDATE quiz_submissions SET status='pending', error_msg=NULL, "
+                "retry_count = retry_count + 1, updated_at = now() WHERE id = $1",
+                uid,
+            )
+            await conn.execute(
+                "UPDATE users SET onboarding_state = 'profile_processing', updated_at = now() WHERE id = $1",
+                account.id,
+            )
+
+    job_id = await _enqueue_or_503(pool, uid, account.id, reset_submission_to_error=True)
+    logger.info("quiz.retried", submission_id=submission_id, job_id=job_id)
+    return {"submission_id": submission_id, "status": "pending", "job_id": job_id}

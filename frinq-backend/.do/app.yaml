@@ -5,9 +5,10 @@ jobs:
   - name: migrate
     kind: PRE_DEPLOY
     github:
-      repo: stfu-ronak/frinq-backend
+      repo: dhairya2003vashishtha/Frinq-app
       branch: main
       deploy_on_push: true
+      source_dir: frinq-backend
     build_command: pip install -r requirements.txt
     run_command: python scripts/predeploy.py
     instance_size_slug: apps-s-1vcpu-1gb
@@ -18,9 +19,10 @@ jobs:
 services:
   - name: api
     github:
-      repo: stfu-ronak/frinq-backend
+      repo: dhairya2003vashishtha/Frinq-app
       branch: main
       deploy_on_push: true
+      source_dir: frinq-backend
     build_command: pip install -r requirements.txt
     run_command: uvicorn app.main:app --host 0.0.0.0 --port 8080
     http_port: 8080
@@ -47,11 +49,15 @@ services:
         type: SECRET
       - key: ANTHROPIC_API_KEY
         type: SECRET
+      - key: OPENAI_API_KEY
+        type: SECRET
       - key: REDIS_URL
         type: SECRET
       - key: VOYAGE_API_KEY
         type: SECRET
       - key: SECRET_KEY
+        type: SECRET
+      - key: SESSION_HASH_PEPPER
         type: SECRET
       - key: LINKEDIN_CLIENT_ID
         type: SECRET
@@ -77,3 +83,34 @@ services:
         type: SECRET
       - key: TWILIO_WHATSAPP_FOLLOWUP_TEMPLATE_SID
         type: SECRET
+
+workers:
+  - name: worker
+    github:
+      repo: dhairya2003vashishtha/Frinq-app
+      branch: main
+      deploy_on_push: true
+      source_dir: frinq-backend
+    build_command: pip install -r requirements.txt
+    run_command: arq app.workers.queue.WorkerSettings
+    instance_size_slug: apps-s-1vcpu-1gb
+    instance_count: 1
+    envs:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        type: SECRET
+      - key: REDIS_URL
+        type: SECRET
+      - key: OPENAI_API_KEY
+        type: SECRET
+      - key: OPENAI_MODEL
+        value: gpt-5.5
+      - key: OPENAI_REASONING_EFFORT
+        value: medium
+      - key: ANTHROPIC_API_KEY
+        type: SECRET
+      - key: VOYAGE_API_KEY
+        type: SECRET
+      - key: INSIGHTS_PROVIDER
+        value: openai

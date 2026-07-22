@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getQuizState } from "@/app/lib/storage";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
+import { apiFetch } from "@/app/lib/api";
 
 interface Props {
   /** Called when the user finishes a recording AND it has been successfully
@@ -52,7 +51,7 @@ export default function VoiceRecorder({ onComplete, onStateChange, compact = fal
     // Fire-and-forget was masking real errors and dropping uploads on
     // mobile when the page navigated. Await it instead, surface the
     // real error, and let the parent gate "next" via onStateChange.
-    if (!questionKey || !API_URL) { setErrorMsg("not configured"); return false; }
+    if (!questionKey) { setErrorMsg("not configured"); return false; }
     const submissionId = getQuizState("frinq_submission_id");
     if (!submissionId) { setErrorMsg("no submission id"); return false; }
     if (blob.size === 0) { setErrorMsg("empty recording"); return false; }
@@ -62,7 +61,7 @@ export default function VoiceRecorder({ onComplete, onStateChange, compact = fal
     fd.append("duration_sec", String(secondsRef.current));
     fd.append("audio", blob, `${questionKey}.webm`);
     try {
-      const res = await fetch(`${API_URL}/api/v1/voice`, { method: "POST", body: fd });
+      const res = await apiFetch("/api/v1/voice", { method: "POST", body: fd });
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         setErrorMsg(`upload ${res.status}: ${body.slice(0, 60)}`);

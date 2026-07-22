@@ -15,6 +15,7 @@ class QuizSubmitRequest(BaseModel):
 class QuizSubmitResponse(BaseModel):
     submission_id: str
     status: str
+    job_id: str | None = None
 
 
 class InsightItem(BaseModel):
