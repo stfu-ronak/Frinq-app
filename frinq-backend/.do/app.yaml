@@ -1,0 +1,79 @@
+name: frinq-backend
+region: blr
+
+jobs:
+  - name: migrate
+    kind: PRE_DEPLOY
+    github:
+      repo: stfu-ronak/frinq-backend
+      branch: main
+      deploy_on_push: true
+    build_command: pip install -r requirements.txt
+    run_command: python scripts/predeploy.py
+    instance_size_slug: apps-s-1vcpu-1gb
+    envs:
+      - key: DATABASE_URL
+        type: SECRET
+
+services:
+  - name: api
+    github:
+      repo: stfu-ronak/frinq-backend
+      branch: main
+      deploy_on_push: true
+    build_command: pip install -r requirements.txt
+    run_command: uvicorn app.main:app --host 0.0.0.0 --port 8080
+    http_port: 8080
+    instance_size_slug: apps-s-1vcpu-1gb
+    instance_count: 1
+    health_check:
+      http_path: /health
+    envs:
+      - key: APP_ENV
+        value: production
+      - key: CORS_ORIGINS
+        value: "https://app.frinq.in,https://frinq-frontend-pk9a5.ondigitalocean.app"
+      - key: ADMIN_KEY
+        type: SECRET
+      - key: ADMIN_ACTION_PASSWORD
+        type: SECRET
+      - key: DATABASE_URL
+        type: SECRET
+      - key: SUPABASE_URL
+        type: SECRET
+      - key: SUPABASE_SERVICE_KEY
+        type: SECRET
+      - key: SUPABASE_JWT_SECRET
+        type: SECRET
+      - key: ANTHROPIC_API_KEY
+        type: SECRET
+      - key: REDIS_URL
+        type: SECRET
+      - key: VOYAGE_API_KEY
+        type: SECRET
+      - key: SECRET_KEY
+        type: SECRET
+      - key: LINKEDIN_CLIENT_ID
+        type: SECRET
+      - key: LINKEDIN_CLIENT_SECRET
+        type: SECRET
+      - key: LINKEDIN_REDIRECT_URI
+        type: SECRET
+      - key: DEV_PHONE
+        type: SECRET
+      - key: DUMMY_OTP
+        type: SECRET
+      - key: TWILIO_ACCOUNT_SID
+        type: SECRET
+      - key: TWILIO_AUTH_TOKEN
+        type: SECRET
+      - key: TWILIO_VERIFY_SERVICE_SID
+        type: SECRET
+      - key: OTP_CHANNEL
+        value: whatsapp
+      - key: TWILIO_WHATSAPP_FROM
+        type: SECRET
+      - key: TWILIO_WHATSAPP_TEMPLATE_SID
+        type: SECRET
+      - key: TWILIO_WHATSAPP_FOLLOWUP_TEMPLATE_SID
+        type: SECRET

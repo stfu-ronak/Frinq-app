@@ -1,0 +1,32 @@
+name: frinq-frontend
+region: blr
+
+services:
+  - name: web
+    github:
+      repo: stfu-ronak/frinq-frontend
+      branch: main
+      deploy_on_push: true
+    build_command: npm install --include=dev && npm run build
+    run_command: npm run start
+    environment_slug: node-js
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    http_port: 3000
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: ADMIN_KEY
+        type: SECRET
+      - key: NEXT_PUBLIC_API_URL
+        value: "https://frinq-backend-uqtbr.ondigitalocean.app"
+      - key: NEXT_PUBLIC_DEV_PHONE
+        type: SECRET
+      - key: NEXT_PUBLIC_TEST_PHONES
+        type: SECRET
+    routes:
+      - path: /
+
+domains:
+  - domain: app.frinq.in
+    type: PRIMARY
