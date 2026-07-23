@@ -1,0 +1,22 @@
+name: frinq-admin
+region: blr
+
+services:
+  - name: web
+    github:
+      repo: dhairya2003vashishtha/Frinq-app
+      branch: main
+      deploy_on_push: true
+      source_dir: frinq-admin
+    build_command: npm ci && npm run build
+    run_command: npm run start -- -p 8080
+    http_port: 8080
+    instance_size_slug: apps-s-1vcpu-1gb
+    instance_count: 1
+    envs:
+      - key: NEXT_PUBLIC_API_URL
+        value: "https://frinq-backend-uqtbr.ondigitalocean.app"
+
+domains:
+  - domain: admin.frinq.in
+    type: PRIMARY

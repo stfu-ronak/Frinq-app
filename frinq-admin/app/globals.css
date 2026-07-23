@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+/* ─── Design Tokens ─────────────────────────────────────────── */
+@theme {
+  --font-things: "Things", Georgia, "Times New Roman", serif;
+  --font-motive: "Motive", system-ui, sans-serif;
+
+  --color-cream: #F5F0E8;
+  --color-brown: #2A1810;
+  --color-tan: #8B7355;
+  --color-red: #7C1C0B;
+}
+
+/* ─── Things (Distrampler) display serif ─────────────────────── */
+@font-face {
+  font-family: "Things";
+  src: url("/fonts/Things-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ─── Motive sans ───────────────────────────────────────────── */
+@font-face {
+  font-family: "Motive";
+  src: url("/fonts/Motive-Light.woff2") format("woff2");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Motive";
+  src: url("/fonts/Motive-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Motive";
+  src: url("/fonts/Motive-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ─── Base ──────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { min-height: 100dvh; margin: 0; padding: 0; }
+
+body {
+  background-color: #F5F0E8;
+  color: #2A1810;
+  font-family: var(--font-motive), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Input ─────────────────────────────────────────────────── */
+.frinq-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(42, 24, 16, 0.25);
+  outline: none;
+  width: 100%;
+  font-family: var(--font-motive), system-ui, sans-serif;
+  font-size: 1rem;
+  font-weight: 300;
+  color: #2A1810;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  transition: border-color 200ms ease;
+}
+.frinq-input::placeholder { color: rgba(42, 24, 16, 0.35); }
+.frinq-input:focus { border-bottom-color: #7C1C0B; }

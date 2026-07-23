@@ -9,7 +9,10 @@ from httpx import AsyncClient
 from app.config import settings
 from tests.conftest import FakePool
 
-_ADMIN_HEADERS = {"Authorization": f"Bearer {settings.ADMIN_KEY}"}
+_ADMIN_HEADERS = {
+    "Authorization": f"Bearer {settings.ADMIN_KEY}",
+    "X-Action-Password": settings.ADMIN_ACTION_PASSWORD,
+}
 
 
 async def test_retry_ai_queues_durable_job_not_a_background_task(

@@ -1,4 +1,4 @@
-"""Admin endpoints — protected by ADMIN_KEY query param."""
+"""Admin endpoints — protected by Authorization: Bearer <ADMIN_KEY>."""
 
 from __future__ import annotations
 
@@ -35,21 +35,17 @@ from fastapi import Header
 
 def _require_admin(
     authorization: str | None = Header(default=None),
-    key: str | None = Query(default=None, alias="key"),
 ) -> None:
-    """Verify admin auth via either:
-      - Authorization: Bearer <key>   (preferred — header isn't logged)
-      - ?key=<key> query param        (legacy, deprecated, kept for transition)
+    """Verify admin auth via Authorization: Bearer <key>.
 
-    URL query auth is kept temporarily because <audio src=...> tags can't
-    send headers; the voice stream endpoint will keep working until the
-    frontend migrates to fetch-as-blob.
+    Header-only — the frinq-admin app (a real Next.js app, not an <audio
+    src=...> tag) can always set headers, so the legacy ?key= query-param
+    fallback is gone. Query auth would otherwise leak the key via browser
+    history, server access logs, and the Referer header.
     """
     provided = ""
     if authorization and authorization.lower().startswith("bearer "):
         provided = authorization[7:].strip()
-    elif key:
-        provided = key
     admin_key = settings.ADMIN_KEY
     if not admin_key or provided != admin_key:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid admin key")
@@ -57,14 +53,12 @@ def _require_admin(
 
 def _require_action_password(
     x_action_password: str | None = Header(default=None, alias="X-Action-Password"),
-    action_password: str | None = Query(default=None, alias="action_password"),
 ) -> None:
-    """Second-factor for destructive actions. Accepts X-Action-Password header
-    (preferred) or ?action_password= query (legacy)."""
+    """Second-factor for destructive actions — X-Action-Password header only."""
     expected = settings.ADMIN_ACTION_PASSWORD
-    provided = x_action_password or action_password or ""
+    provided = x_action_password or ""
     if not expected or provided != expected:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid action password")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid action password")
 
 
 # ─── Submissions ──────────────────────────────────────────────────────────────
@@ -257,7 +251,8 @@ async def export_submission_csv(
     )
 
 
-@router.post("/submissions/{submission_id}/retry-ai", dependencies=[Depends(_require_admin)])
+@router.post("/submissions/{submission_id}/retry-ai",
+             dependencies=[Depends(_require_admin), Depends(_require_action_password)])
 async def retry_ai(
     submission_id: str,
     pool: asyncpg.Pool = Depends(get_pool),
@@ -1083,28 +1078,15 @@ async def list_voice_clips(
     }
 
 
-@router.get("/voice/{submission_id}/{question_key}/stream")
+@router.get("/voice/{submission_id}/{question_key}/stream", dependencies=[Depends(_require_admin)])
 async def stream_voice_clip(
     submission_id: str,
     question_key: str,
-    authorization: str | None = Header(default=None),
-    key: str | None = Query(default=None, alias="key"),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
-    """Stream the audio bytes for one clip.
-
-    Accepts Authorization: Bearer <key> header (preferred — used when the
-    frontend fetches as blob and assigns via URL.createObjectURL) or the
-    legacy ?key= query (kept until frontend migrates fully, since <audio>
-    tags can't send headers when used naively).
-    """
-    provided = ""
-    if authorization and authorization.lower().startswith("bearer "):
-        provided = authorization[7:].strip()
-    elif key:
-        provided = key
-    if not settings.ADMIN_KEY or provided != settings.ADMIN_KEY:
-        raise HTTPException(status_code=401, detail="invalid admin key")
+    """Stream the audio bytes for one clip. The admin app fetches this as a
+    blob (Authorization: Bearer header) and assigns it via
+    URL.createObjectURL — no query-param key needed."""
     try:
         sid = UUID(submission_id)
     except ValueError:
@@ -1338,7 +1320,7 @@ class _ReplyIn(BaseModel):
     body: str
 
 
-@router.post("/whatsapp/reply", dependencies=[Depends(_require_admin)])
+@router.post("/whatsapp/reply", dependencies=[Depends(_require_admin), Depends(_require_action_password)])
 async def whatsapp_reply(payload: _ReplyIn) -> dict:
     """Send a free-form WhatsApp reply to one person. Works only inside the 24h
     window opened by their last inbound message (else Twilio 63016)."""

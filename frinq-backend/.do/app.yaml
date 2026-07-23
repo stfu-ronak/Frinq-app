@@ -34,7 +34,7 @@ services:
       - key: APP_ENV
         value: production
       - key: CORS_ORIGINS
-        value: "https://app.frinq.in,https://frinq-frontend-pk9a5.ondigitalocean.app"
+        value: "https://app.frinq.in,https://admin.frinq.in,https://localhost,capacitor://localhost"
       - key: ADMIN_KEY
         type: SECRET
       - key: ADMIN_ACTION_PASSWORD

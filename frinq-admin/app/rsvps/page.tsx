@@ -1,13 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-
-// force-dynamic removed for static export (Task 13) — unsupported under
-// output: "export". This page is "use client" and fetches its data
-// client-side regardless, so a static shell is fine.
+import { adminFetch, loadAdminKey, saveAdminKey, clearAdminKey } from "@/app/lib/adminFetch";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
-const KEY_STORE = "frinq_admin_key";
 
 type Responder = { phone: string; name: string; status: string; at: string | null };
 type Message = {
@@ -71,9 +67,7 @@ function fmtTime(iso: string | null): string {
 }
 
 export default function RsvpDashboard() {
-  const [adminKey, setAdminKey] = useState(() =>
-    typeof window !== "undefined" ? localStorage.getItem(KEY_STORE) ?? "" : ""
-  );
+  const [adminKey, setAdminKey] = useState(() => loadAdminKey());
   const [keyInput, setKeyInput] = useState("");
   const [data, setData] = useState<Inbox | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -92,17 +86,18 @@ export default function RsvpDashboard() {
   const [replyText, setReplyText] = useState("");
   const [sending, setSending] = useState(false);
   const [chatNote, setChatNote] = useState<string | null>(null);
+  // Cached for this tab's session once entered correctly — sendReply is
+  // now action-password-gated on the backend (Task 16 hardening).
+  const [actionPassword, setActionPassword] = useState("");
 
   const load = useCallback(async () => {
     if (!adminKey) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/api/v1/admin/whatsapp/inbox`, {
-        headers: { Authorization: `Bearer ${adminKey}` },
-        cache: "no-store",
-      });
-      if (res.status === 401) { setError("Invalid admin key."); setData(null); return; }
+      const res = await adminFetch(`${API_URL}/api/v1/admin/whatsapp/inbox`,
+        { cache: "no-store" }, { key: adminKey });
+      if (res.status === 401) { clearAdminKey(); setAdminKey(""); setData(null); return; }
       if (!res.ok) { setError(`Error ${res.status}`); return; }
       const json = (await res.json()) as Inbox & { error?: string | null };
       setData(json);
@@ -117,9 +112,8 @@ export default function RsvpDashboard() {
   const loadCampaign = useCallback(async () => {
     if (!adminKey) return;
     try {
-      const res = await fetch(`${API_URL}/api/v1/admin/whatsapp/campaign`, {
-        headers: { Authorization: `Bearer ${adminKey}` }, cache: "no-store",
-      });
+      const res = await adminFetch(`${API_URL}/api/v1/admin/whatsapp/campaign`,
+        { cache: "no-store" }, { key: adminKey });
       if (res.ok) setCampaign((await res.json()) as Campaign);
     } catch { /* keep last */ }
   }, [adminKey]);
@@ -154,9 +148,9 @@ export default function RsvpDashboard() {
     setThreadLoading(true);
     setChatNote(null);
     try {
-      const res = await fetch(
+      const res = await adminFetch(
         `${API_URL}/api/v1/admin/whatsapp/thread?phone=${encodeURIComponent(phone)}`,
-        { headers: { Authorization: `Bearer ${adminKey}` }, cache: "no-store" },
+        { cache: "no-store" }, { key: adminKey },
       );
       const j = await res.json();
       setThread(j.messages || []);
@@ -177,14 +171,25 @@ export default function RsvpDashboard() {
 
   async function sendReply() {
     if (!chatWith || !replyText.trim() || sending) return;
+    let pwd = actionPassword;
+    if (!pwd) {
+      pwd = window.prompt("Admin action password:") || "";
+      if (!pwd) return;
+    }
     setSending(true);
     setChatNote(null);
     try {
-      const res = await fetch(`${API_URL}/api/v1/admin/whatsapp/reply`, {
+      const res = await adminFetch(`${API_URL}/api/v1/admin/whatsapp/reply`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${adminKey}`, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: chatWith.phone, body: replyText.trim() }),
-      });
+      }, { key: adminKey, pwd });
+      if (res.status === 403) {
+        setActionPassword("");
+        setChatNote("Wrong action password — try sending again.");
+        return;
+      }
+      setActionPassword(pwd);
       const j = await res.json();
       if (j.ok) { setReplyText(""); await loadThread(chatWith.phone); }
       else setChatNote(`Send failed: ${j.error || res.status}. Free-form replies only work within 24h of their last message — otherwise they must message you first.`);
@@ -201,7 +206,7 @@ export default function RsvpDashboard() {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            localStorage.setItem(KEY_STORE, keyInput.trim());
+            saveAdminKey(keyInput.trim());
             setAdminKey(keyInput.trim());
           }}
           className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-stone-200 p-6 space-y-4"
@@ -250,7 +255,7 @@ export default function RsvpDashboard() {
               Refresh
             </button>
             <button
-              onClick={() => { localStorage.removeItem(KEY_STORE); setAdminKey(""); }}
+              onClick={() => { clearAdminKey(); setAdminKey(""); }}
               className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-500 hover:bg-stone-100"
             >
               Sign out

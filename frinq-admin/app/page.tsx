@@ -1,10 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, Fragment } from "react";
-
-// force-dynamic removed for static export (Task 13) — unsupported under
-// output: "export". This page is "use client" and fetches its data
-// client-side regardless, so a static shell is fine.
+import { adminFetch, loadAdminKey, saveAdminKey, clearAdminKey } from "@/app/lib/adminFetch";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -24,22 +21,6 @@ function isTestPhone(phone: string | null): boolean {
   if (!phone) return false;
   const last10 = phone.replace(/\D/g, "").slice(-10);
   return TEST_PHONES.includes(last10);
-}
-
-/** Authenticated fetch for admin endpoints. Sends the admin key as a
- *  Bearer token in the Authorization header and the action password (if
- *  provided) in X-Action-Password — neither value ever appears in the
- *  URL, so it can't leak via browser history, server access logs, the
- *  Referer header, or screenshots. */
-async function adminFetch(
-  url: string,
-  opts: RequestInit = {},
-  auth: { key: string; pwd?: string } = { key: "" },
-): Promise<Response> {
-  const headers = new Headers(opts.headers || {});
-  if (auth.key) headers.set("Authorization", `Bearer ${auth.key}`);
-  if (auth.pwd) headers.set("X-Action-Password", auth.pwd);
-  return fetch(url, { ...opts, headers });
 }
 
 /** Audio player for a voice clip. Fetches the audio bytes with the
@@ -485,9 +466,11 @@ function UserDetail({ s, adminKey, onRetry, onRequestPassword, onFlagsChanged }:
   }
 
   async function retry() {
+    const pwd = await onRequestPassword();
+    if (!pwd) return;
     setRetrying(true);
     try {
-      await adminFetch(`${API_URL}/api/v1/admin/submissions/${s.id}/retry-ai`, { method: "POST" }, { key: adminKey });
+      await adminFetch(`${API_URL}/api/v1/admin/submissions/${s.id}/retry-ai`, { method: "POST" }, { key: adminKey, pwd });
       onRetry(s.id);
     } catch { /* ignore */ }
     setTimeout(() => setRetrying(false), 3000);
@@ -941,13 +924,15 @@ function OverviewView({ analytics: a, submissions }: { analytics: Analytics; sub
   );
 }
 
-function UsersView({ submissions, adminKey, onRetry, onDelete, onBulkDelete, onRequestPassword, onFlagsChanged, mode = "users" }: {
+function UsersView({ submissions, adminKey, onRetry, onDelete, onBulkDelete, onRequestPassword, onWrongPassword, onFlagsChanged, mode = "users" }: {
   submissions: Submission[];
   adminKey: string;
   onRetry: (id: string) => void;
   onDelete: (id: string) => Promise<void>;
   onBulkDelete: (ids: string[]) => Promise<void>;
   onRequestPassword: () => Promise<string | null>;
+  /** Clears the cached action password so the next attempt re-prompts. */
+  onWrongPassword: () => void;
   onFlagsChanged: (id: string, patch: Partial<Submission>) => void;
   /** "users" = hide test rows. "testing" = ONLY show test rows. */
   mode?: "users" | "testing";
@@ -983,7 +968,8 @@ function UsersView({ submissions, adminKey, onRetry, onDelete, onBulkDelete, onR
         // Mark all successfully sent rows in local state.
         const sentIds = new Set((data.results || []).filter((r: { ok?: boolean; id: string }) => r.ok).map((r: { id: string }) => r.id));
         targets.forEach(s => { if (sentIds.has(s.id)) onFlagsChanged(s.id, { followup_sent_at: new Date().toISOString() }); });
-      } else if (res.status === 401) {
+      } else if (res.status === 403) {
+        onWrongPassword();
         setBulkSendResult("wrong password");
       } else {
         setBulkSendResult(`failed: ${data.detail || res.status}`);
@@ -1307,7 +1293,7 @@ function FunnelView({ analytics: a }: { analytics: Analytics }) {
 // ─── Main admin page ──────────────────────────────────────────────────────────
 
 export default function AdminPage() {
-  const [key, setKey] = useState("");
+  const [key, setKey] = useState(() => loadAdminKey());
   const [authed, setAuthed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -1339,7 +1325,11 @@ export default function AdminPage() {
     });
   }, [actionPassword]);
 
-  const fetchData = useCallback(async (k: string, silent = false) => {
+  // Returns true on success, false for a genuine bad key (401 — safe to
+  // evict a persisted key over this), or null for a transient failure
+  // (network blip, backend cold-start, etc. — a persisted key should
+  // survive this, not get evicted).
+  const fetchData = useCallback(async (k: string, silent = false): Promise<boolean | null> => {
     if (!silent) setRefreshing(true);
     try {
       const [aRes, sRes] = await Promise.all([
@@ -1347,7 +1337,7 @@ export default function AdminPage() {
         adminFetch(`${API_URL}/api/v1/admin/submissions?limit=500`, {}, { key: k }),
       ]);
       if (aRes.status === 401) { setError("invalid key"); return false; }
-      if (!aRes.ok || !sRes.ok) { setError("connection failed"); return false; }
+      if (!aRes.ok || !sRes.ok) { setError("connection failed"); return null; }
       const aData = await aRes.json();
       const sData = await sRes.json();
       setAnalytics(aData);
@@ -1356,7 +1346,7 @@ export default function AdminPage() {
       return true;
     } catch {
       if (!silent) setError("could not reach backend");
-      return false;
+      return null;
     } finally {
       setRefreshing(false);
     }
@@ -1368,9 +1358,35 @@ export default function AdminPage() {
     setLoading(true);
     setError("");
     const ok = await fetchData(key);
-    if (ok) { savedKey.current = key; setAdminKey(key); setAuthed(true); }
+    if (ok) { saveAdminKey(key); savedKey.current = key; setAdminKey(key); setAuthed(true); }
     setLoading(false);
   }
+
+  function signOut() {
+    clearAdminKey();
+    savedKey.current = "";
+    setAdminKey("");
+    setAuthed(false);
+    setKey("");
+  }
+
+  // Auto-login once from a sessionStorage-persisted key (survives reloads
+  // within the same tab, cleared on tab close — never localStorage). Runs
+  // once on mount; login() above handles the manual-entry path.
+  useEffect(() => {
+    const stored = loadAdminKey();
+    if (!stored) return;
+    (async () => {
+      setLoading(true);
+      const ok = await fetchData(stored);
+      if (ok) { savedKey.current = stored; setAdminKey(stored); setAuthed(true); }
+      else if (ok === false) clearAdminKey();
+      // ok === null (transient error) — leave the stored key alone, the
+      // login form just shows with it pre-filled for a manual retry.
+      setLoading(false);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (autoRef.current) clearInterval(autoRef.current);
@@ -1415,7 +1431,7 @@ export default function AdminPage() {
       { method: "DELETE" }, { key: savedKey.current, pwd });
     if (res.ok) {
       setSubmissions((prev) => prev.filter((s) => s.id !== id));
-    } else if (res.status === 401) {
+    } else if (res.status === 403) {
       // Wrong password — clear cache so the next attempt re-prompts.
       setActionPassword("");
       alert("wrong action password");
@@ -1431,7 +1447,7 @@ export default function AdminPage() {
       { key: savedKey.current, pwd });
     if (res.ok) {
       setSubmissions((prev) => prev.filter((s) => !ids.includes(s.id)));
-    } else if (res.status === 401) {
+    } else if (res.status === 403) {
       setActionPassword("");
       alert("wrong action password");
     }
@@ -1518,6 +1534,12 @@ export default function AdminPage() {
           >
             export CSV
           </button>
+          <button
+            onClick={signOut}
+            className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.1em] px-2.5 py-1 border border-[rgba(42,24,16,0.18)] text-[#8B7355] hover:text-[#2A1810] transition-colors"
+          >
+            sign out
+          </button>
         </div>
       </header>
 
@@ -1540,6 +1562,7 @@ export default function AdminPage() {
             onDelete={deleteSubmission}
             onBulkDelete={bulkDelete}
             onRequestPassword={requestPassword}
+            onWrongPassword={() => setActionPassword("")}
             onFlagsChanged={handleFlagsChanged}
           />
         )}
@@ -1549,6 +1572,7 @@ export default function AdminPage() {
             onDelete={deleteSubmission}
             onBulkDelete={bulkDelete}
             onRequestPassword={requestPassword}
+            onWrongPassword={() => setActionPassword("")}
             onFlagsChanged={handleFlagsChanged}
           />
         )}
