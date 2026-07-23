@@ -5,14 +5,15 @@ from __future__ import annotations
 import csv
 import io
 import json
+from datetime import datetime
 from time import time
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 import asyncio
 
@@ -20,6 +21,9 @@ from app.api.deps import get_pool
 from app.config import settings
 from app.core.export.raw_responses import to_csv as raw_to_csv
 from app.core.export.raw_responses import to_xlsx as raw_to_xlsx
+from app.core.realtime import publish_ban_event
+from app.core.redis_client import get_redis
+from app.core.session import revoke_all_sessions
 from app.utils.logger import logger
 from app.workers.queue import enqueue_quiz_insights
 
@@ -1491,3 +1495,309 @@ async def whatsapp_campaign(pool: asyncpg.Pool = Depends(get_pool)) -> dict:
     _campaign_cache = result
     _campaign_cache_ts = time()
     return result
+
+
+# ─── Moderation review queue (Phase 5 Task 20) ─────────────────────────────
+#
+# Every enforcement write below requires BOTH _require_admin AND
+# _require_action_password, and derives actor_id from settings.ADMIN_ACTOR_ID
+# — never from a request field, so an audit row can't be forged to point at
+# someone else. resolve/delete/suspend/ban all optionally accept a
+# report_id to also resolve the triggering report in the same transaction —
+# a moderator acting from the report queue shouldn't need two separate
+# clicks/requests for "handle this" + "mark it resolved".
+
+class ModerationActionRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+    report_id: str | None = None
+
+
+class SuspendUserRequest(ModerationActionRequest):
+    until: datetime
+
+    @field_validator("until")
+    @classmethod
+    def _until_must_be_future(cls, v: datetime) -> datetime:
+        now = datetime.now(v.tzinfo) if v.tzinfo else datetime.utcnow()
+        if v <= now:
+            raise ValueError("until must be in the future")
+        return v
+
+
+async def _record_moderation_action(
+    conn: asyncpg.Connection,
+    *,
+    report_id: UUID | None,
+    target_user_id: UUID | None,
+    message_id: int | None,
+    action: str,
+    reason: str,
+) -> None:
+    await conn.execute(
+        """INSERT INTO moderation_actions (id, report_id, target_user_id, message_id, actor_id, action, reason)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+        uuid4(), report_id, target_user_id, message_id, settings.ADMIN_ACTOR_ID, action, reason,
+    )
+
+
+async def _resolve_report_if_given(conn: asyncpg.Connection, report_id: str | None) -> None:
+    if report_id is None:
+        return
+    await conn.execute(
+        "UPDATE message_reports SET status = 'resolved', resolved_at = now() WHERE id = $1",
+        UUID(report_id),
+    )
+
+
+async def _publish_ban_event_best_effort(user_id: UUID, *, reason_for_log: str) -> None:
+    """Best-effort — the DB enforcement write already committed by the time
+    this runs; a Redis hiccup here must never fail the whole request, it
+    just means an already-connected session takes up to the next
+    reconnect/ticket cycle to be forced off instead of being disconnected
+    immediately."""
+    redis = await get_redis()
+    if redis is None:
+        logger.warning("admin.moderation.ban_event_skipped", user_id=str(user_id), reason=reason_for_log)
+        return
+    try:
+        await publish_ban_event(redis, user_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "admin.moderation.ban_event_publish_failed",
+            user_id=str(user_id), reason=reason_for_log, error=type(exc).__name__,
+        )
+
+
+@router.get("/reports", dependencies=[Depends(_require_admin)])
+async def list_reports(
+    pool: asyncpg.Pool = Depends(get_pool),
+    status_filter: str = Query(default="open", alias="status"),
+    reason: str | None = Query(default=None),
+    limit: int = Query(default=50, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
+    conditions = ["mr.status = $1"]
+    params: list[Any] = [status_filter]
+    if reason:
+        params.append(reason)
+        conditions.append(f"mr.reason = ${len(params)}")
+    where = "WHERE " + " AND ".join(conditions)
+    limit_p = len(params) + 1
+    offset_p = len(params) + 2
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""SELECT mr.id, mr.message_id, mr.reporter_user_id, mr.reason, mr.details,
+                       mr.status, mr.created_at, m.archetype_slug, m.user_id AS author_id
+                FROM message_reports mr
+                JOIN messages m ON m.id = mr.message_id
+                {where}
+                ORDER BY mr.created_at DESC
+                LIMIT ${limit_p} OFFSET ${offset_p}""",
+            *params, limit, offset,
+        )
+        total = await conn.fetchval(f"SELECT COUNT(*) FROM message_reports mr {where}", *params)
+
+    return {
+        "total": total,
+        "reports": [
+            {
+                "id": str(r["id"]),
+                "message_id": r["message_id"],
+                "reporter_user_id": str(r["reporter_user_id"]) if r["reporter_user_id"] else None,
+                "reason": r["reason"],
+                "details": r["details"],
+                "status": r["status"],
+                "created_at": r["created_at"].isoformat(),
+                "community_slug": r["archetype_slug"],
+                "author_id": str(r["author_id"]) if r["author_id"] else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/reports/{report_id}", dependencies=[Depends(_require_admin)])
+async def get_report_detail(report_id: str, pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any]:
+    try:
+        rid = UUID(report_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid id")
+
+    async with pool.acquire() as conn:
+        report = await conn.fetchrow(
+            """SELECT mr.id, mr.reason, mr.details, mr.status, mr.reporter_user_id,
+                      m.id AS message_id, m.body, m.created_at AS message_created_at,
+                      m.archetype_slug, m.user_id AS author_id
+               FROM message_reports mr
+               JOIN messages m ON m.id = mr.message_id
+               WHERE mr.id = $1""",
+            rid,
+        )
+        if report is None:
+            raise HTTPException(status_code=404, detail="report not found")
+
+        # Limited same-community context — a few nearby messages, never the
+        # full history, and never a different community's content.
+        context_rows = await conn.fetch(
+            """SELECT id, user_id, body, created_at FROM messages
+               WHERE archetype_slug = $1 AND deleted_at IS NULL
+               ORDER BY ABS(id - $2) ASC LIMIT 10""",
+            report["archetype_slug"], report["message_id"],
+        )
+
+        author = None
+        if report["author_id"] is not None:
+            author = await conn.fetchrow(
+                "SELECT id, display_name FROM users WHERE id = $1", report["author_id"]
+            )
+        prior_action_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM moderation_actions WHERE target_user_id = $1", report["author_id"]
+        )
+
+    return {
+        "id": str(report["id"]),
+        "reason": report["reason"],
+        "details": report["details"],
+        "status": report["status"],
+        "reporter_user_id": str(report["reporter_user_id"]) if report["reporter_user_id"] else None,
+        "message": {
+            "id": report["message_id"],
+            "body": report["body"],
+            "created_at": report["message_created_at"].isoformat(),
+            # Public account fields only — no phone number by default.
+            "author": {"id": str(author["id"]), "display_name": author["display_name"]} if author else None,
+        },
+        "context": [
+            {
+                "id": c["id"],
+                "user_id": str(c["user_id"]) if c["user_id"] else None,
+                "body": c["body"],
+                "created_at": c["created_at"].isoformat(),
+            }
+            for c in context_rows
+        ],
+        "prior_action_count": prior_action_count,
+    }
+
+
+@router.post("/reports/{report_id}/resolve",
+             dependencies=[Depends(_require_admin), Depends(_require_action_password)])
+async def resolve_report(
+    report_id: str, body: ModerationActionRequest, pool: asyncpg.Pool = Depends(get_pool)
+) -> dict[str, Any]:
+    try:
+        rid = UUID(report_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid id")
+
+    async with pool.acquire() as conn:
+        report = await conn.fetchrow(
+            "SELECT mr.message_id, m.user_id AS author_id FROM message_reports mr "
+            "JOIN messages m ON m.id = mr.message_id WHERE mr.id = $1",
+            rid,
+        )
+        if report is None:
+            raise HTTPException(status_code=404, detail="report not found")
+
+        async with conn.transaction():
+            await conn.execute(
+                "UPDATE message_reports SET status = 'resolved', resolved_at = now() WHERE id = $1", rid
+            )
+            await _record_moderation_action(
+                conn, report_id=rid, target_user_id=report["author_id"],
+                message_id=report["message_id"], action="resolve_no_action", reason=body.reason,
+            )
+
+    logger.info("admin.moderation.resolve", report_id=report_id)
+    return {"ok": True}
+
+
+@router.post("/messages/{message_id}/delete",
+             dependencies=[Depends(_require_admin), Depends(_require_action_password)])
+async def delete_message_moderation(
+    message_id: int, body: ModerationActionRequest, pool: asyncpg.Pool = Depends(get_pool)
+) -> dict[str, Any]:
+    async with pool.acquire() as conn:
+        msg = await conn.fetchrow(
+            "SELECT user_id FROM messages WHERE id = $1 AND deleted_at IS NULL", message_id
+        )
+        if msg is None:
+            raise HTTPException(status_code=404, detail="message not found")
+
+        report_uuid = UUID(body.report_id) if body.report_id else None
+        async with conn.transaction():
+            await conn.execute(
+                "UPDATE messages SET deleted_at = now(), deleted_by = $2 WHERE id = $1",
+                message_id, settings.ADMIN_ACTOR_ID,
+            )
+            await _record_moderation_action(
+                conn, report_id=report_uuid, target_user_id=msg["user_id"],
+                message_id=message_id, action="delete_message", reason=body.reason,
+            )
+            await _resolve_report_if_given(conn, body.report_id)
+
+    logger.info("admin.moderation.delete_message", message_id=message_id)
+    return {"ok": True}
+
+
+@router.post("/users/{user_id}/suspend",
+             dependencies=[Depends(_require_admin), Depends(_require_action_password)])
+async def suspend_user(
+    user_id: str, body: SuspendUserRequest, pool: asyncpg.Pool = Depends(get_pool)
+) -> dict[str, Any]:
+    try:
+        uid = UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid id")
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            result = await conn.execute(
+                "UPDATE users SET suspended_until = $2, updated_at = now() "
+                "WHERE id = $1 AND deleted_at IS NULL",
+                uid, body.until,
+            )
+            if result == "UPDATE 0":
+                raise HTTPException(status_code=404, detail="user not found")
+            await revoke_all_sessions(conn, uid)
+            await _record_moderation_action(
+                conn, report_id=UUID(body.report_id) if body.report_id else None,
+                target_user_id=uid, message_id=None, action="suspend_user", reason=body.reason,
+            )
+            await _resolve_report_if_given(conn, body.report_id)
+
+    await _publish_ban_event_best_effort(uid, reason_for_log="suspend")
+    logger.info("admin.moderation.suspend", user_id=user_id, until=body.until.isoformat())
+    return {"ok": True}
+
+
+@router.post("/users/{user_id}/ban",
+             dependencies=[Depends(_require_admin), Depends(_require_action_password)])
+async def ban_user_moderation(
+    user_id: str, body: ModerationActionRequest, pool: asyncpg.Pool = Depends(get_pool)
+) -> dict[str, Any]:
+    try:
+        uid = UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid id")
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            result = await conn.execute(
+                "UPDATE users SET banned = TRUE, banned_reason = $2, banned_at = now(), updated_at = now() "
+                "WHERE id = $1 AND deleted_at IS NULL",
+                uid, body.reason,
+            )
+            if result == "UPDATE 0":
+                raise HTTPException(status_code=404, detail="user not found")
+            await revoke_all_sessions(conn, uid)
+            await _record_moderation_action(
+                conn, report_id=UUID(body.report_id) if body.report_id else None,
+                target_user_id=uid, message_id=None, action="ban_user", reason=body.reason,
+            )
+            await _resolve_report_if_given(conn, body.report_id)
+
+    await _publish_ban_event_best_effort(uid, reason_for_log="ban")
+    logger.info("admin.moderation.ban", user_id=user_id)
+    return {"ok": True}

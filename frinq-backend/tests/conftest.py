@@ -62,6 +62,12 @@ class FakeConnection:
             return self.store.execute_handler(query, args)
         return "OK"
 
+    async def fetchval(self, query: str, *args: Any) -> Any:
+        self.store.queries.append((query, args))
+        if self.store.fetchval_handler is not None:
+            return self.store.fetchval_handler(query, args)
+        return None
+
     def transaction(self) -> _NoopTransaction:
         return _NoopTransaction()
 
@@ -73,6 +79,7 @@ class FakePoolStore:
         self.execute_handler: Callable[[str, tuple[Any, ...]], str] | None = None
         self.fetchrow_handler: Callable[[str, tuple[Any, ...]], dict[str, Any] | None] | None = None
         self.fetch_handler: Callable[[str, tuple[Any, ...]], list[dict[str, Any]]] | None = None
+        self.fetchval_handler: Callable[[str, tuple[Any, ...]], Any] | None = None
 
 
 class FakePool:
@@ -84,11 +91,130 @@ class FakePool:
         yield FakeConnection(self.store)
 
 
+# ─── Fake clock + fake Redis ────────────────────────────────────────────
+
+class FakeClock:
+    """Controllable monotonic-style clock for TTL/window tests — no real
+    sleeping needed."""
+
+    def __init__(self, start: float = 1_000_000.0) -> None:
+        self.t = start
+
+    def __call__(self) -> float:
+        return self.t
+
+    def advance(self, seconds: float) -> None:
+        self.t += seconds
+
+
+class FakeRedis:
+    """Minimal in-memory redis.asyncio.Redis double — real dict-backed
+    values + expiry so TTL-dependent logic (rate limits, WS tickets) is
+    testable without a live Redis server. `eval()` only understands
+    app/core/rate_limit.py's own increment-and-expire-if-new script — this
+    isn't a Lua interpreter, and that's the only script this codebase runs.
+    """
+
+    def __init__(self, clock: Any = None) -> None:
+        self._data: dict[str, Any] = {}
+        self._expires_at: dict[str, float] = {}
+        self._now = clock or (lambda: 0.0)
+        self.calls: list[tuple[str, tuple[Any, ...]]] = []
+        # Flip True to simulate Redis being unreachable — every method raises.
+        self.unavailable = False
+
+    def _check_available(self) -> None:
+        if self.unavailable:
+            raise ConnectionError("fake redis unavailable")
+
+    def _expire_if_due(self, key: str) -> None:
+        exp = self._expires_at.get(key)
+        if exp is not None and self._now() >= exp:
+            self._data.pop(key, None)
+            self._expires_at.pop(key, None)
+
+    async def get(self, key: str) -> Any:
+        self._check_available()
+        self.calls.append(("get", (key,)))
+        self._expire_if_due(key)
+        return self._data.get(key)
+
+    async def set(self, key: str, value: Any, ex: int | None = None) -> bool:
+        self._check_available()
+        self.calls.append(("set", (key, value, ex)))
+        self._data[key] = value
+        if ex is not None:
+            self._expires_at[key] = self._now() + ex
+        return True
+
+    async def getdel(self, key: str) -> Any:
+        self._check_available()
+        self.calls.append(("getdel", (key,)))
+        self._expire_if_due(key)
+        val = self._data.pop(key, None)
+        self._expires_at.pop(key, None)
+        return val
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        self._check_available()
+        self.calls.append(("expire", (key, seconds)))
+        if key in self._data:
+            self._expires_at[key] = self._now() + seconds
+            return True
+        return False
+
+    async def ttl(self, key: str) -> int:
+        self._check_available()
+        self.calls.append(("ttl", (key,)))
+        self._expire_if_due(key)
+        if key not in self._data:
+            return -2
+        exp = self._expires_at.get(key)
+        if exp is None:
+            return -1
+        return max(0, int(exp - self._now()))
+
+    async def incr(self, key: str) -> int:
+        self._check_available()
+        self.calls.append(("incr", (key,)))
+        self._expire_if_due(key)
+        current = int(self._data.get(key, 0)) + 1
+        self._data[key] = current
+        return current
+
+    async def publish(self, channel: str, message: str) -> int:
+        self._check_available()
+        self.calls.append(("publish", (channel, message)))
+        return 0
+
+    async def eval(self, script: str, numkeys: int, *keys_and_args: Any) -> Any:
+        self._check_available()
+        self.calls.append(("eval", (script, numkeys, *keys_and_args)))
+        key = keys_and_args[0]
+        window_seconds = int(keys_and_args[numkeys])
+        self._expire_if_due(key)
+        current = int(self._data.get(key, 0)) + 1
+        self._data[key] = current
+        if current == 1:
+            self._expires_at[key] = self._now() + window_seconds
+        return current
+
+
 # ─── Fixtures ─────────────────────────────────────────────────────────
 
 @pytest.fixture
 def fake_pool() -> FakePool:
     return FakePool()
+
+
+@pytest.fixture
+def fake_clock() -> FakeClock:
+    return FakeClock()
+
+
+@pytest.fixture
+def fake_redis(fake_clock: FakeClock) -> FakeRedis:
+    return FakeRedis(clock=fake_clock)
 
 
 @pytest.fixture

@@ -22,7 +22,10 @@ class CurrentAccount:
     endpoints not yet migrated) — every new endpoint depends on this instead.
     """
 
-    __slots__ = ("id", "phone", "row", "session_id", "onboarding_state", "community_slug", "banned")
+    __slots__ = (
+        "id", "phone", "row", "session_id", "onboarding_state", "community_slug",
+        "banned", "suspended_until",
+    )
 
     def __init__(
         self,
@@ -33,6 +36,7 @@ class CurrentAccount:
         onboarding_state: str,
         community_slug: str | None,
         banned: bool,
+        suspended_until: datetime | None = None,
     ) -> None:
         self.id = id
         self.phone = phone
@@ -41,6 +45,7 @@ class CurrentAccount:
         self.onboarding_state = onboarding_state
         self.community_slug = community_slug
         self.banned = banned
+        self.suspended_until = suspended_until
 
 
 class CurrentUser:
@@ -199,8 +204,18 @@ async def get_current_account(
         if data["banned"]:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="account banned",
+                detail={"code": "account_banned"},
             )
+
+        suspended_until = data.get("suspended_until")
+        if suspended_until is not None:
+            if suspended_until.tzinfo is None:
+                suspended_until = suspended_until.replace(tzinfo=timezone.utc)
+            if suspended_until > datetime.now(tz=timezone.utc):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={"code": "account_suspended", "suspended_until": suspended_until.isoformat()},
+                )
 
         membership = await get_user_community(conn, data["id"])
 
@@ -212,4 +227,5 @@ async def get_current_account(
         onboarding_state=data["onboarding_state"],
         community_slug=membership.archetype_slug if membership is not None else None,
         banned=data["banned"],
+        suspended_until=data.get("suspended_until"),
     )

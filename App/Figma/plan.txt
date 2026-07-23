@@ -25,10 +25,10 @@ packages/tsconfig	Base tsconfig.json extended by all apps
 packages/ui	Tailwind config, shared tokens (colors, fonts), React components
 1.3 Design Tokens (shared)
 Colors:
-  maroon: #5C1A1A
-  cream: #FFF5EE
+  maroon: #621507
+  cream: #FFFBF7
   peach: #FFE8D6
-  brown: #8B4513
+  brown: #3C2110
 
 Fonts:
   heading: 'Caveat' (cursive)

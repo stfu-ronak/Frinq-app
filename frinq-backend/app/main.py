@@ -7,16 +7,20 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import admin as admin_routes
 from app.api.v1 import auth as auth_routes
+from app.api.v1 import communities as communities_routes
+from app.api.v1 import moderation as moderation_routes
 from app.api.v1 import otp as otp_routes
 from app.api.v1 import profile as profile_routes
 from app.api.v1 import questionnaire as questionnaire_routes
 from app.api.v1 import quiz as quiz_routes
+from app.api.v1 import realtime as realtime_routes
 from app.api.v1 import sessions as sessions_routes
 from app.api.v1 import tracking as tracking_routes
 from app.api.v1 import users as users_routes
 from app.api.v1 import voice as voice_routes
 from app.api.v1 import whatsapp as whatsapp_routes
 from app.config import settings
+from app.core.redis_client import close_redis
 from app.database import close_pool, init_pool
 from app.utils.logger import logger
 from app.workers.queue import close_queue
@@ -48,6 +52,8 @@ async def lifespan(app: FastAPI):
     yield
     await close_pool()
     await close_queue()
+    await realtime_routes.shutdown_realtime()
+    await close_redis()
     logger.info("app.shutdown")
 
 
@@ -93,11 +99,14 @@ app.add_middleware(
 )
 
 app.include_router(auth_routes.router, prefix=API_V1_PREFIX)
+app.include_router(communities_routes.router, prefix=API_V1_PREFIX)
+app.include_router(moderation_routes.router, prefix=API_V1_PREFIX)
 app.include_router(otp_routes.router, prefix=API_V1_PREFIX)
 app.include_router(users_routes.router, prefix=API_V1_PREFIX)
 app.include_router(questionnaire_routes.router, prefix=API_V1_PREFIX)
 app.include_router(profile_routes.router, prefix=API_V1_PREFIX)
 app.include_router(quiz_routes.router, prefix=API_V1_PREFIX)
+app.include_router(realtime_routes.router, prefix=API_V1_PREFIX)
 app.include_router(sessions_routes.router, prefix=API_V1_PREFIX)
 app.include_router(tracking_routes.router, prefix=API_V1_PREFIX)
 app.include_router(voice_routes.router, prefix=API_V1_PREFIX)

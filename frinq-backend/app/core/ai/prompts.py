@@ -659,7 +659,7 @@ JSON SCHEMA — return EXACTLY this shape, all fields required
 
 Return only the JSON object. No prose before or after.
 """
-
+ 
 
 # ─── §2.3 SUMMARY_SYSTEM (Sonnet 4.6) ────────────────────────────────
 

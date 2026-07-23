@@ -109,6 +109,14 @@ class Settings(BaseSettings):
     # accepting the well-known historical password.
     ADMIN_ACTION_PASSWORD: str = Field(default="")
 
+    # Attributable identity for moderation_actions.actor_id — server
+    # config only, NEVER accepted from a request field, so an audit row
+    # can't be forged to point at someone else. If multiple moderators
+    # ever share this deployment, issue each one a separately configured
+    # instance/credential rather than trying to multiplex actor identity
+    # through a single shared ADMIN_KEY.
+    ADMIN_ACTOR_ID: str = Field(default="admin")
+
     # CORS — comma-separated allowed origins. Empty default = deny all so
     # a missing/dropped env var doesn't silently open CORS to everyone.
     CORS_ORIGINS: str = Field(default="")
@@ -121,6 +129,16 @@ class Settings(BaseSettings):
     # storage (never the JWT signing key, so rotating one doesn't invalidate
     # the other). Deliberately separate from SECRET_KEY.
     SESSION_HASH_PEPPER: str = Field(default="dev-pepper-change-me")
+
+    # Rate limiting — phone/IP hashes use this pepper before becoming Redis
+    # key material (never SECRET_KEY/SESSION_HASH_PEPPER, same "separate
+    # pepper per purpose" reasoning).
+    RATE_LIMIT_PEPPER: str = Field(default="dev-rate-limit-pepper-change-me")
+
+    # Chat moderation — comma-separated substrings, case-insensitive. Empty
+    # by default (beta ships with only the deterministic structural checks
+    # in app/core/moderation.py; this list is an ops-configurable add-on).
+    MODERATION_BLOCKED_TERMS: str = Field(default="")
 
 
 @lru_cache

@@ -8,6 +8,7 @@ POST /api/v1/otp/verify  — check code, create/resume the account, return
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 import asyncpg
@@ -188,8 +189,18 @@ async def verify_otp_route(
             if data["banned"]:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="account banned",
+                    detail={"code": "account_banned"},
                 )
+
+            suspended_until = data.get("suspended_until")
+            if suspended_until is not None:
+                if suspended_until.tzinfo is None:
+                    suspended_until = suspended_until.replace(tzinfo=timezone.utc)
+                if suspended_until > datetime.now(tz=timezone.utc):
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail={"code": "account_suspended", "suspended_until": suspended_until.isoformat()},
+                    )
 
             # Link legacy phone-only submissions (pre-dates user_id) to this
             # account. Submissions already linked to a different user are
