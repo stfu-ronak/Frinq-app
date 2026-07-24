@@ -102,11 +102,12 @@ async def test_existing_legacy_database_is_baselined_once() -> None:
     pool = FakeMigrationPool(state)
     executed_names = await run_migrations(pool)
     recorded_versions = sorted(state.schema_migrations.keys())
-    assert recorded_versions == list(range(1, 15))
+    assert recorded_versions == list(range(1, 16))
     assert executed_names == [
         "010_legacy_schema_baseline.sql",
         "011_accounts_and_sessions.sql",
         "012_communities_and_chat.sql",
         "013_quiz_retry_count.sql",
         "014_admin_moderation.sql",
+        "015_legal_and_deletion.sql",
     ]

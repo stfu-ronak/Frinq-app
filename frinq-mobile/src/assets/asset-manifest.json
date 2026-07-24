@@ -1,0 +1,32 @@
+{
+  "$comment": "Provenance + integrity manifest for bundled licensed assets. verify-assets.mjs checks each file exists and its sha256 matches. Do NOT commit purchase receipts, order details, or license keys here.",
+  "generated": "2026-07-23",
+  "fonts": [
+    {
+      "file": "src/assets/fonts/Borel-Regular.ttf",
+      "family": "Borel",
+      "use": "display/editorial headings",
+      "license": "SIL Open Font License 1.1",
+      "licenseNotice": "THIRD_PARTY_NOTICES.md",
+      "source": "frinq-frontend/public/fonts/Borel (OFL.txt included upstream)",
+      "sha256": "166505f1750e17d202bb876bd78da80c2db33846cf1d538c2f8b5f9c251a1543"
+    },
+    { "file": "src/assets/fonts/VastagoGrotesk-Thin.otf", "family": "VastagoGrotesk-Thin", "sha256": "272f133b6f1703b23ad355d310f77cc12cd5d84e236368e589b48676cb0f1c14" },
+    { "file": "src/assets/fonts/VastagoGrotesk-ExtraLight.otf", "family": "VastagoGrotesk-ExtraLight", "sha256": "3b789ab016a1e5f30b75245dfc63d8eefdd6553c27e5207187bb25c8387be0a2" },
+    { "file": "src/assets/fonts/VastagoGrotesk-Light.otf", "family": "VastagoGrotesk-Light", "sha256": "7ebf43033c53ef4b0698524ba3af26b57eb62059e97b441a44c483ae056786e3" },
+    { "file": "src/assets/fonts/VastagoGrotesk-Regular.otf", "family": "VastagoGrotesk-Regular", "sha256": "0dd054d878a34eec399e14cebad967f990f9965020df896d9fa8b8dfeaa58dd0" },
+    { "file": "src/assets/fonts/VastagoGrotesk-Medium.otf", "family": "VastagoGrotesk-Medium", "sha256": "ecee1347f9ea1f2b6c079e2ea491fbe2ace80119d3b0bfda201c81db079c953d" },
+    { "file": "src/assets/fonts/VastagoGrotesk-SemiBold.otf", "family": "VastagoGrotesk-SemiBold", "sha256": "92dac71f6cd85e8d62e69308459085ae27c7281f01ddae4b75fdbc19c4fec6f0" },
+    { "file": "src/assets/fonts/VastagoGrotesk-Bold.otf", "family": "VastagoGrotesk-Bold", "sha256": "0c313a6f88c935372bd6c45a626ea9eef33fa497f6d3ec4b9a83857eda473c31" },
+    { "file": "src/assets/fonts/VastagoGrotesk-Heavy.otf", "family": "VastagoGrotesk-Heavy", "sha256": "a22d6022caac655e806729b7358995c3c2fcb6ddfad5a4d3ee302233d0fc4954" },
+    { "file": "src/assets/fonts/VastagoGrotesk-Black.otf", "family": "VastagoGrotesk-Black", "sha256": "0a6ef31d08c457adc2a0f3d19f4a290afb33d83da94cf1135a27dfc5397e4e31" }
+  ],
+  "vastagoLicense": {
+    "family": "Vastago Grotesk",
+    "use": "body + UI typeface",
+    "provenance": "Owner confirmed 2026-07-23 that the organization purchased Vastago and its developer supplied this font folder specifically for building this app.",
+    "source": "frinq-frontend/public/fonts/vastago-grotesk-fonts (owner-supplied)",
+    "notice": "THIRD_PARTY_NOTICES.md",
+    "confidentialRecordsCommitted": false
+  }
+}

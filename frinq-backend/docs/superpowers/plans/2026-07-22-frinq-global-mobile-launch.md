@@ -4,9 +4,18 @@
 
 **Goal:** Ship Frinq as a stable, secure, English-language iOS and Android social app that can be downloaded in all App Store and Google Play territories approved by the product owner, service providers, and legal review.
 
-**Architecture:** The existing Next.js questionnaire is statically exported and embedded in Capacitor 8 native shells. FastAPI owns OTP authentication, rotating sessions, the durable quiz-to-archetype pipeline, profile data, community membership, WebSocket chat, moderation, account deletion, and push registration. PostgreSQL is the system of record, Redis/ARQ provides durable jobs, rate limits, WebSocket tickets, and cross-instance fan-out, and a separate Next.js admin app provides internal moderation.
+**Architecture:** A new bare React Native application in `frinq-mobile/` renders the consumer experience with native iOS and Android views. FastAPI owns OTP authentication, rotating sessions, the durable quiz-to-archetype pipeline, profile data, community membership, WebSocket chat, moderation, account deletion, and push registration. PostgreSQL is the system of record, Redis/ARQ provides durable jobs, rate limits, WebSocket tickets, and cross-instance fan-out, a separate Next.js admin app provides internal moderation, and the existing Next.js consumer frontend remains the behavior reference until it is reduced to public legal/support pages after native parity.
 
-**Tech Stack:** Next.js 16.2.6, React 19.2.4, TypeScript 5.8.2, Node.js 22 LTS, Capacitor 8, iOS 15+ built with Xcode 26+, Android minSdk 24 / compileSdk 36 / targetSdk 36, Python 3.12, FastAPI 0.115, asyncpg, PostgreSQL/Supabase, Redis 5, ARQ 0.25, Firebase Cloud Messaging, Twilio Verify WhatsApp OTP.
+**Tech Stack:** React Native 0.86.x Community CLI, React, TypeScript, Node.js 22.11+, Hermes, React Native New Architecture, React Navigation 7, Reanimated 4.6, Android minSdk 24 / compileSdk 36 / targetSdk 36, iOS 15.1+ built with the iOS 26 SDK and current Xcode 26, Next.js 16.2.6 for public legal pages and the separate admin app, Python 3.12, FastAPI 0.115, asyncpg, PostgreSQL/Supabase, Redis 5, ARQ 0.25, Firebase Cloud Messaging/Crashlytics, and Twilio Verify WhatsApp OTP.
+
+## Revision Status — 2026-07-23
+
+- The product owner reports Phases 0-6 complete. Treat those phases as historical implementation context and verify their current code/tests before starting new work; do not re-execute or undo them.
+- The working tree contains uncommitted Phase 6 implementation and untracked design/font assets. Preserve all of it. Establish a reviewed baseline before Phase 7 without staging, committing, or discarding unrelated work.
+- Phase 7 and every later phase in this revision supersede the former Capacitor launch path.
+- The approved design is `../specs/2026-07-23-frinq-bare-react-native-design.md`.
+- The coding-agent entrypoint and change guide is `../../launch/react-native-rewrite-handoff.md`.
+- New implementation begins at Phase 7 only and creates `frinq-mobile/` in parallel. `frinq-frontend/` remains runnable until the cutover task explicitly changes it.
 
 ## Approved Product Scope
 
@@ -32,7 +41,6 @@ The public launch does not contain:
 - Message reactions, mentions, threads, or read receipts.
 - User-uploaded avatars.
 - Editable quiz questions.
-- A React Native rewrite.
 - Speculative message virtualization.
 - Matching or meetup expansion.
 
@@ -40,16 +48,20 @@ These exclusions are deliberate. Add them only through a separately approved des
 
 ## Global Constraints
 
-- Work from F:\Project\Test\FrinqFull\Frinq with access to frinq-backend, frinq-frontend, and frinq-admin.
-- App/frinq-mobile is an existing Expo 57 prototype with a different com.frinq.app identifier and a separate questionnaire implementation. Preserve it unchanged and do not treat it as the launch app. This plan deliberately ships the already integrated 38-step Next.js flow through Capacitor; never mix Expo and Capacitor dependencies or submit both binaries.
+- Work from F:\Project\Test\FrinqFull\Frinq with access to frinq-backend, frinq-frontend, frinq-admin, App/Figma, and the new frinq-mobile directory created in Phase 7.
+- `frinq-mobile/` is the only production consumer native application. Create it with the React Native Community CLI. Do not install Expo, Expo Router, Capacitor, Ionic, or a WebView app shell.
+- `App/Figma/New folder/` screenshots and `App/Figma/Assets/` are the visual authority only. They must not introduce matching, direct messages, location matching, gender/pronoun collection, or social-verification behavior from the obsolete `App/Figma/plan.txt`.
+- `frinq-frontend/` is the behavior/copy/API reference through native parity. Do not remove or broadly refactor it during the parallel build. After the native gates pass, Task 43 reduces it to public Terms, Privacy, Community Rules, Support, and deletion-information pages.
 - Preserve existing user changes and untracked files. The untracked frinq-frontend/FRINQ_PROJECT_ANALYSIS.md belongs to the user.
+- Preserve the untracked `App/Figma/Assets/`, `App/Figma/New folder/`, and font directories. Before copying them into the native app, inventory provenance, optimize duplicates, and obtain permission to add them to source control.
 - Never output, copy, log, or commit values from .env files.
 - The superseded plan contains an exposed credential. Treat it as compromised, never repeat it, and require external rotation before any production deploy.
 - Never commit .env, Firebase service-account JSON, GoogleService-Info.plist, google-services.json, APNs keys, signing certificates, keystores, provisioning profiles, or store credentials.
 - Use npm ci in verification and deployment. Package-lock.json is authoritative.
 - Before changing Next.js code/configuration, follow frinq-frontend/AGENTS.md and read the relevant versioned guide under frinq-frontend/node_modules/next/dist/docs/; do not rely on older Next.js conventions.
-- Use the current Capacitor 8 release and keep Capacitor core, CLI, iOS, Android, and official plugin packages on the same major.
-- Capacitor 8 requires Node.js 22+, Xcode 26+, iOS deployment target 15, Android minSdk 24, compileSdk 36, and targetSdk 36.
+- Use React Native 0.86.x with Hermes and the New Architecture. Use React Navigation 7; React Navigation 8 is prerelease and is not approved for this launch.
+- Use Node.js 22.11 or newer, JDK 21, Android SDK/build tools 36, Android minSdk 24, compileSdk 36, targetSdk 36, iOS deployment target 15.1, and an App Store submission build made with the iOS 26 SDK/current Xcode 26.
+- Render every consumer screen with React Native native views. Do not use WebView, HTML, CSS, `dangerouslySetInnerHTML`, or a bundled static-site runtime in `frinq-mobile/`.
 - App identifier and Android applicationId are in.frinq.app.
 - User-facing production traffic is HTTPS/WSS only.
 - The app is 18+; date/age validation is enforced server-side, not only through UI copy.
@@ -57,29 +69,33 @@ These exclusions are deliberate. Add them only through a separately approved des
 - All model calls continue through app/core/ai/pii.py. Chat moderation must not bypass the PII rule by sending raw chat messages to an LLM.
 - The canonical community key is the 24-value slug from app/core/ai/archetypes.py, never the display-name spirit_animal value.
 - A user becomes active only after the AI result and community membership are committed successfully.
-- Refresh tokens are never stored in localStorage. Native builds use Keychain/Keystore secure preferences; browser fallback uses sessionStorage and requires OTP again after the browser session ends.
+- Access tokens live only in memory. Native refresh tokens use Keychain/Keystore via the approved secure-storage adapter. Encrypted quiz drafts use a separate key stored in Keychain/Keystore. Public web pages do not persist a native session.
 - WebSocket URLs never contain a long-lived access or refresh token.
-- React rendering must continue to escape chat text. Do not add dangerouslySetInnerHTML for user content.
+- React Native `Text` renders chat as plain text. Do not add HTML/Markdown rendering for user content.
 - Destructive account and moderation actions require explicit confirmation and server authorization.
 - Store release is blocked until report, block, filter, account deletion, privacy policy, community rules, and support contact all work.
 - Do not claim iOS build or device verification from Windows. iOS verification requires macOS, Xcode 26+, and a physical iPhone.
+- The owner approved one consolidated Mac/Xcode/iPhone validation session after native feature completion. Until Task 42 passes, every report must say that iOS remains unverified. An iOS failure reopens the affected task and requires the consolidated gate to be repeated.
 - Do not commit, push, deploy, rotate secrets, or submit store builds unless the user separately authorizes those external actions.
-- Command convention: start each mixed-repository command block from F:\Project\Test\FrinqFull\Frinq and use Push-Location/Pop-Location exactly as shown. A single-repository pytest block runs from frinq-backend; a single-repository npm/native block runs from frinq-frontend; an admin-only npm block runs from frinq-admin. Check Get-Location before a destructive or deployment command.
+- Command convention: start each mixed-repository command block from F:\Project\Test\FrinqFull\Frinq and use Push-Location/Pop-Location exactly as shown. A backend pytest block runs from frinq-backend; native npm/Gradle blocks run from frinq-mobile; retained public-web blocks run from frinq-frontend; admin-only npm blocks run from frinq-admin. Check Get-Location before a destructive or deployment command.
+- The native design uses Borel for display headings and Vastago Grotesk for body/UI text. Borel's OFL notice must ship. On 2026-07-23, the owner confirmed that the organization purchased Vastago and its developer supplied the font folder for building this app. Vastago is approved for the native binary; record that confirmation and any required notice in the asset manifest without committing commercial purchase records or license secrets.
+- Use one brand-controlled theme: maroon #621507, cream #FFFBF7, peach #FFE8D6, and brown #3C2110, with tested accessible state colors. No separate dark theme is in launch scope.
+- Accessibility outranks pixel-perfect screenshot geometry: support screen readers, reduced motion, large text, sufficient contrast, logical focus, and 48 dp preferred touch targets.
+- Product analytics stay explicit opt-in through the existing allowlist. Native crash reporting is redacted operational telemetry; Firebase Analytics and session replay are not approved.
 
-## Current Verified Baseline
+## Current Baseline to Re-Verify at Phase 7
 
-- frinq-backend: pytest -q passes 77 tests with two warnings.
-- frinq-frontend: npm run lint currently fails with 27 errors.
-- frinq-frontend next.config.ts currently uses headers(), which static export does not support.
-- app/page.tsx, app/(quiz)/vibe-box/page.tsx, and admin pages currently declare force-dynamic.
-- frinq-frontend contains request-dependent app/api route handlers.
-- users.supabase_uid is UUID UNIQUE NOT NULL, which conflicts with OTP-created accounts.
-- quiz_submissions has no user_id or canonical archetype_slug.
-- the active quiz insight pipeline runs in FastAPI BackgroundTasks, not in the existing ARQ worker.
-- app/core/ai/archetypes.py contains 24 canonical slugs.
-- app/core/ai/openai_client.py uses httpx directly; do not add the OpenAI Python SDK.
-- frontend analytics currently sends a raw phone value to Microsoft Clarity; this must be removed.
-- App/frinq-mobile exists as a separate Expo prototype; it is not the implementation target for this launch plan and must not be deleted.
+- Git history contains committed Phase 1-5 checkpoints; the product owner reports Phase 0-6 complete.
+- The working tree currently contains extensive modified and untracked Phase 6 files. They belong to the user and must be reviewed and preserved.
+- `frinq-frontend/` currently contains 52 Next.js routes, including the 38-step quiz, auth/session routing, Vibe report, community chat, profile, settings, legal, support, and deletion flows.
+- `frinq-frontend/package.json` still contains Capacitor packages and browser-oriented dependencies. They remain temporarily because the web app is the parity reference; they are removed only during Task 43.
+- No production `frinq-mobile/` directory exists in the current checkout.
+- `App/Figma/New folder/` contains 26 804x1748 visual references and `App/Figma/Assets/` contains extracted art. These directories are currently untracked.
+- Borel, Motive, Urbanist, and Vastago font folders are currently untracked under `frinq-frontend/public/fonts/`.
+- Borel includes an OFL license. The owner confirmed organization-owned Vastago app rights on 2026-07-23; the current font folder was supplied by its developer for this app.
+- `app/core/ai/archetypes.py` contains the 24 canonical slugs. The native app must never derive community membership from display names or screenshot concepts.
+- `app/core/ai/openai_client.py` uses httpx directly; do not add the OpenAI Python SDK.
+- Before Phase 7 code, rerun backend, frontend, and admin verification from the preserved working tree and record exact commands/counts in the execution ledger.
 
 ## Final Runtime Contracts
 
@@ -284,7 +300,7 @@ CREATE TABLE legal_acceptances (
 These do not block local coding, but they block release:
 
 - [ ] Rotate every credential identified by the superseded plan.
-- [ ] Provide a macOS machine with Xcode 26+ and at least one physical iPhone running iOS 15 or later.
+- [ ] Provide one scheduled final macOS session with current Xcode 26, the iOS 26 SDK, CocoaPods/Bundler dependencies, and a physical iPhone running iOS 15.1 or later.
 - [ ] Provide at least two Android devices, including one Android 13+ device.
 - [ ] Enroll the publishing organization in Apple Developer Program and Google Play Console.
 - [ ] Confirm whether the Google Play account is a personal account created after 2023-11-13; if yes, schedule 12 opted-in testers for 14 continuous days.
@@ -295,6 +311,7 @@ These do not block local coding, but they block release:
 - [ ] Obtain legal review of Terms, Privacy Policy, Community Guidelines, retention, international availability, and age positioning.
 - [ ] Confirm Twilio WhatsApp Verify availability for every intended territory. Disable territories where login cannot work.
 - [ ] Prepare App Store and Play Store organization, tax, banking, agreements, and contact verification.
+- [x] Vastago Grotesk app use confirmed by the owner on 2026-07-23: the organization purchased it and its developer supplied this folder for building the app. Preserve commercial documents outside Git.
 
 ---
 
@@ -2198,200 +2215,772 @@ privacy: gate analytics and remove PII payloads
 
 Stop and obtain product, moderation, privacy, and engineering review before Phase 7.
 
-# Phase 7: Capacitor iOS and Android applications
+# Phase 7: Bare React Native foundation and native design system
 
-## Task 26: Create native projects from the verified static export
+## Task 26: Preserve the completed baseline and scaffold the production native app
 
 **Files:**
 
-- Modify: frinq-frontend/package.json
-- Create: frinq-frontend/capacitor.config.ts
-- Create: frinq-frontend/ios/
-- Create: frinq-frontend/android/
-- Create: frinq-frontend/scripts/verify-native-config.mjs
-- Modify: frinq-frontend/.gitignore
-- Modify: frinq-frontend/README.md
+- Modify: frinq-backend/docs/launch/execution-ledger.md
+- Create: frinq-mobile/
+- Create: frinq-mobile/package.json
+- Create: frinq-mobile/package-lock.json
+- Create: frinq-mobile/.nvmrc
+- Create: frinq-mobile/.ruby-version
+- Create: frinq-mobile/Gemfile
+- Create: frinq-mobile/README.md
+- Create: frinq-mobile/scripts/verify-native-config.mjs
+- Create: frinq-mobile/scripts/verify-no-webview.mjs
+- Create: frinq-mobile/docs/route-parity-matrix.md
+- Create: frinq-mobile/docs/dependency-compatibility.md
+- Modify: .gitignore
 
-**Produces:** Reproducible Capacitor 8 projects for bundle ID in.frinq.app.
+**Interfaces:**
 
-- [ ] **Step 1: Confirm toolchain on the build machines**
+- `verify-native-config.mjs` exits nonzero when identifiers, OS targets, cleartext policy, or New Architecture settings drift.
+- `verify-no-webview.mjs` exits nonzero when Expo, Capacitor, Ionic, WebView, HTML-renderer, or live-development-server dependencies/configuration appear.
 
-Require Node 22+, npm from the lockfile workflow, macOS with Xcode 26+ for iOS, Android Studio with JDK 21 and Android SDK 36 for Android, CocoaPods supported by the installed Capacitor version, and a real iOS and Android device. Record versions in the execution ledger. Do not attempt an iOS store build from Windows.
+**Produces:** A reproducible React Native 0.86 Community CLI project for `in.frinq.app`, isolated from the completed web/admin/backend applications.
 
-- [ ] **Step 2: Add native scripts**
+- [ ] **Step 1: Record and protect the real Phase 6 baseline**
 
-Add:
+From the repository root, record `git status --short`, `git diff --stat`, `git log -8 --oneline`, Node/npm/Python/Java versions, and the exact untracked Figma/font assets in the execution ledger. Run the current backend, frontend, and admin verification commands without modifying failures. The ledger must distinguish owner-declared completion from fresh verification evidence. Do not stage or commit the dirty Phase 6 tree.
+
+- [ ] **Step 2: Initialize without a framework**
+
+Run from the repository root:
+
+~~~powershell
+npx @react-native-community/cli@latest init FrinqMobile --version 0.86.0 --directory frinq-mobile
+~~~
+
+Expected: `frinq-mobile/android`, `frinq-mobile/ios`, a React Native package lock, Metro, Jest, TypeScript, and no Expo or Capacitor package.
+
+If the CLI does not recognize `--directory`, stop and record its help output. Do not generate elsewhere and recursively move an unverified tree.
+
+- [ ] **Step 3: Freeze project identity and supported platforms**
+
+Change the generated Android namespace/application ID and iOS bundle identifier to `in.frinq.app`; set display name `Frinq`. Set Android minSdk 24, compileSdk 36, targetSdk 36, JDK 21, edge-to-edge support, and `usesCleartextTraffic=false` for release. Set iOS deployment target 15.1. Keep Hermes and New Architecture enabled.
+
+`verify-native-config.mjs` must assert these values by reading the actual Gradle, manifest, Xcode project, plist, Podfile, and React Native configuration files.
+
+- [ ] **Step 4: Add deterministic scripts**
+
+`package.json` must provide:
 
 ~~~json
 {
   "scripts": {
-    "native:sync": "npm run build && npx cap sync",
-    "native:ios": "npm run native:sync && npx cap open ios",
-    "native:android": "npm run native:sync && npx cap open android",
-    "verify:native": "node scripts/verify-native-config.mjs"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "jest",
+    "verify:config": "node scripts/verify-native-config.mjs",
+    "verify:no-webview": "node scripts/verify-no-webview.mjs",
+    "verify": "npm run typecheck && npm run lint && npm test -- --runInBand && npm run verify:config && npm run verify:no-webview",
+    "android:debug": "react-native run-android",
+    "android:release-check": "cd android && gradlew.bat lintRelease testReleaseUnitTest assembleRelease"
   }
 }
 ~~~
 
-The build must emit frinq-frontend/out before cap sync. No native project may point to a live development server for release.
+Use `bundle exec pod install` on macOS; do not invoke CocoaPods from Windows.
 
-- [ ] **Step 3: Configure Capacitor**
+- [ ] **Step 5: Write the negative dependency/configuration tests**
 
-Use:
+Test the verification scripts against fixtures containing `@capacitor/core`, `expo`, `react-native-webview`, an `http://` production endpoint, a wrong bundle ID, old architecture disabled/enabled drift, and wrong SDK floors. Each fixture must fail with one precise reason.
 
-~~~typescript
-const config: CapacitorConfig = {
-  appId: "in.frinq.app",
-  appName: "Frinq",
-  webDir: "out",
-  server: {
-    androidScheme: "https",
-    iosScheme: "capacitor"
-  }
-};
-~~~
+- [ ] **Step 6: Establish the parity matrix**
 
-Initialize once with npx cap add ios and npx cap add android, then commit the generated native projects. Do not hand-edit generated dependency files when a Capacitor config or native IDE setting is the correct source.
+List all 52 current Next.js routes. For each, record purpose, native destination/template, API calls, storage keys to replace, browser-only APIs, analytics events, loading/error/empty states, and whether the route remains public web after cutover. Mark screenshot-only matching fields as excluded.
 
-- [ ] **Step 4: Set supported OS levels**
+- [ ] **Step 7: Verify on Windows/Android**
 
-Set iOS deployment target 15.0. Set Android minSdk 24, compileSdk 36, and targetSdk 36. The verification script must fail if app ID, app name, webDir, OS targets, cleartext traffic policy, or release server URL differs from the approved values.
-
-- [ ] **Step 5: Configure navigation and network policy**
-
-Allow only bundled navigation plus HTTPS calls to api.frinq.in and required approved processors. Keep Android usesCleartextTraffic false and do not add arbitrary navigation allowlists. External legal/support links open in the approved OS browser surface only after explicit user action.
-
-- [ ] **Step 6: Verify clean regeneration**
-
-From a clean checkout on both build machines:
+Run:
 
 ~~~powershell
+Push-Location frinq-mobile
 npm ci
-npm run build
-npm run native:sync
-npm run verify:native
+npm run verify
+Push-Location android
+.\gradlew.bat clean assembleDebug lintDebug testDebugUnitTest
+Pop-Location
+Pop-Location
 ~~~
 
-Open the projects, build Debug, install on one real device per platform, and record the build output in the ledger.
-
-- [ ] **Step 7: Checkpoint**
-
-Suggested commit if authorized:
-
-~~~text
-build: add reproducible capacitor projects
-~~~
-
-## Task 27: Make voice recording correct on Safari, iOS, and Android
-
-**Files:**
-
-- Modify: frinq-frontend/app/components/VoiceRecorder.tsx
-- Modify: frinq-frontend/app/(quiz)/story/page.tsx
-- Modify: frinq-frontend/app/lib/api.ts
-- Modify: frinq-backend/app/api/v1/voice.py
-- Create: frinq-frontend/app/lib/audio.ts
-- Create: frinq-frontend/app/lib/audio.test.ts
-- Create: frinq-backend/tests/test_api/test_voice_formats.py
-- Modify: frinq-frontend/ios/App/App/Info.plist
-- Modify: frinq-frontend/android/app/src/main/AndroidManifest.xml
-
-**Produces:** One tested recorder path that does not assume audio/webm.
-
-- [ ] **Step 1: Write MIME-selection tests**
-
-Choose the first supported MediaRecorder type from audio/webm;codecs=opus, audio/mp4, audio/aac, and the browser default. Derive the extension from the actual Blob MIME type. Never name every upload .webm.
-
-- [ ] **Step 2: Consolidate duplicate recorder logic**
-
-Use VoiceRecorder for both story and opinions flows. It owns permission request, MediaRecorder lifecycle, chunk assembly, preview URL cleanup, upload progress, retry, cancellation, and stopping every MediaStream track on completion/unmount.
-
-- [ ] **Step 3: Enforce server upload rules**
-
-Accept only the tested MIME allowlist, verify the file signature when practical, cap uploads at 10 MB and 120 seconds, generate server-side object names, and reject a filename or Content-Type mismatch. Store the detected MIME and byte count. Never execute or serve uploads as active content.
-
-- [ ] **Step 4: Add native permission text**
-
-Set NSMicrophoneUsageDescription to a plain explanation that voice answers are optional and used for the personality quiz. Add Android RECORD_AUDIO only; do not request microphone permission at launch. Request it when the user taps Record, provide a text-answer fallback after denial, and show platform-specific system-settings instructions only after a repeated denial.
-
-- [ ] **Step 5: Verify on real devices**
-
-Test first grant, denial, permanent denial, interruption by a phone call, backgrounding, screen lock, 120-second cap, cancel, failed upload and retry, Bluetooth input, and successful server playback on current iOS and Android. Confirm no microphone indicator remains after leaving the screen.
-
-- [ ] **Step 6: Verify automated suites**
-
-Run frontend audio tests, backend voice tests, full lint/build, and full backend tests.
-
-- [ ] **Step 7: Checkpoint**
-
-Suggested commit if authorized:
-
-~~~text
-fix: support native voice recording formats
-~~~
-
-## Task 28: Handle native lifecycle, keyboard, offline state, and navigation
-
-**Files:**
-
-- Modify: frinq-frontend/package.json
-- Modify: frinq-frontend/package-lock.json
-- Create: frinq-frontend/app/lib/native.ts
-- Create: frinq-frontend/app/components/NetworkBanner.tsx
-- Modify: frinq-frontend/app/components/AppShell.tsx
-- Modify: frinq-frontend/app/lib/realtime.ts
-- Modify: frinq-frontend/app/globals.css
-- Create: frinq-frontend/tests/native-lifecycle.test.ts
-- Modify: frinq-frontend/ios/App/App/Info.plist
-- Modify: frinq-frontend/android/app/src/main/AndroidManifest.xml
-
-**Produces:** App-like behavior across pauses, resumes, lost connectivity, safe areas, and Android back navigation.
-
-- [ ] **Step 1: Install the required official plugins**
-
-Run npm install @capacitor/network@8 @capacitor/browser@8 and commit the resolved lockfile. Use Network for connection state and Browser only for explicit legal/support external links.
-
-- [ ] **Step 2: Add lifecycle tests**
-
-Mock Capacitor App and Network events. Assert that backgrounding closes chat cleanly after a short grace period, resume restores/refreshes session then reconnects, offline pauses requests and retries, and event listeners are removed on unmount.
-
-- [ ] **Step 3: Implement one native adapter**
-
-All Capacitor calls go through app/lib/native.ts and degrade safely in a browser. It exposes platform, app state, network state, and explicit external-link helpers. React components must not scatter direct plugin calls.
-
-- [ ] **Step 4: Implement Android back behavior**
-
-Close an open dialog or menu first; otherwise navigate within app history; on the signed-in root, require a second back press within two seconds to exit. Never exit while an unsaved quiz/profile form is active without confirmation.
-
-- [ ] **Step 5: Handle safe areas and keyboard**
-
-Use env(safe-area-inset-*) on shell, nav, composer, dialogs, and full-screen states. Verify the composer remains visible with iOS and Android keyboards, large text, rotation, and display cutouts. Use System Bars configuration with legible light/dark contrast.
-
-- [ ] **Step 6: Add honest offline behavior**
-
-Show an offline banner, retain unsent chat items only in memory for the current process, and retry them with their original client_message_id after reconnection. Do not imply offline quiz completion or durable offline messaging. If the app is killed, unsent messages may be lost and the UI must say so before exit when any exist.
-
-- [ ] **Step 7: Verify**
-
-Run unit tests, lint, static build, native sync, and manual device tests for Wi-Fi/cellular switching, airplane mode, background/resume, process kill, keyboard, rotation, safe areas, and Android back.
+Expected: all checks pass and a debug APK is created. Record that iOS is scaffolded but not built.
 
 - [ ] **Step 8: Checkpoint**
 
-Suggested commit if authorized:
+Suggested commit if separately authorized:
 
 ~~~text
-feat: handle native lifecycle and offline state
+build: scaffold bare react native app
 ~~~
 
-## Task 29: Add opt-in, privacy-preserving push notifications
+## Task 27: Import licensed visual assets and build the native design primitives
 
 **Files:**
 
-- Modify: frinq-frontend/package.json
-- Modify: frinq-frontend/package-lock.json
-- Create: frinq-frontend/app/lib/push.ts
-- Create: frinq-frontend/app/(app)/settings/notifications/page.tsx
-- Create: frinq-frontend/app/lib/push.test.ts
+- Create: frinq-mobile/src/design/tokens/colors.ts
+- Create: frinq-mobile/src/design/tokens/typography.ts
+- Create: frinq-mobile/src/design/tokens/spacing.ts
+- Create: frinq-mobile/src/design/tokens/motion.ts
+- Create: frinq-mobile/src/design/components/
+- Create: frinq-mobile/src/design/motion/
+- Create: frinq-mobile/src/assets/fonts/
+- Create: frinq-mobile/src/assets/illustrations/
+- Create: frinq-mobile/scripts/verify-assets.mjs
+- Create: frinq-mobile/src/design/__tests__/tokens.test.ts
+- Create: frinq-mobile/src/design/__tests__/components.test.tsx
+- Create: frinq-mobile/THIRD_PARTY_NOTICES.md
+
+**Interfaces:**
+
+- `colors`: `brand.maroon`, `brand.cream`, `brand.peach`, `brand.brown` plus named accessible state tokens.
+- `motion`: `enter`, `select`, `milestone`, and `reduced` recipes.
+- Primitives expose semantic props and accessibility state; screens cannot pass arbitrary brand colors.
+
+**Produces:** A tested native component and motion system derived from the supplied Figma references.
+
+- [ ] **Step 1: Gate font and artwork provenance**
+
+Inventory every asset under `App/Figma/Assets/`, `App/Figma/New folder/`, and the selected font folders. Keep source path, intended use, dimensions, checksum, and license/provenance. Add Borel plus its OFL notice. Add Vastago and record the owner's 2026-07-23 confirmation that the organization purchased it and its developer supplied this folder for building the app. Include any distributable notice required by the organization's license, but do not commit receipts, order details, license keys, or other confidential commercial records.
+
+- [ ] **Step 2: Optimize native assets**
+
+Remove duplicate Figma exports, status-bar crops, and obsolete matching-only art. Preserve original source files outside generated platform resource folders. Optimize approved PNGs without changing visible appearance, and use `react-native-svg` for waves/arrows/icons that must recolor or scale.
+
+- [ ] **Step 3: Install compatible UI foundations**
+
+Resolve lockfile versions compatible with React Native 0.86:
+
+~~~powershell
+npm install @react-navigation/native@7 @react-navigation/native-stack@7 @react-navigation/bottom-tabs@7
+npm install react-native-screens@4 react-native-safe-area-context@5
+npm install react-native-gesture-handler@3 react-native-reanimated@4.6 react-native-worklets@0.12
+npm install react-native-svg react-native-haptic-feedback
+~~~
+
+Do not install NativeWind, Tailwind, a browser CSS runtime, or React Navigation 8 prerelease.
+
+- [ ] **Step 4: Write token and primitive tests first**
+
+Assert exact approved palette values, no raw hex values outside token files, 48 dp preferred touch targets, selected/disabled/busy/error accessibility state, large-text wrapping, decorative-art hiding, and reduced-motion behavior.
+
+- [ ] **Step 5: Implement the component families**
+
+Create `Screen`, `BrandHeading`, `BodyText`, `ArrowButton`, `PrimaryButton`, `TextField`, `PhoneField`, `OtpField`, `ChoicePill`, `ChoiceCard`, `ChoiceListRow`, `TagPicker`, `QuizHeader`, `QuizProgress`, `RapidFireTimer`, `OfflineBanner`, `Sheet`, `Dialog`, `Toast`, `EmptyState`, `ErrorState`, and `Skeleton`.
+
+Reconstruct layouts natively; never use the full-screen screenshot PNGs as screen backgrounds.
+
+- [ ] **Step 6: Implement motion and haptic recipes**
+
+Use Reanimated worklets for press, selection, staggered entry, progress, wave/illustration, and milestone transitions. Query the platform reduced-motion setting and replace spatial/looping motion with a crossfade or immediate state. Pause indefinite animations in the background.
+
+- [ ] **Step 7: Verify representative states**
+
+Render cream form, cream choice, maroon milestone, long text, 200% text, reduced motion, and screen-reader states in component tests and the Android app. Compare against the reference language, not screenshot pixel coordinates.
+
+- [ ] **Step 8: Checkpoint**
+
+Suggested commit if separately authorized:
+
+~~~text
+feat: add native frinq design system
+~~~
+
+## Task 28: Add the native composition root, navigation, lifecycle, and safe telemetry
+
+**Files:**
+
+- Create: frinq-mobile/src/app/App.tsx
+- Create: frinq-mobile/src/app/AppProviders.tsx
+- Create: frinq-mobile/src/app/AppErrorBoundary.tsx
+- Create: frinq-mobile/src/app/boot/bootMachine.ts
+- Create: frinq-mobile/src/navigation/RootNavigator.tsx
+- Create: frinq-mobile/src/navigation/AuthNavigator.tsx
+- Create: frinq-mobile/src/navigation/QuizNavigator.tsx
+- Create: frinq-mobile/src/navigation/MainTabs.tsx
+- Create: frinq-mobile/src/services/lifecycle/appLifecycle.ts
+- Create: frinq-mobile/src/services/network/networkState.ts
+- Create: frinq-mobile/src/services/telemetry/analytics.ts
+- Create: frinq-mobile/src/services/telemetry/crashReporter.ts
+- Create: frinq-mobile/src/app/__tests__/bootMachine.test.ts
+- Create: frinq-mobile/src/navigation/__tests__/routing.test.tsx
+
+**Interfaces:**
+
+- `BootState = checking | authRequired | legalRequired | quizInProgress | processing | active | error | suspended | banned`.
+- `routeForUser(user): RootRoute`.
+- `track(event: AllowedEvent): void`; arbitrary event names/properties are impossible at the type boundary.
+
+**Produces:** One deterministic native root that cannot flash a protected screen before session/legal state is known.
+
+- [ ] **Step 1: Write boot and route tests**
+
+Cover no credential, refresh success/failure/reuse, stale legal version, each onboarding state, missing membership, suspended/banned state, offline boot, and notification deep link received before restoration.
+
+- [ ] **Step 2: Compose native providers once**
+
+Root order is `GestureHandlerRootView`, `SafeAreaProvider`, error boundary, query provider, session provider, analytics-consent provider, and navigation container. Do not nest navigation containers.
+
+- [ ] **Step 3: Implement lifecycle and reachability**
+
+Install NetInfo 12 and TanStack Query 5. Connect NetInfo to the query online manager and React Native AppState to the focus manager. Background transitions pause timers/motion and notify session/realtime/audio adapters. Resume revalidates session before protected reconnection.
+
+- [ ] **Step 4: Implement native navigation**
+
+Use native stacks for auth/legal/quiz/detail flows and three bottom tabs: Community, Profile, Settings. The Vibe report is reachable from Profile. Android Back closes transient UI, then navigates, and confirms before discarding unsaved data.
+
+- [ ] **Step 5: Add privacy-minimal telemetry**
+
+Use the Phase 6 event allowlist and explicit consent. Add React Native Firebase Crashlytics only as redacted operational reporting; disable Firebase Analytics and session replay. Scrub custom keys and global handlers of phone, tokens, quiz/message/report text, voice paths, and push tokens.
+
+- [ ] **Step 6: Verify**
+
+Run native verification and Android process-background/resume/offline/back smoke tests. Assert no protected content renders while `BootState=checking`.
+
+- [ ] **Step 7: Checkpoint**
+
+Suggested commit if separately authorized:
+
+~~~text
+feat: add native app root and navigation
+~~~
+
+### Phase 7 Gate
+
+- [ ] The preserved Phase 6 baseline and untracked user assets are recorded without being overwritten.
+- [ ] `frinq-mobile/` builds a debug APK from `npm ci` and contains no Expo, Capacitor, or WebView path.
+- [ ] Bundle/application ID is `in.frinq.app`; SDK floors/targets and cleartext policy pass deterministic checks.
+- [ ] Design primitives match the approved visual language and pass accessibility/reduced-motion tests.
+- [ ] The native asset manifest records the owner-confirmed Vastago license provenance and any required distributable notice.
+- [ ] Root navigation, lifecycle, offline banner, and telemetry consent tests pass.
+- [ ] iOS is truthfully recorded as not yet built.
+
+Continue to Phase 8 after recording the gate. Stop only for a real blocker or new product decision.
+
+# Phase 8: Native sessions, legal gate, and the complete quiz
+
+## Task 29: Implement secure rotating sessions, typed API access, and encrypted drafts
+
+**Files:**
+
+- Create: frinq-mobile/src/services/api/contracts.ts
+- Create: frinq-mobile/src/services/api/apiClient.ts
+- Create: frinq-mobile/src/services/api/apiError.ts
+- Create: frinq-mobile/src/services/session/SessionCoordinator.ts
+- Create: frinq-mobile/src/storage/secureCredentials.ts
+- Create: frinq-mobile/src/storage/encryptedStorage.ts
+- Create: frinq-mobile/src/storage/quizDraftRepository.ts
+- Create: frinq-mobile/src/services/api/__tests__/apiClient.test.ts
+- Create: frinq-mobile/src/services/session/__tests__/SessionCoordinator.test.ts
+- Create: frinq-mobile/src/storage/__tests__/quizDraftRepository.test.ts
+
+**Interfaces:**
+
+- `saveRefreshToken(token: string): Promise<void>`
+- `loadRefreshToken(): Promise<string | null>`
+- `clearRefreshToken(): Promise<void>`
+- `apiRequest<T>(request: ApiRequest): Promise<T>`
+- `restoreSession(): Promise<BootSession>`
+- `QuizDraftRepository.load/save/clear/migrate`
+
+**Produces:** One concurrency-safe session/API boundary and bounded encrypted quiz recovery.
+
+- [ ] **Step 1: Install secure storage**
+
+Resolve compatible versions:
+
+~~~powershell
+npm install react-native-keychain@10 react-native-mmkv@4 react-native-nitro-modules
+~~~
+
+Store only the refresh token and a random draft-encryption key in Keychain/Keystore. Access tokens remain in module memory. MMKV uses AES-256 with the separate secure key; it never stores tokens, voice bytes, chat, or AI results.
+
+- [ ] **Step 2: Freeze API models**
+
+Derive TypeScript models from the running FastAPI OpenAPI document and compare them with actual Phase 1-6 response fixtures. Commit a reviewed contract snapshot and a script that fails when protected mobile endpoints drift incompatibly.
+
+- [ ] **Step 3: Write session failure/concurrency tests**
+
+Cover first boot, rotation, exactly one shared refresh for concurrent 401s, persistence before request retry, reuse/failure clearing, second-401 rejection, logout, ban, deletion, offline boot, and prohibited-value log redaction.
+
+- [ ] **Step 4: Implement API/session boundaries**
+
+Add Authorization only when an access token exists; add JSON headers only for JSON. Retry exactly once after a successful coordinated refresh. Never retry validation, 403, 404, or a second 401. Map server request IDs and safe codes without response-body leakage.
+
+- [ ] **Step 5: Implement versioned encrypted quiz drafts**
+
+Persist `schemaVersion`, owned `submissionId`, `lastRoute`, structured bounded answers, `updatedAt`, and sync metadata. Reject unknown versions, wrong users, invalid answer keys, and oversized strings/arrays. Local clear is mandatory on account change, logout-all, deletion, or safe restart.
+
+- [ ] **Step 6: Verify**
+
+Run Jest with mocked native modules, then Android instrumentation smoke for Keychain/Keystore persistence, process restart, logout clearing, and corrupted-draft recovery.
+
+- [ ] **Step 7: Checkpoint**
+
+Suggested commit if separately authorized:
+
+~~~text
+feat: add secure native sessions and drafts
+~~~
+
+## Task 30: Rebuild legal acceptance, phone OTP, and server-authoritative routing
+
+**Files:**
+
+- Create: frinq-mobile/src/features/legal/screens/LegalAcceptanceScreen.tsx
+- Create: frinq-mobile/src/features/legal/screens/LegalDocumentScreen.tsx
+- Create: frinq-mobile/src/features/auth/screens/LandingScreen.tsx
+- Create: frinq-mobile/src/features/auth/screens/PhoneScreen.tsx
+- Create: frinq-mobile/src/features/auth/screens/OtpScreen.tsx
+- Create: frinq-mobile/src/features/auth/authService.ts
+- Create: frinq-mobile/src/features/auth/__tests__/authFlow.test.tsx
+- Create: frinq-mobile/src/features/legal/__tests__/legalGate.test.tsx
+
+**Produces:** Native first-run and returning-user auth that cannot bypass current legal versions.
+
+- [ ] **Step 1: Write full state tests**
+
+Test current/new legal version, 18+ unchecked/checked, invalid/expired OTP, resend cooldown, provider failure, returning active user, processing user, error user, banned user, deep link, and offline state.
+
+- [ ] **Step 2: Implement reference-driven native screens**
+
+Use the supplied maroon landing and cream phone/OTP visual language with Borel/Vastago tokens, native keyboard types, autofill/one-time-code hints, accessible errors, and 48 dp controls. Do not reuse screenshot status bars or matching copy.
+
+- [ ] **Step 3: Preserve the legal transaction**
+
+Fetch current legal versions before collecting personal/quiz data. Keep pre-auth acceptance in process/encrypted bounded state, post it immediately after OTP account creation, and clear it only after server acknowledgement. A version race routes back to acceptance.
+
+- [ ] **Step 4: Route from server state**
+
+After OTP or refresh, route only from `onboarding_state`, legal state, and membership. Never persist an assessment-complete boolean or infer active status from a cached Vibe result.
+
+- [ ] **Step 5: Verify**
+
+Run component/journey tests plus Android manual checks for keyboard, OTP paste/autofill, resend timer, airplane mode, process kill, large text, TalkBack, and screenshots at compact/current phone sizes.
+
+- [ ] **Step 6: Checkpoint**
+
+Suggested commit if separately authorized:
+
+~~~text
+feat: rebuild native legal and otp flow
+~~~
+
+## Task 31: Define the quiz domain and reusable native screen registry
+
+**Files:**
+
+- Create: frinq-mobile/src/features/quiz/domain/quizDefinition.ts
+- Create: frinq-mobile/src/features/quiz/domain/answerSchema.ts
+- Create: frinq-mobile/src/features/quiz/domain/quizMachine.ts
+- Create: frinq-mobile/src/features/quiz/screens/templates/
+- Create: frinq-mobile/src/features/quiz/components/
+- Create: frinq-mobile/src/features/quiz/__tests__/quizDefinition.test.ts
+- Create: frinq-mobile/src/features/quiz/__tests__/quizMachine.test.ts
+- Modify: frinq-mobile/docs/route-parity-matrix.md
+
+**Interfaces:**
+
+- `QuizStep` is a closed discriminated union for intro, text, date, single choice, multi choice, tags, card choice, rapid fire, voice/text, and milestone.
+- `validateAnswer(step, value): ValidationResult`
+- `nextStep(stepId, answers): StepId`
+- `quizMachine.transition(event): QuizState`
+
+**Produces:** A typed native representation of the actual 38-step product without a server-editable-question feature.
+
+- [ ] **Step 1: Audit every web route before encoding it**
+
+For each quiz route, record exact copy, answer key, option values, branch rules, API/storage behavior, analytics event, illustration, back behavior, and error state. Treat the current backend accepted payload as authoritative when web code and screenshots differ.
+
+- [ ] **Step 2: Write structural tests**
+
+Assert unique IDs/answer keys, reachable nonterminal steps, no dead-end branch, correct first/last step, valid progress ordering, backend payload compatibility, excluded matching-only fields, and parity for all existing web routes.
+
+- [ ] **Step 3: Implement tested templates**
+
+Build native templates from Task 27 primitives. Templates own layout, focus, keyboard avoidance, selection semantics, Continue enablement, motion, large-text scrolling, and error presentation; definitions own copy/options/assets/branch metadata.
+
+- [ ] **Step 4: Implement one quiz state machine**
+
+Local answer update saves encrypted draft first, then debounces an owned partial save. Navigation waits only when the next step requires confirmed server state. Back edits the same submission and does not create another user/submission.
+
+- [ ] **Step 5: Verify**
+
+Run definition/state tests and render every registered step at compact/current phone widths, 200% text, reduced motion, and offline state. No screen may import browser storage, `window`, `document`, or Next routing.
+
+- [ ] **Step 6: Checkpoint**
+
+Suggested commit if separately authorized:
+
+~~~text
+feat: define native quiz domain and templates
+~~~
+
+## Task 32: Implement every quiz screen, synchronization, and recovery path
+
+**Files:**
+
+- Create: frinq-mobile/src/features/quiz/screens/
+- Create: frinq-mobile/src/features/quiz/quizSyncService.ts
+- Create: frinq-mobile/src/features/quiz/quizSubmissionService.ts
+- Create: frinq-mobile/src/features/quiz/__tests__/quizJourney.test.tsx
+- Create: frinq-mobile/src/features/quiz/__tests__/quizRecovery.test.tsx
+- Modify: frinq-mobile/docs/route-parity-matrix.md
+
+**Produces:** Native parity for the full questionnaire, including branching and rapid-fire behavior.
+
+- [ ] **Step 1: Write critical journey tests before screens**
+
+Cover first answer to final answer, every conditional branch, rapid-fire timer expiry, app background during timer, offline edit/reconnect, process kill/restore, server conflict, invalid draft, retry, back navigation, and final payload equality with a known web fixture.
+
+- [ ] **Step 2: Implement all registered screens**
+
+Use supplied reference styling for name, single/multi choice, tags, date, rapid fire, and milestone families. Reuse existing Frinq quiz copy/choices and approved existing illustrations where the screenshots have no equivalent. Do not add screenshot-only profile/matching questions.
+
+- [ ] **Step 3: Implement resilient synchronization**
+
+Save locally on each valid edit; debounce partial server saves; expose syncing/saved/offline/error state without blocking ordinary navigation; retry with the owned submission ID; and reject a response tied to another user or submission.
+
+- [ ] **Step 4: Finalize exactly once**
+
+Validate the complete payload locally, send through the authenticated owned endpoint, store returned processing state, clear editable draft only after server acknowledgement, and route to processing. A repeated tap/retry must not enqueue duplicate durable work.
+
+- [ ] **Step 5: Verify**
+
+Run native tests, backend quiz tests, Android full journey with provider-approved test OTP/AI stubs, memory/process recreation, TalkBack, large text, and slow/offline network.
+
+- [ ] **Step 6: Checkpoint**
+
+Suggested commit if separately authorized:
+
+~~~text
+feat: complete native quiz journey
+~~~
+
+## Task 33: Add optional native voice answers and durable processing states
+
+**Files:**
+
+- Create: frinq-mobile/src/services/audio/AudioRecorderAdapter.ts
+- Create: frinq-mobile/src/features/quiz/components/VoiceAnswer.tsx
+- Create: frinq-mobile/src/features/quiz/screens/StoryScreen.tsx
+- Create: frinq-mobile/src/features/vibe-report/screens/ProcessingScreen.tsx
+- Create: frinq-mobile/src/services/audio/__tests__/AudioRecorderAdapter.test.ts
+- Create: frinq-mobile/src/features/vibe-report/__tests__/processing.test.tsx
+- Modify: frinq-backend/app/api/v1/voice.py
+- Create: frinq-backend/tests/test_api/test_voice_formats.py
+- Modify: frinq-mobile/android/app/src/main/AndroidManifest.xml
+- Modify: frinq-mobile/ios/FrinqMobile/Info.plist
+
+**Produces:** Foreground-only optional native recording with text fallback and truthful durable-processing recovery.
+
+- [ ] **Step 1: Prove the audio dependency before feature code**
+
+Install `react-native-audio-api@0.12` and build its minimal file-recording example on Android with React Native 0.86/New Architecture/API 24 and API 36. Record version, architectures, 16 KB page result, MIME/container, and interruption behavior. A compatibility failure blocks this task; do not switch to Expo or an unreviewed recorder package.
+
+- [ ] **Step 2: Write adapter/component tests**
+
+Cover idle/requesting/recording/stopping/uploading/success/error/cancelled, denial/permanent denial, 120-second cap, interruption, background stop, cleanup, retry, and text fallback.
+
+- [ ] **Step 3: Implement foreground recording**
+
+Request microphone only after Record. Use a cache file with a generated name, supported native M4A/AAC settings, no background audio entitlement/service, and guaranteed stop/cleanup on unmount/background/cancel. Delete the local file after upload or abandonment.
+
+- [ ] **Step 4: Enforce backend upload rules**
+
+Accept only tested native formats, verify size/signature, cap 10 MB/120 seconds, generate server-side names, and never serve uploaded bytes as active content. Preserve the PII pipeline and ownership checks.
+
+- [ ] **Step 5: Implement processing/error recovery**
+
+Poll/back off or use the existing status endpoint; pause in background/offline; restore after process death; show success only when the server returns active membership; expose bounded retry/support for exhausted jobs.
+
+- [ ] **Step 6: Verify**
+
+Run all native/backend tests and Android real-device microphone checks. Record iOS microphone/interruptions as pending for Task 42.
+
+- [ ] **Step 7: Checkpoint**
+
+Suggested commit if separately authorized:
+
+~~~text
+feat: add native voice and processing flow
+~~~
+
+### Phase 8 Gate
+
+- [ ] Refresh rotation, concurrent 401, logout, banned, and secure-storage tests pass.
+- [ ] Current legal acceptance cannot be bypassed.
+- [ ] All actual quiz routes/branches map to native screens; matching-only screenshot fields remain excluded.
+- [ ] Encrypted draft recovery works across offline/process-restart cases without storing tokens or voice.
+- [ ] Final submission is idempotent and server-authoritative.
+- [ ] Android voice grant/deny/record/upload/cleanup and text fallback pass.
+- [ ] Processing resumes and reaches active only after canonical membership exists.
+- [ ] iOS remains explicitly pending Task 42.
+
+Continue to Phase 9 after recording the gate.
+
+# Phase 9: Native Vibe report, app shell, profile, legal, and deletion
+
+## Task 34: Build the collectible Vibe card and complete native report
+
+**Files:**
+
+- Create: frinq-mobile/src/features/vibe-report/components/VibeCard.tsx
+- Create: frinq-mobile/src/features/vibe-report/components/ReportSection.tsx
+- Create: frinq-mobile/src/features/vibe-report/screens/VibeReportScreen.tsx
+- Create: frinq-mobile/src/features/vibe-report/vibeReportService.ts
+- Create: frinq-mobile/src/features/vibe-report/shareVibeCard.ts
+- Create: frinq-mobile/src/features/vibe-report/__tests__/VibeReportScreen.test.tsx
+- Create: frinq-mobile/src/features/vibe-report/__tests__/shareVibeCard.test.ts
+
+**Interfaces:**
+
+- `loadVibeReport(): Promise<VibeReport>`
+- `shareVibeCard(cardRef, archetype): Promise<ShareResult>`
+
+**Produces:** A native accessible report with one shareable, collectible archetype card.
+
+- [ ] **Step 1: Freeze the report contract**
+
+Map every server field currently rendered by `vibe-box/page.tsx`, all 24 canonical archetypes, illustration fallback, processing/error states, and share-safe text. No native code derives or edits `archetype_slug`.
+
+- [ ] **Step 2: Write report/card tests**
+
+Cover loading, active, missing optional sections, unknown asset fallback, long localized-like text expansion, retry, stale membership, sharing cancellation/error, 200% text, screen reader, and reduced motion.
+
+- [ ] **Step 3: Implement the native card**
+
+Use approved maroon/cream/peach tokens, canonical illustration, archetype title, short descriptor, and Frinq mark. The on-screen card is responsive; the share capture renders a separate fixed-size, noninteractive composition with no phone/user ID/token.
+
+- [ ] **Step 4: Implement the full report**
+
+Render labeled editorial sections below the card, preserve server order/content, and provide deterministic loading/error states. Avoid a monolithic screen by splitting report section types.
+
+- [ ] **Step 5: Add image sharing**
+
+Resolve compatible `react-native-view-shot` and `react-native-share` versions. Capture only on explicit user action, remove temporary files after share completion/cancel, and provide a text-only fallback.
+
+- [ ] **Step 6: Verify**
+
+Test all 24 archetype fixtures, compact/current Android phones, large text, TalkBack, reduced motion, offline cached display policy, and share artifact absence of private strings.
+
+- [ ] **Step 7: Checkpoint**
+
+Suggested commit if separately authorized:
+
+~~~text
+feat: add native vibe card and report
+~~~
+
+## Task 35: Build the native app shell, profile, and settings
+
+**Files:**
+
+- Create: frinq-mobile/src/features/community/screens/CommunityPlaceholderScreen.tsx
+- Create: frinq-mobile/src/features/profile/screens/ProfileScreen.tsx
+- Create: frinq-mobile/src/features/profile/screens/EditProfileScreen.tsx
+- Create: frinq-mobile/src/features/profile/profileService.ts
+- Create: frinq-mobile/src/features/settings/screens/SettingsScreen.tsx
+- Create: frinq-mobile/src/features/settings/screens/CommunitySettingsScreen.tsx
+- Create: frinq-mobile/src/features/settings/screens/PrivacySettingsScreen.tsx
+- Create: frinq-mobile/src/features/settings/__tests__/settings.test.tsx
+- Create: frinq-mobile/src/features/profile/__tests__/profile.test.tsx
+
+**Produces:** Native Community/Profile/Settings tabs with safe identity and settings behavior.
+
+- [ ] **Step 1: Write navigation/profile/settings tests**
+
+Cover tab state, deep links, active membership requirement, profile fetch/edit validation, immutable archetype, dirty exit confirmation, community mute, analytics opt-in/out, logout, suspended/banned state, and API error mapping.
+
+- [ ] **Step 2: Implement the branded tab shell**
+
+Use native bottom tabs, safe areas, keyboard hiding, accessible selected state, and brand-controlled icons. Community is the initial active destination; Profile exposes Vibe report; Settings exposes all account/privacy controls.
+
+- [ ] **Step 3: Implement profile**
+
+Show safe display name, canonical archetype, bundled archetype asset, and report entry. Edit only the server-approved display name. Never show phone, internal IDs, or matching fields.
+
+- [ ] **Step 4: Implement settings**
+
+Add community mute, notifications entry, analytics consent, Terms, Privacy, Community Rules, Support, logout, and Delete Account. Logout closes realtime, deregisters the caller installation when available, clears session/draft/query state, and routes to signed-out root.
+
+- [ ] **Step 5: Verify**
+
+Run tests and Android manual navigation/profile/settings/large-text/TalkBack/offline/error checks.
+
+- [ ] **Step 6: Checkpoint**
+
+Suggested commit if separately authorized:
+
+~~~text
+feat: add native app shell profile and settings
+~~~
+
+## Task 36: Complete native legal documents, support, and account deletion
+
+**Files:**
+
+- Create: frinq-mobile/src/features/legal/screens/LegalHubScreen.tsx
+- Create: frinq-mobile/src/features/legal/screens/SupportScreen.tsx
+- Create: frinq-mobile/src/features/settings/screens/AccountScreen.tsx
+- Create: frinq-mobile/src/features/settings/screens/DeleteAccountScreen.tsx
+- Create: frinq-mobile/src/features/settings/deleteAccountService.ts
+- Create: frinq-mobile/src/features/settings/__tests__/deleteAccount.test.tsx
+- Modify: frinq-frontend/app/terms/page.tsx
+- Modify: frinq-frontend/app/privacy/page.tsx
+- Modify: frinq-frontend/app/community-rules/page.tsx
+- Modify: frinq-frontend/app/support/page.tsx
+- Modify: frinq-frontend/app/delete-account/page.tsx
+
+**Produces:** Native and public-web legal/support/deletion paths that agree with backend behavior and store declarations.
+
+- [ ] **Step 1: Write re-verification/deletion tests**
+
+Cover OTP request bound to stored phone, invalid/expired/replayed reauth token, typing DELETE, cancellation, server failure, successful deletion, local credential/draft/query/push cleanup, WebSocket closure, and fresh registration not reconnecting prior data.
+
+- [ ] **Step 2: Implement legal/support navigation**
+
+Render accessible native summaries/current acceptance state and open canonical HTTPS public documents only after explicit user action. Do not embed a WebView. Keep all documents available before login and from Settings.
+
+- [ ] **Step 3: Implement destructive deletion flow**
+
+Explain irreversibility, require fresh OTP and typed confirmation, call the existing deletion endpoint, wait for acknowledgement, then clear all local identity and return to signed-out root. Never hide deletion behind support.
+
+- [ ] **Step 4: Keep public pages truthful**
+
+Update public pages only as needed to reflect native navigation, exact deletion behavior, retention, support contact, and store URLs. Follow `frinq-frontend/AGENTS.md` and current local Next.js docs.
+
+- [ ] **Step 5: Verify**
+
+Run backend deletion tests, native tests, public frontend lint/test/build, and one disposable staging deletion journey on Android.
+
+- [ ] **Step 6: Checkpoint**
+
+Suggested commit if separately authorized:
+
+~~~text
+feat: complete native legal and deletion flows
+~~~
+
+### Phase 9 Gate
+
+- [ ] All 24 canonical archetypes render the correct Vibe card/report asset and content.
+- [ ] Shared card artifacts contain no private data and temporary files are removed.
+- [ ] Community/Profile/Settings navigation and server-authoritative guards pass.
+- [ ] Profile cannot mutate archetype or expose phone/internal IDs.
+- [ ] Legal/support/deletion are reachable before login and from Settings without WebView.
+- [ ] Disposable Android deletion revokes access and clears native state.
+- [ ] Public legal-site verification passes.
+
+Continue to Phase 10 after recording the gate.
+
+# Phase 10: Native community thread and privacy-safe push
+
+## Task 37: Implement the ticketed native realtime client and message store
+
+**Files:**
+
+- Create: frinq-mobile/src/services/realtime/CommunitySocket.ts
+- Create: frinq-mobile/src/services/realtime/realtimeMachine.ts
+- Create: frinq-mobile/src/features/community/communityMessageStore.ts
+- Create: frinq-mobile/src/services/realtime/__tests__/CommunitySocket.test.ts
+- Create: frinq-mobile/src/services/realtime/__tests__/realtimeMachine.test.ts
+
+**Interfaces:**
+
+- `connect(): Promise<void>`
+- `disconnect(reason): void`
+- `send(body, clientMessageId): Promise<PendingMessage>`
+- `loadHistory(cursor?): Promise<MessagePage>`
+- Realtime states: disconnected, connecting, connected, retrying, offline, authExpired, suspended, banned.
+
+**Produces:** A deterministic ticket-only WebSocket boundary with deduplicated optimistic sends.
+
+- [ ] **Step 1: Port and strengthen the web state tests**
+
+Cover single-use ticket fetch, 1/2/4/8/16/30-second full-jitter backoff, stable reset, offline pause, app background/resume, refresh-before-reconnect, ticket rejection, suspended/banned terminal state, duplicate event, out-of-order history, and listener cleanup.
+
+- [ ] **Step 2: Implement ticketed connection**
+
+Fetch a fresh ticket for each connection/reconnect. Put only the single-use ticket in the URL. Never include access/refresh tokens, phone, or message content in logs/errors/telemetry.
+
+- [ ] **Step 3: Implement history and optimistic identity**
+
+Load newest 50, render oldest-to-newest, prepend by opaque cursor, cap in-memory state at the approved bound, and use one UUID `client_message_id` across retries so the server resolves duplicates.
+
+- [ ] **Step 4: Integrate lifecycle and sessions**
+
+Offline pauses reconnect. Background closes after the approved grace period. Resume revalidates session/legal/membership before requesting a new ticket. Logout/ban/deletion disconnect immediately and discard pending state.
+
+- [ ] **Step 5: Verify**
+
+Run fake-clock/unit tests and Android two-client staging tests for send, reconnect, duplicate prevention, history, offline, background, and auth rotation.
+
+- [ ] **Step 6: Checkpoint**
+
+Suggested commit if separately authorized:
+
+~~~text
+feat: add native community realtime client
+~~~
+
+## Task 38: Build the accessible community-thread UI and safety controls
+
+**Files:**
+
+- Create: frinq-mobile/src/features/community/screens/CommunityScreen.tsx
+- Create: frinq-mobile/src/features/community/components/CommunityHeader.tsx
+- Create: frinq-mobile/src/features/community/components/MessageList.tsx
+- Create: frinq-mobile/src/features/community/components/CommunityMessage.tsx
+- Create: frinq-mobile/src/features/community/components/MessageComposer.tsx
+- Create: frinq-mobile/src/features/community/components/MessageActionSheet.tsx
+- Create: frinq-mobile/src/features/community/components/ReportSheet.tsx
+- Create: frinq-mobile/src/features/community/components/BlockDialog.tsx
+- Create: frinq-mobile/src/features/community/__tests__/CommunityScreen.test.tsx
+- Create: frinq-mobile/src/features/community/__tests__/safetyActions.test.tsx
+
+**Produces:** The approved calm community-thread design with direct report/block/mute access.
+
+- [ ] **Step 1: Write UI behavior/accessibility tests**
+
+Cover grouped author context, own-message accent, timestamps/actions on demand, sending/retry state, pagination scroll preservation, keyboard composer, empty/error/offline/banned state, report reason, block removal, mute, screen-reader order, and large text.
+
+- [ ] **Step 2: Implement the thread layout**
+
+Use a virtualized native list with stable keys and measured prepend behavior. Do not use private-chat left/right bubbles, post cards, Markdown, HTML, auto-linking, images, reactions, typing, receipts, or presence.
+
+- [ ] **Step 3: Implement composer and optimistic recovery**
+
+Plain text only, 1-1000 code points, native keyboard-safe placement, send disabled for invalid/offline/terminal state, and retry with the original client ID. Pending messages are process-memory only.
+
+- [ ] **Step 4: Implement report/block/mute**
+
+Expose actions on each eligible other-user message. Report is idempotent and neutral. Block immediately removes blocked-user messages after server success. Mute affects push, not membership/in-app history.
+
+- [ ] **Step 5: Verify**
+
+Run tests plus Android TalkBack, 200% text, keyboard/emoji switching, pagination, rapid incoming messages, offline/reconnect, report/block/mute, and low-memory process recreation.
+
+- [ ] **Step 6: Checkpoint**
+
+Suggested commit if separately authorized:
+
+~~~text
+feat: build native community thread and safety ui
+~~~
+
+## Task 39: Add opt-in native push and durable backend delivery
+
+**Files:**
+
+- Create: frinq-mobile/src/services/push/pushService.ts
+- Create: frinq-mobile/src/features/settings/screens/NotificationSettingsScreen.tsx
+- Create: frinq-mobile/src/services/push/__tests__/pushService.test.ts
+- Modify: frinq-mobile/android/app/src/main/AndroidManifest.xml
+- Modify: frinq-mobile/ios/FrinqMobile/AppDelegate.swift
 - Create: frinq-backend/app/core/push.py
 - Create: frinq-backend/app/api/v1/push.py
 - Create: frinq-backend/app/workers/tasks/push.py
@@ -2405,18 +2994,16 @@ feat: handle native lifecycle and offline state
 - Create: frinq-backend/tests/test_api/test_push.py
 - Create: frinq-backend/tests/test_core/test_push.py
 - Create: frinq-backend/tests/test_workers/test_push.py
-- Modify: frinq-frontend/ios/App/App/AppDelegate.swift
-- Modify: frinq-frontend/android/app/src/main/AndroidManifest.xml
 
-**Produces:** Generic, throttled community-activity notifications with complete opt-out and token cleanup.
+**Produces:** Generic, throttled community-activity notifications with complete opt-out and cleanup.
 
-- [ ] **Step 1: Install matched messaging dependencies**
+- [ ] **Step 1: Install native Firebase packages**
 
-Install @capacitor-firebase/messaging@8 and resolve its exact compatible version into package-lock.json. Add and pin firebase-admin in requirements.txt after verifying it supports the repository's Python version. Configure Firebase iOS and Android apps for the same production bundle/application ID. Store GoogleService-Info.plist, google-services.json, and service-account secrets according to repository and provider secret policy; never expose the service-account JSON in the web bundle or Git history.
+Resolve current React Native Firebase app, messaging, and Crashlytics packages compatible with React Native 0.86/New Architecture/API 24/16 KB pages. Never commit `GoogleService-Info.plist`, `google-services.json`, APNs keys, or service-account credentials; provide documented local/CI injection.
 
-- [ ] **Step 2: Write backend contract tests**
+- [ ] **Step 2: Write backend contracts**
 
-Define:
+Implement/test:
 
 ~~~text
 POST   /api/v1/push/tokens
@@ -2424,102 +3011,266 @@ DELETE /api/v1/push/tokens/{installation_id}
 PATCH  /api/v1/push/preferences
 ~~~
 
-Registration accepts platform ios or android, token, installation_id, and app_version. Store an HMAC-SHA-256 token hash for lookup plus ciphertext encrypted with a dedicated PUSH_TOKEN_KEY because FCM needs the original. A token and installation move atomically to the currently authenticated user. DELETE resolves the caller-owned installation ID rather than exposing a token-derived identifier. Reject invalid platform/size, revoke tokens rejected by FCM, and delete all tokens on logout-all, ban, or account deletion.
+Preserve the encrypted-token/HMAC lookup, ownership transfer, logout/ban/deletion cleanup, provider invalid-token removal, and idempotency requirements from the original Task 29.
 
-- [ ] **Step 3: Ask only after value is visible**
+- [ ] **Step 3: Ask only after community value**
 
-Do not prompt on first launch. After the user has entered their community, show an in-app explanation with Not now and Enable notifications. Request OS permission only after Enable. Denial leaves the app fully usable and Settings shows how to change the OS preference.
+Show Not now / Enable notifications after community entry. Request OS permission only after Enable. Denial leaves the app usable and Settings explains OS configuration.
 
-- [ ] **Step 4: Use private notification content**
+- [ ] **Step 4: Deliver privately and durably**
 
-Send only a generic title/body such as New activity in Quiet Storm. Do not include message text, author name, phone, quiz answer, or sensitive archetype explanation on the lock screen. A tap routes to the community only after session restoration and membership validation.
+Use generic community activity copy without message/author/phone/quiz content. Enqueue after message commit/broadcast; provider failure never rejects the message. Suppress author, muted, banned, active-community socket, and non-opted users; throttle once per user/community/15 minutes.
 
-- [ ] **Step 5: Deliver through the existing durable worker**
+- [ ] **Step 5: Handle installation/token/deep-link lifecycle**
 
-After a chat message commits and broadcasts, enqueue send_community_activity_push(message_id). The ARQ task loads eligible members at execution time and calls the provider with bounded retry. Queue/provider failure records a metric but never rolls back or rejects the message. Add the task to WorkerSettings rather than creating a second worker framework.
+Generate a non-secret installation UUID once, register on grant/token refresh, remove on caller logout, remove all on deletion/ban, and wait for boot/session/legal/membership validation before routing a tap to Community.
 
-- [ ] **Step 6: Throttle and suppress**
+- [ ] **Step 6: Verify**
 
-Send no push to the author, muted users, banned users, users currently connected to that community, or users without opt-in. Use Redis to permit at most one community-activity push per user per community in 15 minutes. Presence is an internal short-lived connection signal only; do not expose online status in the product.
-
-- [ ] **Step 7: Handle token lifecycle**
-
-Register on grant and token refresh; update app_version and last_seen_at; remove invalid provider tokens; and retry provider failures with bounded exponential backoff. The authenticated logout request includes the non-secret installation_id and revokes that session plus its caller-owned push row in one backend transaction; the client also clears native registration state. Notification failure must never fail message persistence or WebSocket delivery.
-
-- [ ] **Step 8: Verify on both platforms**
-
-Test foreground, background, terminated, permission grant/deny, token rotation, logout, account deletion, muted community, active-socket suppression, tap routing, invalid token cleanup, and throttling. Confirm release builds contain no service-account private key.
-
-- [ ] **Step 9: Checkpoint**
-
-Suggested commit if authorized:
-
-~~~text
-feat: add private opt-in community notifications
-~~~
-
-## Task 30: Add production identity, privacy manifests, and native metadata
-
-**Files:**
-
-- Create: frinq-frontend/ios/App/App/PrivacyInfo.xcprivacy
-- Modify: frinq-frontend/ios/App/App/Info.plist
-- Modify: frinq-frontend/ios/App/App/Assets.xcassets/
-- Modify: frinq-frontend/android/app/src/main/AndroidManifest.xml
-- Modify: frinq-frontend/android/app/src/main/res/
-- Create: frinq-frontend/store/metadata/en-IN.md
-- Create: frinq-frontend/store/privacy-data-inventory.md
-- Create: frinq-frontend/store/reviewer-notes.md
-- Create: frinq-frontend/scripts/verify-store-assets.mjs
-
-**Produces:** Complete native metadata and source assets ready for store packaging.
-
-- [ ] **Step 1: Freeze product identity**
-
-Owner approves Frinq name, subtitle/short description, category, support URL, marketing URL if used, privacy-policy URL, copyright, developer/seller name, support email, and bundle/application ID. Search and resolve trademark conflicts before spending on final assets.
-
-- [ ] **Step 2: Create source-controlled assets**
-
-Use one approved 1024 by 1024 opaque app icon source without transparency or rounded corners, plus adaptive Android foreground/background assets and launch-screen artwork. Generate platform sizes through the native asset pipeline, not by manually maintaining dozens of unrelated files. Verify there is no old Capacitor branding.
-
-- [ ] **Step 3: Build the Apple privacy manifest from actual dependencies**
-
-Run the current Capacitor privacy-manifest workflow, inventory Required Reason APIs used by Capacitor, secure preferences, Firebase messaging, and app code, and add only documented reason codes. Treat PrivacyInfo.xcprivacy and App Store privacy answers as separate requirements that must agree with runtime behavior.
-
-- [ ] **Step 4: Complete native metadata**
-
-Set display name, versions, orientations actually supported, microphone purpose string, background modes only if required by push, URL schemes only if used, export-compliance values based on counsel/Apple guidance, Android labels/themes, notification icon/channel, and backup rules that exclude refresh tokens and sensitive local data.
-
-- [ ] **Step 5: Add deterministic asset checks**
-
-verify-store-assets.mjs checks required icon/splash dimensions, alpha rules where applicable, application IDs, version strings, permission text, privacy manifest presence, and absence of localhost/development endpoints in release configuration.
-
-- [ ] **Step 6: Verify on release builds**
-
-Build signed-candidate archives locally, inspect the installed icon/name/launch screen, inspect permissions, run the asset check, and scan the unpacked artifacts for localhost, test phones, source maps, admin keys, service-account private keys, and development certificates.
+Run backend/native tests. On Android test foreground/background/terminated, grant/deny, token refresh, mute, active-socket suppression, tap routing, logout, deletion, and invalid token cleanup. Record iOS push as pending Task 42.
 
 - [ ] **Step 7: Checkpoint**
 
-Suggested commit if authorized:
+Suggested commit if separately authorized:
 
 ~~~text
-release: add native identity privacy manifest and metadata
+feat: add private native community notifications
 ~~~
 
-### Phase 7 Gate
+### Phase 10 Gate
 
-- [ ] Clean iOS and Android native builds work from npm ci plus native:sync.
-- [ ] Real-device voice recording succeeds with platform-native MIME output and denial fallback.
-- [ ] Lifecycle, offline, safe-area, keyboard, and Android-back tests pass.
-- [ ] Push is opt-in, generic, throttled, mute-aware, and cleaned up on logout/deletion.
-- [ ] Privacy manifest, permissions, icon, launch assets, and release endpoint scans pass.
-- [ ] No release native project uses a live development server.
+- [ ] Ticketed native realtime passes reconnect, auth, lifecycle, history, and duplicate tests.
+- [ ] Community thread matches the approved interaction model and safety actions are directly reachable.
+- [ ] No user content is rendered as HTML/Markdown or captured in telemetry.
+- [ ] Android push is opt-in, generic, throttled, mute-aware, deep-link-safe, and cleaned on logout/deletion.
+- [ ] Backend push tests and full backend suite pass.
+- [ ] iOS realtime/push remain explicitly pending Task 42.
 
-Stop and obtain iOS, Android, privacy, and product review before Phase 8.
+Continue to Phase 11 after recording the gate.
 
-# Phase 8: Security, operations, and release-candidate hardening
+# Phase 11: Native parity, release configuration, final iPhone gate, and web cutover
 
-## Task 31: Harden HTTP, secrets, uploads, and production configuration
+## Task 40: Prove native parity, accessibility, and Android release quality
+
+**Files:**
+
+- Modify: frinq-mobile/docs/route-parity-matrix.md
+- Create: frinq-mobile/docs/device-test-matrix.md
+- Create: frinq-mobile/docs/accessibility-checklist.md
+- Create: frinq-mobile/scripts/verify-release-artifact.mjs
+- Create: frinq-mobile/src/__tests__/criticalJourneys.test.tsx
+
+**Produces:** Traceable proof that the native app replaces every required consumer behavior.
+
+- [ ] **Step 1: Close every parity row**
+
+Each required web route/behavior maps to a native screen/state/test or an explicitly retained public page. Compare copy, answer keys, API payloads, legal/safety actions, analytics events, error/loading/empty/offline behavior, and archetype assets. No row may say “similar,” “later,” or “not tested.”
+
+- [ ] **Step 2: Run automated accessibility gates**
+
+Assert roles/names/state/focus, 48 dp targets, color contrast, 200% text, reduced motion, no color-only meaning, keyboard-safe controls, decorative-art hiding, and no announcement of every incoming message.
+
+- [ ] **Step 3: Test Android device classes**
+
+At minimum cover API 24 representative emulator/device, Android 13+, current Android/API 36, compact/current phones, tablet compatibility width, TalkBack, large text/display, reduced motion, slow network, airplane mode, process kill, app upgrade, microphone, notifications, and low-memory recreation.
+
+- [ ] **Step 4: Measure release performance**
+
+Record cold/warm start, JS/native crash-free run, quiz transition smoothness, long-report scroll, 300-message list scroll, memory after repeated navigation, APK/AAB sizes, ANRs, and release endpoint/network behavior. Fix measured regressions; do not add speculative optimization.
+
+- [ ] **Step 5: Scan Android release artifact**
+
+Build Release AAB/APK and fail on localhost, HTTP production endpoints, source maps if disallowed, test phone/OTP, server secrets, service-account keys, WebView/Capacitor/Expo strings attributable to dependencies/config, wrong app ID, debug signing, or missing 16 KB compatibility.
+
+- [ ] **Step 6: Verify**
+
+Run all native/backend/public-web/admin suites from locked installs plus Android lint/unit/release build. Attach the matrix and command outputs to the ledger.
+
+- [ ] **Step 7: Checkpoint**
+
+Suggested commit if separately authorized:
+
+~~~text
+test: prove native parity and android release
+~~~
+
+## Task 41: Add production identity, permissions, privacy metadata, and store assets
+
+**Files:**
+
+- Create: frinq-mobile/ios/FrinqMobile/PrivacyInfo.xcprivacy
+- Modify: frinq-mobile/ios/FrinqMobile/Info.plist
+- Modify: frinq-mobile/ios/FrinqMobile/Images.xcassets/
+- Modify: frinq-mobile/android/app/src/main/AndroidManifest.xml
+- Modify: frinq-mobile/android/app/src/main/res/
+- Create: frinq-mobile/store/metadata/en-IN.md
+- Create: frinq-mobile/store/privacy-data-inventory.md
+- Create: frinq-mobile/store/reviewer-notes.md
+- Create: frinq-mobile/store/territory-review.md
+- Create: frinq-mobile/scripts/verify-store-assets.mjs
+
+**Produces:** Complete native identity and metadata ready for final device/archive validation.
+
+- [ ] **Step 1: Freeze owner-controlled identity**
+
+Approve product name, subtitle/short description, category, support/privacy/deletion URLs, copyright, seller/developer name, support email, and `in.frinq.app`. Confirm the owner-approved Vastago provenance record and resolve any remaining trademark or asset-license issues before final asset work.
+
+- [ ] **Step 2: Generate native assets**
+
+Use one approved opaque 1024x1024 icon, Android adaptive foreground/background, launch artwork, notification icon/channel, and truthful store screenshots later captured from the native release binary. No Capacitor/Expo branding.
+
+- [ ] **Step 3: Declare only used permissions/capabilities**
+
+Add microphone explanation, push entitlements/capabilities, orientations, backup exclusions for credentials/drafts, export-compliance value based on approved guidance, and no location/camera/photos/background-microphone capability.
+
+- [ ] **Step 4: Build privacy evidence from actual dependencies**
+
+Inventory Required Reason APIs and collected/transmitted data from the React Native runtime, secure storage, MMKV, Firebase messaging/Crashlytics, audio, API, and app code. Add only documented Apple reason codes and reconcile with Apple App Privacy/Play Data Safety.
+
+- [ ] **Step 5: Add deterministic metadata checks**
+
+Verify icon dimensions/alpha, application IDs, versions, permission strings, privacy manifest, URL schemes, release endpoint, backup rules, font notices/license evidence, and absence of forbidden permissions.
+
+- [ ] **Step 6: Checkpoint**
+
+Suggested commit if separately authorized:
+
+~~~text
+release: add native identity privacy and store metadata
+~~~
+
+## Task 42: Run the one consolidated Mac, Xcode, and physical-iPhone gate
+
+**Files:**
+
+- Create: frinq-mobile/docs/ios-final-test-runbook.md
+- Modify: frinq-backend/docs/launch/execution-ledger.md
+
+**Produces:** The first and final authoritative iOS build/device evidence for the completed native feature set.
+
+- [ ] **Step 1: Prepare an exact handoff**
+
+Record the exact Git commit/working-tree patch, Node/npm/Ruby/Bundler/CocoaPods/Xcode versions, required locally injected Firebase files, signing team, bundle ID, API environment, test accounts, commands, expected output, and rollback/cleanup. Do not send secrets through the document.
+
+- [ ] **Step 2: Bootstrap on the physical Mac**
+
+Run:
+
+~~~bash
+git status --short
+cd frinq-mobile
+npm ci
+bundle install
+cd ios
+bundle exec pod install --repo-update
+cd ..
+npm run verify
+open ios/FrinqMobile.xcworkspace
+~~~
+
+Expected: locked dependencies install, pods resolve, verification passes, and the workspace opens. A failure is copied verbatim into the ledger and returned to implementation.
+
+- [ ] **Step 3: Build and install Debug on the connected iPhone**
+
+Enable Developer Mode, trust the Mac, select the physical iPhone and approved signing team, build, install, and launch. Confirm `in.frinq.app`, Frinq name/icon/splash, production-like HTTPS environment, and no Metro/live-server requirement for Release.
+
+- [ ] **Step 4: Execute the complete iPhone journey**
+
+Test legal acceptance, OTP new/returning account, every quiz family/branch, encrypted resume, offline/reconnect, voice grant/deny/interruption/background/cleanup, processing/retry, all 24-asset fallback rules, Vibe card/share, tabs, profile, settings, community history/send/reconnect, report/block/mute, push grant/deny/background/terminated/tap, logout, fresh login, and disposable account deletion.
+
+- [ ] **Step 5: Execute iOS accessibility/lifecycle checks**
+
+Test VoiceOver, 200% text, Increase Contrast, Reduce Motion, keyboard/autofill, safe areas, app background/foreground, screen lock, process kill/restore, notification tap during cold start, and compact/current iPhone layouts.
+
+- [ ] **Step 6: Archive Release**
+
+Archive with current Xcode 26/iOS 26 SDK, validate in Organizer, resolve every compile/privacy/entitlement/symbol warning, run store-asset/artifact scans, and record archive checksum. Do not upload without separate authorization.
+
+- [ ] **Step 7: Handle failures honestly**
+
+Any failure reopens its owning task. Fix on Windows/Mac as appropriate, rerun impacted automated/Android checks, and repeat the consolidated iOS gate. Never mark iOS verified from static review or simulator-only output.
+
+- [ ] **Step 8: Checkpoint**
+
+Suggested commit if separately authorized:
+
+~~~text
+test: verify final native ios candidate
+~~~
+
+## Task 43: Cut the consumer web app down to public legal/support pages
+
+**Files:**
+
+- Remove after parity: frinq-frontend/app/(quiz)/
+- Remove after parity: frinq-frontend/app/(app)/
+- Remove after parity: frinq-frontend/app/components/ consumer-only components
+- Remove after parity: frinq-frontend/app/lib/ consumer-session/realtime modules
+- Modify: frinq-frontend/package.json
+- Modify: frinq-frontend/package-lock.json
+- Modify: frinq-frontend/app/page.tsx
+- Preserve: frinq-frontend/app/terms/
+- Preserve: frinq-frontend/app/privacy/
+- Preserve: frinq-frontend/app/community-rules/
+- Preserve: frinq-frontend/app/support/
+- Preserve: frinq-frontend/app/delete-account/
+- Modify: frinq-frontend/README.md
+
+**Produces:** A minimal public site and no competing Capacitor/consumer release path.
+
+- [ ] **Step 1: Require native acceptance evidence**
+
+Do not begin removal until Tasks 40-42 pass and the owner approves the native cutover. Save a tagged/committed reference revision if authorized so behavior history remains recoverable.
+
+- [ ] **Step 2: Write public-route tests first**
+
+Assert Terms, Privacy, Community Rules, Support, deletion information, and landing/download links build and work without authentication. Assert former consumer/auth/quiz routes redirect to approved app-download/help destinations or return a deliberate not-found response.
+
+- [ ] **Step 3: Remove consumer and Capacitor runtime**
+
+Remove Capacitor packages/config/calls, secure-storage web shims, consumer chat/quiz/profile code, browser analytics/session replay, and obsolete E2E journeys. Keep only dependencies required by the public site. Follow current local Next.js documentation.
+
+- [ ] **Step 4: Preserve deletion access**
+
+The public deletion page remains useful without the native app, explains sign-in/reverification, exact deleted/retained data, support, and store-required URL behavior.
+
+- [ ] **Step 5: Verify**
+
+Run:
+
+~~~powershell
+Push-Location frinq-frontend
+npm ci
+npm test
+npm run lint
+npm run build
+Pop-Location
+~~~
+
+Search the retained site/package lock for Capacitor and consumer token storage. Review the diff to ensure legal/support assets were not removed.
+
+- [ ] **Step 6: Checkpoint**
+
+Suggested commit if separately authorized:
+
+~~~text
+refactor: retain public legal site after native cutover
+~~~
+
+### Phase 11 Gate
+
+- [ ] Every parity-matrix row is closed with native/public-web evidence.
+- [ ] Android release/device/accessibility/performance/artifact gates pass.
+- [ ] Native identity, permissions, privacy manifest, store metadata, and font licenses are complete.
+- [ ] The consolidated Mac/iPhone Debug, full journey, accessibility, push/voice, and Release archive checks pass.
+- [ ] `frinq-frontend` is reduced only after native acceptance and contains no Capacitor consumer runtime.
+- [ ] No Expo, Capacitor, WebView, live-server, matching, or DM behavior exists in the native release.
+
+Continue to Phase 12 after recording product, mobile, privacy, and engineering acceptance.
+
+# Phase 12: Security, operations, and release-candidate hardening
+
+## Task 44: Harden HTTP, native secrets, uploads, and production configuration
 
 **Files:**
 
@@ -2531,6 +3282,8 @@ Stop and obtain iOS, Android, privacy, and product review before Phase 8.
 - Create: frinq-backend/app/core/security_headers.py
 - Create: frinq-backend/tests/test_api/test_security_boundaries.py
 - Create: frinq-backend/scripts/verify_production_config.py
+- Create: frinq-mobile/scripts/verify-release-artifact.mjs
+- Modify: frinq-mobile/package.json
 - Modify: frinq-frontend/.do/app.yaml
 - Modify: frinq-admin/.do/app.yaml
 
@@ -2542,11 +3295,11 @@ Test exact CORS origins, allowed methods/headers, request body limits, upload li
 
 - [ ] **Step 2: Set response and edge headers**
 
-For static consumer pages and admin pages, configure HSTS after HTTPS is proven, X-Content-Type-Options nosniff, Referrer-Policy strict-origin-when-cross-origin or stricter, frame-ancestors none, a least-privilege Permissions-Policy, and a CSP derived from observed production requests. Do not copy a generic CSP that breaks Capacitor or permits unsafe-eval in release.
+For the retained public pages and admin pages, configure HSTS after HTTPS is proven, X-Content-Type-Options nosniff, Referrer-Policy strict-origin-when-cross-origin or stricter, frame-ancestors none, a least-privilege Permissions-Policy, and a CSP derived from observed production requests. Do not copy a generic CSP or permit unsafe-eval in release.
 
 - [ ] **Step 3: Bound requests**
 
-At the edge and application, cap JSON request bodies to 64 KB, WebSocket frames to 8 KB, report details to their schema limit, and voice uploads to Task 27 limits. Apply timeouts to database, Redis, AI, WhatsApp, Firebase, and HTTP calls. Bound all pagination and array inputs.
+At the edge and application, cap JSON request bodies to 64 KB, WebSocket frames to 8 KB, report details to their schema limit, and voice uploads to the Task 33 limits. Apply timeouts to database, Redis, AI, WhatsApp, Firebase, and HTTP calls. Bound all pagination and array inputs.
 
 - [ ] **Step 4: Verify secret separation**
 
@@ -2554,19 +3307,26 @@ Production requires strong unique JWT signing material, SESSION_HASH_PEPPER, RAT
 
 - [ ] **Step 5: Scan source and artifacts**
 
-Use the repository's approved secret scanner or gitleaks in CI. Also scan frinq-frontend/out, admin build output, Android AAB contents, and iOS archive contents for server secrets, test phones, bearer-token examples, source maps, and localhost. Public API origins and Firebase client identifiers are not server secrets but still must point to production.
+Use the repository's approved secret scanner or gitleaks in CI. Also scan the retained public-site output, admin build output, unpacked Android AAB/APK, and the iOS archive/export for server secrets, test phones, bearer-token examples, disallowed source maps, development signing/configuration, and localhost. Public API origins and Firebase client identifiers are not server secrets but still must point to production. Fail when an Expo, Capacitor, Ionic, WebView, or remote-JavaScript bootstrap path is present in the native application.
 
 - [ ] **Step 6: Verify**
 
 Run:
 
 ~~~powershell
+Push-Location frinq-backend
 pytest tests/test_api/test_security_boundaries.py -v
 python scripts/verify_production_config.py --env-file .env.staging
 pytest -q
+Pop-Location
+
+Push-Location frinq-mobile
+npm ci
+npm run verify:release
+Pop-Location
 ~~~
 
-Run the frontend/admin lint and release builds and confirm their header configuration with curl against staging.
+Run the retained public-site/admin lint and release builds and confirm their header configuration with curl against staging.
 
 - [ ] **Step 7: Checkpoint**
 
@@ -2576,48 +3336,50 @@ Suggested commit if authorized:
 security: enforce production boundaries
 ~~~
 
-## Task 32: Add end-to-end release journeys and accessibility checks
+## Task 45: Prove end-to-end release journeys and native accessibility
 
 **Files:**
 
-- Modify: frinq-frontend/package.json
-- Modify: frinq-frontend/package-lock.json
-- Create: frinq-frontend/tests/e2e/release-journeys.spec.ts
-- Create: frinq-frontend/tests/e2e/chat-safety.spec.ts
-- Create: frinq-frontend/tests/e2e/account-deletion.spec.ts
-- Modify: frinq-frontend/playwright.config.ts
-- Create: frinq-frontend/tests/e2e/fixtures.ts
-- Create: frinq-frontend/docs/device-test-matrix.md
+- Create: frinq-mobile/docs/release-journeys.md
+- Create: frinq-mobile/docs/device-test-matrix.md
+- Create: frinq-mobile/src/test/releaseFixtures.ts
+- Create: frinq-mobile/src/test/releaseJourneys.test.tsx
+- Create: frinq-mobile/src/test/chatSafety.test.tsx
+- Create: frinq-mobile/src/test/accountDeletion.test.tsx
+- Modify: frinq-mobile/package.json
+- Create: frinq-backend/scripts/seed_release_test_data.py
+- Create: frinq-backend/tests/test_scripts/test_seed_release_test_data.py
+- Modify: frinq-frontend/tests/e2e/legal-public-pages.spec.ts
 
-**Produces:** Repeatable proof of the critical customer and safety journeys.
+**Produces:** Repeatable proof of the critical customer, safety, deletion, and accessibility journeys.
 
-- [ ] **Step 1: Install the accessibility integration**
+- [ ] **Step 1: Create isolated test-data helpers**
 
-Run npm install -D @axe-core/playwright@4 and commit the resolved lockfile. Use it inside the existing Playwright suite; do not introduce a second browser runner.
+Generate uniquely tagged staging users through an explicit test-only script or endpoint protected by both an environment flag and admin authentication. The path must not be enabled in production. Cleanup uses explicit tagged IDs, never a broad delete.
 
-- [ ] **Step 2: Create isolated test data helpers**
+- [ ] **Step 2: Automate the portable state and component journeys**
 
-Generate uniquely tagged staging users through a test-only seed path protected by an environment flag and admin authentication. The path must not exist in production. Cleanup uses explicit tagged IDs, never a broad delete.
+At the store, hook, navigation, and screen-component layers, cover new OTP account, Terms acceptance, quiz resume after process death, durable processing, active result, assigned community, two-user thread, reconnect without duplicate, report, block, mute, profile edit, logout/login, refresh rotation, revoked-session rejection, and account deletion. Stub external AI, OTP, and push only in isolated automated environments.
 
-- [ ] **Step 3: Automate browser journeys**
+- [ ] **Step 3: Add native accessibility assertions**
 
-Cover new OTP account, Terms acceptance, quiz resume after refresh, durable processing, active result, assigned community, two-user chat, reconnect without duplicate, report, block, mute, profile edit, logout/login, refresh rotation, revoked-session rejection, and account deletion. Stub external AI/OTP/push only in the isolated CI environment; staging smoke tests use provider-approved test mechanisms.
+Use React Native Testing Library roles, accessible names, and state assertions plus platform accessibility APIs. Fail on missing accessible names, unlabeled controls, incorrect selection state, inaccessible modal focus, controls below the approved token minimum, and screens that cannot scroll at large text. Do not use DOM-only accessibility assumptions for native screens.
 
-- [ ] **Step 4: Add automated accessibility assertions**
+- [ ] **Step 4: Keep browser tests only for retained public pages**
 
-Run axe or the existing accessibility tool against sign-in, Terms, quiz, processing, result, community, report dialog, profile, settings, and deletion. Fail on serious/critical violations, missing labels, focus traps, inaccessible names, invalid heading order, and color contrast failures.
+Use the existing Playwright stack only for the retained Terms, Privacy, Community Rules, Support, and deletion-information pages. Cover navigation, document versions, support links, deletion instructions, narrow viewport, keyboard use, and serious/critical axe violations.
 
 - [ ] **Step 5: Complete the real-device matrix**
 
-At minimum test the oldest supported iPhone/iOS 15 class device available, one current iPhone, one minSdk 24-class Android device or representative lab device, one current Pixel-class Android, slow network, screen reader, 200% text, dark/light system modes, rotation, push states, microphone states, and app upgrade from the prior internal build.
+Use the Task 42 signed iPhone evidence and test at least one API 24-class Android device or representative lab device plus one current Android phone. Cover slow/lost/restored network, VoiceOver/TalkBack, maximum supported text, light and dark system settings while the app stays brand-light, portrait lock, push states, microphone states, background/terminated restore, low-memory recreation, and upgrade from the prior internal build.
 
 - [ ] **Step 6: Avoid a second mobile automation stack for beta**
 
-Use Playwright for web logic and the documented real-device matrix for native-only behavior. Add Maestro/Appium only after a repeated regression proves the maintenance cost is justified.
+Use Jest/React Native Testing Library, Android instrumentation already supplied by the template where valuable, retained-public-page Playwright, and the signed device matrix. Add Maestro, Detox, or Appium only through a separately approved plan after repeated regression evidence justifies its ownership cost.
 
 - [ ] **Step 7: Verify**
 
-Run unit, integration, Playwright, accessibility, lint, static build, backend, and native configuration checks from clean installs. Attach command output and the signed device matrix to the release candidate.
+From clean installs, run backend, native unit/integration/component, Android lint/test/release, public-site Playwright/accessibility, and admin checks. Attach exact commands, exit codes, test counts, artifacts, and the signed device matrix to the release candidate.
 
 - [ ] **Step 8: Checkpoint**
 
@@ -2627,7 +3389,7 @@ Suggested commit if authorized:
 test: cover release and safety journeys
 ~~~
 
-## Task 33: Add observability without collecting message content
+## Task 46: Add observability without collecting message content
 
 **Files:**
 
@@ -2640,6 +3402,8 @@ test: cover release and safety journeys
 - Create: frinq-backend/docs/runbooks/incident-response.md
 - Create: frinq-backend/docs/runbooks/moderation.md
 - Create: frinq-backend/docs/runbooks/provider-outage.md
+- Modify: frinq-mobile/src/services/telemetry/crashReporter.ts
+- Create: frinq-mobile/src/services/telemetry/crashReporter.test.ts
 
 **Produces:** Actionable health signals and owner-operated incident procedures with redacted data.
 
@@ -2655,15 +3419,19 @@ Include request ID, route template, status, latency, deployment version, job nam
 
 Track request count/latency/errors, database pool saturation, Redis failures, OTP success/failure/limit counts, refresh reuse detection, quiz queue age/success/failure, active WebSockets, message accept/reject latency, reports awaiting review, push success/invalid tokens, and account-deletion failures. Alert on sustained 5xx, readiness failure, quiz queue age, elevated OTP abuse, moderation backlog, and backup failure.
 
-- [ ] **Step 4: Write operational runbooks**
+- [ ] **Step 4: Prove mobile crash redaction**
+
+Crash reports may include app/build/OS/device class, screen identifier, lifecycle state, network class, and an allowlisted error code. They must not include phone numbers, tokens, push tokens, quiz answers, voice paths or audio, message/report text, profile content, community content, or raw request/response bodies. Plant representative secrets and user content in automated tests and prove the reporter replaces or drops them before transport.
+
+- [ ] **Step 5: Write operational runbooks**
 
 Document severity/owner/escalation, secret rotation, token-signing-key incident, database/Redis/provider outage, abusive community response, emergency read-only/chat-disable flags, rollback, user communication approval, and evidence preservation. Set and staff a moderation review target before public chat; if no trained moderator is available, disable new messages rather than leave reports unattended.
 
-- [ ] **Step 5: Verify**
+- [ ] **Step 6: Verify**
 
 Force each dependency failure in staging, confirm expected readiness and user behavior, inspect logs for planted sensitive values, fire test alerts, and rehearse the chat-disable flag.
 
-- [ ] **Step 6: Checkpoint**
+- [ ] **Step 7: Checkpoint**
 
 Suggested commit if authorized:
 
@@ -2671,7 +3439,7 @@ Suggested commit if authorized:
 ops: add redacted observability and incident runbooks
 ~~~
 
-## Task 34: Prove backup, restore, capacity, and rollback
+## Task 47: Prove backup, restore, capacity, and rollback
 
 **Files:**
 
@@ -2715,7 +3483,7 @@ Suggested commit if authorized:
 ops: prove capacity restore and rollback
 ~~~
 
-### Phase 8 Gate
+### Phase 12 Gate
 
 - [ ] Production config validation, secret scans, and security-boundary tests pass.
 - [ ] All critical user, safety, deletion, and accessibility journeys pass.
@@ -2725,25 +3493,25 @@ ops: prove capacity restore and rollback
 - [ ] Load target, backup restore, deployment rollback, and emergency flags are proven.
 - [ ] No unresolved P0/P1 defect remains; accepted lower-severity defects have owner and release decision.
 
-Stop and obtain engineering, security, operations, moderation, privacy, and product release-candidate approval before Phase 9.
+Stop and obtain engineering, security, operations, moderation, privacy, mobile, and product release-candidate approval before Phase 13.
 
-# Phase 9: Store submission and staged worldwide release
+# Phase 13: Store submission and staged worldwide release
 
-## Task 35: Freeze the release candidate and complete disclosure evidence
+## Task 48: Freeze the release candidate and complete disclosure evidence
 
 **Files:**
 
-- Create: frinq-frontend/store/release-checklist.md
-- Modify: frinq-frontend/store/privacy-data-inventory.md
-- Modify: frinq-frontend/store/reviewer-notes.md
-- Create: frinq-frontend/store/territory-review.md
-- Create: frinq-frontend/CHANGELOG.md
+- Create: frinq-mobile/store/release-checklist.md
+- Create: frinq-mobile/store/privacy-data-inventory.md
+- Create: frinq-mobile/store/reviewer-notes.md
+- Create: frinq-mobile/store/territory-review.md
+- Create: frinq-mobile/CHANGELOG.md
 
 **Produces:** One traceable build whose binaries, disclosures, screenshots, and backend version match.
 
 - [ ] **Step 1: Freeze versions**
 
-Choose one semantic app version and monotonically increasing iOS build number/Android versionCode. Tag the exact frontend, backend, admin, migration, worker, and native revisions in the release ledger. Any code or configuration change after archive generation invalidates the candidate and requires the relevant checks again.
+Choose one semantic app version and monotonically increasing iOS build number/Android versionCode. Record the exact mobile, public frontend, backend, admin, migration, and worker revisions in the release ledger. Any code or configuration change after archive generation invalidates the candidate and requires the affected checks again. Do not create a tag or push without owner authorization.
 
 - [ ] **Step 2: Reconcile the data inventory**
 
@@ -2751,7 +3519,7 @@ For every collected or transmitted data type, record purpose, optional/required 
 
 - [ ] **Step 3: Complete UGC safety evidence**
 
-Reviewer notes identify community rules acceptance, proactive filtering, report/block entry points, moderator workflow, support contact, and account ban capability. Provide a stable review account/OTP procedure that does not expose a real person's phone and remains available throughout review.
+Reviewer notes identify community-rules acceptance, proactive filtering, report/block entry points, moderator workflow, support contact, and account ban capability. Provide a stable review account/OTP procedure that does not expose a real person's phone and remains available throughout review.
 
 - [ ] **Step 4: Approve territories**
 
@@ -2763,9 +3531,9 @@ Capture the release binary on required device sizes. Show real app UI, assigned 
 
 - [ ] **Step 6: Final pre-submission suite**
 
-From clean checkouts, run every Phase 8 automated command and the full signed device matrix against the frozen staging backend. Record checksums for submitted AAB and iOS archive/export.
+From clean checkouts, run every Phase 12 automated command and the full signed device matrix against the frozen staging backend. Record checksums for the candidate AAB and iOS archive/export.
 
-## Task 36: Submit and validate the iOS build
+## Task 49: Submit and validate the iOS build
 
 **External systems:** Apple Developer, App Store Connect, TestFlight.
 
@@ -2777,11 +3545,11 @@ Owner completes Apple Developer enrollment, agreements, tax/banking where applic
 
 - [ ] **Step 2: Archive with the required SDK**
 
-Use Xcode 26 or newer and the iOS 26 SDK or newer, with iOS deployment target 15. Archive Release, validate in Organizer, resolve every privacy/entitlement/symbol warning, upload, and confirm processing.
+Use Xcode 26 or a later App-Store-supported Xcode and the iOS 26 SDK or later, with iOS deployment target 15.1. Archive Release, validate in Organizer, resolve every privacy/entitlement/symbol warning, then obtain explicit owner authorization before upload and confirm processing.
 
 - [ ] **Step 3: Complete App Store Connect**
 
-Provide approved metadata, privacy-policy/support URLs, age-rating answers reflecting UGC and messaging, App Privacy answers from Task 35, encryption/export answers, content rights, pricing/availability, screenshots, reviewer account, OTP instructions, microphone explanation, community-safety explanation, and deletion navigation.
+Provide approved metadata, privacy-policy/support URLs, age-rating answers reflecting UGC and messaging, App Privacy answers from Task 48, encryption/export answers, content rights, pricing/availability, screenshots, reviewer account, OTP instructions, microphone explanation, community-safety explanation, and deletion navigation.
 
 - [ ] **Step 4: Run TestFlight rings**
 
@@ -2789,9 +3557,9 @@ First internal testers, then an external beta group after Beta App Review. Requi
 
 - [ ] **Step 5: Submit for review**
 
-Use manual release or phased release, not immediate automatic worldwide release. Monitor App Review messages daily and answer from the approved reviewer notes. A rejection becomes a tracked defect/change; do not conceal behavior or instruct reviewers to bypass policy.
+With explicit owner authorization, use manual release or phased release, not immediate automatic worldwide release. Monitor App Review messages and answer from the approved reviewer notes. A rejection becomes a tracked defect/change; do not conceal behavior or instruct reviewers to bypass policy.
 
-## Task 37: Submit and validate the Android build
+## Task 50: Submit and validate the Android build
 
 **External systems:** Google Play Console, Firebase Console.
 
@@ -2803,11 +3571,11 @@ Owner completes Play developer verification, payments profile/agreements, app re
 
 - [ ] **Step 2: Build the policy-compatible AAB**
 
-Compile and target API 36, build Release, run lint and bundle validation, upload the AAB, review the pre-launch report, and resolve permission, crash, ANR, security, and device-compatibility findings.
+Compile and target API 36, build Release, and run lint and bundle validation. Obtain explicit owner authorization before uploading the AAB. Review the pre-launch report and resolve permission, crash, ANR, security, and device-compatibility findings.
 
 - [ ] **Step 3: Complete Play Console declarations**
 
-Provide store listing, support/privacy/deletion URLs, Data Safety answers from Task 35, content rating, target audience 18+, ads declaration, app access/OTP instructions, UGC policy evidence, account deletion, permissions declarations, and availability/pricing. Mark financial/health/dating/social claims only according to actual product behavior and counsel-reviewed copy.
+Provide store listing, support/privacy/deletion URLs, Data Safety answers from Task 48, content rating, target audience 18+, ads declaration, app access/OTP instructions, UGC policy evidence, account deletion, permissions declarations, and availability/pricing. Mark financial/health/dating/social claims only according to actual product behavior and counsel-reviewed copy.
 
 - [ ] **Step 4: Satisfy testing eligibility**
 
@@ -2817,7 +3585,7 @@ Run internal testing first. If the developer account is a personal account creat
 
 Test clean install, upgrade, OTP, quiz, chat, report/block, push grant/deny/tap, microphone grant/deny, offline/reconnect, logout, deletion, low-memory process recreation, and the supported device matrix. Fix pre-launch and tester P0/P1 issues before production submission.
 
-## Task 38: Deploy production services and perform staged rollout
+## Task 51: Deploy production services and perform staged rollout
 
 **External systems:** DigitalOcean App Platform, DNS/TLS provider, Apple App Store, Google Play.
 
@@ -2829,7 +3597,7 @@ Test clean install, upgrade, OTP, quiz, chat, report/block, push grant/deny/tap,
 2. run the deterministic PRE_DEPLOY migration job once.
 3. deploy backend with chat/push writes disabled.
 4. deploy ARQ worker and verify queue health.
-5. deploy consumer static site and admin service.
+5. deploy the retained public legal/support site and admin service.
 6. verify DNS, TLS, headers, CORS, health, legal/support/deletion URLs, and admin access gate.
 7. run production smoke checks using owner-approved test accounts.
 8. enable quiz, then chat, then push separately while watching metrics.
@@ -2850,7 +3618,7 @@ Staff support and moderation for the announced launch window. Review crashes, AN
 
 After 100% of approved territories remains healthy for seven days, record the deployed versions, store statuses, unresolved lower-severity defects, capacity data, moderation data, user feedback, and next decision. Keep emergency flags, rollback artifacts, and on-call ownership active.
 
-## Task 39: Sign the final acceptance matrix
+## Task 52: Sign the final acceptance matrix
 
 All rows require evidence and a named approver. A blank or waived row blocks public release unless the accountable owner documents the reason and risk acceptance.
 
@@ -2870,11 +3638,11 @@ All rows require evidence and a named approver. A blank or waived row blocks pub
 | Operations | Alerts, backup restore, load, rollback, incident drill | Operations owner |
 | Territories | Provider/legal/store availability review | Business/legal owner |
 
-### Phase 9 Gate: Public beta launched
+### Phase 13 Gate: Public beta launched
 
 - [ ] Apple approved the exact iOS candidate and rollout is healthy at 100% of approved territories.
 - [ ] Google approved the exact Android candidate and rollout is healthy at 100% of approved territories.
-- [ ] Production web, admin, API, worker, PostgreSQL, Redis, OTP, AI, moderation, and push paths are healthy.
+- [ ] Production native apps, public web, admin, API, worker, PostgreSQL, Redis, OTP, AI, moderation, and push paths are healthy.
 - [ ] Legal/support/deletion URLs are public and match both store declarations.
 - [ ] Seven-day launch report is signed and no active stop condition remains.
 
@@ -2888,63 +3656,87 @@ The beta is done only when:
 - voice recording works or cleanly falls back to text on supported real devices.
 - notifications are explicit opt-in, generic, throttled, and removable.
 - logout, ban, and account deletion revoke access across HTTP, WebSocket, secure storage, and push.
-- consumer web, admin web, API, worker, iOS, and Android are separately reproducible from locked dependencies.
+- the bare React Native app, retained public web, admin web, API, worker, iOS, and Android are separately reproducible from locked dependencies.
+- the mobile app has no Expo, Capacitor, Ionic, WebView shell, or remote-JavaScript runtime path; the former consumer web experience is not shipped as the app.
 - all tests, scans, accessibility checks, device checks, load targets, backup restore, rollback drill, disclosures, reviewer paths, and signed acceptance rows pass.
 - both stores approve the same release candidate and staged rollout completes in all approved territories.
 
 # Features explicitly deferred until after beta evidence
 
-Do not add these while executing this plan: public events, ticketing/payments, direct messages, photos/media uploads, reactions, threads, typing indicators, read receipts, public presence, community switching, editable quiz answers after activation, AI matching, a native UI rewrite, a custom design system, message-list virtualization, or a second native automation framework. Add one only through a separately approved design and plan.
+Do not add these while executing this plan: public events, ticketing/payments, direct messages, photos/media uploads, reactions, nested chat replies, typing indicators, read receipts, public presence, community switching, editable quiz answers after activation, AI matching, dating/matching behavior, location matching, gender/pronoun collection, social verification, user-selectable themes, dark mode, or a second native automation framework. Add one only through a separately approved design and plan.
 
 # Exact prompt for the coding agent
 
-Copy the following prompt into a fresh coding-agent session started from the directory that contains both frinq-backend and frinq-frontend:
+Prefer giving the coding agent the handoff file at `frinq-backend/docs/launch/react-native-rewrite-handoff.md`. If a direct prompt is required, copy this into a fresh coding-agent session started from the repository root:
 
 ~~~text
-Execute the Frinq mobile beta plan at:
-frinq-backend/docs/superpowers/plans/2026-07-22-frinq-global-mobile-launch.md
+Continue the Frinq bare React Native rewrite from:
+F:\Project\Test\FrinqFull\Frinq
 
-Your job is to implement the plan exactly, one phase at a time, beginning with Phase 0. Before changing anything:
-1. Read the entire plan, every applicable AGENTS.md, and the repository instructions.
-2. Inspect git status in every repository and preserve all existing user changes, including the out-of-scope App/frinq-mobile Expo prototype.
-3. Create or update the execution ledger required by Task 0 with the current commit hashes, tool versions, baseline command output, assumptions, and blockers.
-4. Confirm you are working from the parent directory that contains frinq-backend and frinq-frontend. Do not invent paths if a repository is absent.
+Before changing code, read in this order:
+1. frinq-backend/docs/launch/react-native-rewrite-handoff.md
+2. frinq-backend/docs/superpowers/specs/2026-07-23-frinq-bare-react-native-design.md
+3. frinq-backend/docs/superpowers/plans/2026-07-22-frinq-global-mobile-launch.md
+4. every applicable AGENTS.md and repository-local instruction file.
+
+The product owner reports Phases 0-6 complete. Their implementation and the Figma/font assets are currently dirty or untracked and must be preserved. Begin at Phase 7 / Task 26 only; do not replay Phases 0-6.
+
+Confirm the root contains frinq-backend, frinq-frontend, frinq-admin, App/Figma, and the location where frinq-mobile will be created. Record git status, diff summary, tool versions, baseline verification, assumptions, and blockers in the execution ledger without staging, committing, deleting, or rewriting user work.
 
 Execution rules:
-- Follow the task order and the named files, interfaces, tests, and commands. Treat the database and API contracts in the plan as authoritative.
-- Use test-driven development: add the stated failing test, run it and record the expected failure, write the smallest production change that passes, then run the task and phase verification.
-- Keep changes surgical. Do not add deferred features, speculative abstractions, a native rewrite, or dependencies not required by the plan.
-- Implement the native release only in frinq-frontend/ios and frinq-frontend/android through Capacitor. Do not modify App/frinq-mobile, copy its direct-Supabase design, or combine Expo packages with the launch app.
+- Build the production consumer app only in a new parallel frinq-mobile/ directory with the React Native Community CLI.
+- Do not use Expo, Expo Router, Capacitor, Ionic, a WebView shell, HTML renderers, or a live website as the app runtime.
+- Treat App/Figma screenshots/assets as visual references only. Do not infer matching, DMs, location matching, gender/pronouns, or social-verification features from them.
+- Treat frinq-frontend as the behavior/copy/API reference until Task 43. Do not remove the consumer web routes before native parity and the consolidated iOS gate pass.
+- Treat the design spec as authoritative for native architecture, theme, motion, accessibility, secure storage, encrypted quiz drafts, telemetry, and dependencies.
+- Vastago Grotesk is approved for this app: on 2026-07-23 the owner confirmed the organization purchased it and its developer supplied the folder for the build. Record that provenance in the asset manifest, include any required distributable notice, and keep commercial purchase records or license secrets out of Git.
+- Follow task order and the named contracts, tests, and commands. Use test-driven development: add the stated failing test, record the expected failure, write the smallest production change that passes, then run task and phase verification.
+- Keep changes surgical. Do not add deferred features, speculative abstractions, or unapproved dependencies.
 - Never overwrite or discard unrelated user work. Never use git reset --hard or broad recursive deletion. Validate any generated/build directory before cleaning it.
 - Never log or commit secrets, phone numbers, OTPs, tokens, message/report content, quiz answers, voice data, push tokens, or service-account credentials.
 - Do not bypass a failing test, lint rule, migration, store requirement, security gate, legal prerequisite, provider requirement, or real-device check. Record the blocker with exact evidence.
 - Do not perform external irreversible actions such as production deployment, DNS changes, provider account changes, certificate creation, store upload/submission, tester invitation, or public rollout without explicit owner authorization at that step.
 - Do not commit unless the owner authorizes commits. If authorized, use the suggested checkpoint commits and include only files for that task.
 - Re-read the plan at the start of each phase because later tasks depend on the exact earlier contracts.
+- The owner wants one consolidated Mac/Xcode/physical-iPhone session only, after feature completion. Until Task 42 passes, label iOS unverified. Give the owner the exact commit, setup commands, Xcode actions, device actions, expected results, and evidence to return.
 
 Checkpoint behavior:
-- Complete only one phase at a time.
-- At its gate, run every listed verification from fresh state and update the ledger with commands, exit codes, test counts, artifacts, remaining risks, and git diff/status.
-- Request a code review for the phase. Stop and report: completed tasks, changed files, verification evidence, manual checks still required, blockers, and the next phase.
-- Continue to the next phase only after the owner explicitly approves the gate.
+- Complete tasks sequentially and keep each phase independently reviewable.
+- At every gate, run the listed verification from fresh state and update the ledger with commands, exit codes, test counts, artifacts, remaining risks, and git diff/status.
+- Run the applicable code-review workflow at each phase boundary and resolve findings before continuing.
+- Continue automatically from Phase 7 through Task 41 while gates pass. Stop only for a real blocker, a new product decision, required authority for an external action, or the manual Task 42 Mac/iPhone gate.
+- At Task 42, give the owner one consolidated, exact Mac/Xcode/physical-iPhone checklist and wait for returned evidence. After Task 42 passes, complete Task 43 and the Phase 11 gate.
+- Phases 12-13 require the security/release approvals and explicit external-action authorization stated in those phases.
 
-Start now with Phase 0 only. Do not begin Phase 1 in this session unless I explicitly approve the Phase 0 gate.
+Start with Phase 7 / Task 26 only. Do not modify native feature screens until its baseline and scaffold checks pass.
 ~~~
 
-# Official references frozen for this plan on 2026-07-22
+# Official references frozen for this revision on 2026-07-23
 
 Re-check these sources at execution/submission time because platform rules change:
 
-- Capacitor 8 upgrade requirements: https://capacitorjs.com/docs/updating/8-0
-- Capacitor iOS privacy manifest: https://capacitorjs.com/docs/ios/privacy-manifest
-- Capacitor Secure Preferences compatibility and storage behavior: https://capawesome.io/docs/plugins/secure-preferences/
-- Capacitor Firebase Messaging compatibility and API: https://capawesome.io/docs/plugins/firebase/cloud-messaging/
+- React Native release status: https://reactnative.dev/versions
+- React Native Community CLI setup: https://reactnative.dev/docs/getting-started-without-a-framework
+- React Native environment setup: https://reactnative.dev/docs/next/set-up-your-environment
+- React Native 0.86 release notes: https://reactnative.dev/blog/2026/06/11/react-native-0.86
+- React Native minimum iOS/Android support context: https://reactnative.dev/blog/2024/10/23/release-0.76-new-architecture
+- React Navigation 7: https://reactnavigation.org/docs/getting-started/
+- React Navigation 8 prerelease status: https://reactnavigation.org/docs/8.x/upgrading-from-7.x/
+- Reanimated compatibility: https://docs.swmansion.com/react-native-reanimated/docs/guides/compatibility/
+- Gesture Handler installation/compatibility: https://docs.swmansion.com/react-native-gesture-handler/docs/fundamentals/installation/
+- Safe Area Context support: https://appandflow.github.io/react-native-safe-area-context/
+- React Native Audio API recorder: https://docs.swmansion.com/react-native-audio-api/docs/inputs/audio-recorder/
+- React Native Audio API compatibility: https://docs.swmansion.com/react-native-audio-api/docs/guides/compatibility/
+- React Native Firebase messaging: https://rnfirebase.io/messaging/usage
+- React Native Keychain: https://github.com/oblador/react-native-keychain
+- React Native MMKV: https://github.com/mrousavy/react-native-mmkv
 - Firebase Cloud Messaging: https://firebase.google.com/docs/cloud-messaging
-- Apple submission SDK requirements: https://developer.apple.com/news/upcoming-requirements/
+- Apple April 2026 submission SDK requirement: https://developer.apple.com/news/?id=ueeok6yw
+- Apple Xcode support matrix: https://developer.apple.com/support/xcode
 - Apple App Review Guidelines, including UGC: https://developer.apple.com/app-store/review/guidelines/
 - Apple in-app account deletion: https://developer.apple.com/support/offering-account-deletion-in-your-app
 - Apple App Privacy details: https://developer.apple.com/app-store/app-privacy-details/
-- Google Play target API requirements: https://support.google.com/googleplay/android-developer/answer/11926878?hl=en-GB
+- Google Play target API requirements: https://developer.android.com/google/play/requirements/target-sdk
 - Google Play personal-account testing requirements: https://support.google.com/googleplay/android-developer/answer/14151465?hl=en
 - Google Play UGC policy: https://support.google.com/googleplay/android-developer/answer/9876937?hl=en-IN
 - Google Play account deletion policy: https://support.google.com/googleplay/android-developer/answer/13327111?hl=en

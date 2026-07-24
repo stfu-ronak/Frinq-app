@@ -19,7 +19,7 @@ from uuid import UUID
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
-from app.api.deps import CurrentAccount, get_current_account, get_pool
+from app.api.deps import CurrentAccount, get_pool, require_current_legal
 from app.config import settings
 from app.core.communities import get_user_community
 from app.core.moderation import blocked_terms_from_settings
@@ -80,7 +80,7 @@ def _allowed_origins() -> set[str]:
 
 @router.post("/community/ws-ticket", response_model=WsTicketResponse)
 async def issue_ws_ticket(
-    account: CurrentAccount = Depends(get_current_account),
+    account: CurrentAccount = Depends(require_current_legal),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> WsTicketResponse:
     if account.community_slug is None:
@@ -166,6 +166,16 @@ async def community_websocket(websocket: WebSocket, ticket: str = Query(...)) ->
             if su > datetime.now(tz=timezone.utc):
                 await websocket.close(code=CLOSE_FORBIDDEN)
                 return
+
+        # Ticket issuance already required current acceptance, but a new
+        # legal version could have gone into effect in the seconds since —
+        # the handshake itself rechecks, per the plan's explicit requirement.
+        if (
+            user_row["terms_version"] != settings.CURRENT_TERMS_VERSION
+            or user_row["privacy_version"] != settings.CURRENT_PRIVACY_VERSION
+        ):
+            await websocket.close(code=CLOSE_FORBIDDEN)
+            return
 
         membership = await get_user_community(conn, payload.user_id)
         if membership is None or membership.archetype_slug != payload.community_slug:

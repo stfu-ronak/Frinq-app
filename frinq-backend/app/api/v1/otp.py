@@ -12,15 +12,51 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from app.api.deps import get_pool
-from app.core.otp import send_otp, verify_otp
+from app.core.otp import otp_bypass_active, send_otp, verify_otp
+from app.core.rate_limit import RateLimitUnavailable, check_rate_limit, hash_identifier
+from app.core.redis_client import get_redis
 from app.core.session import TokenPair, create_session
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/otp", tags=["otp"])
+
+
+def _client_ip(request: Request) -> str:
+    """First hop of X-Forwarded-For if present (behind a proxy/LB), else the
+    direct peer. Used only as rate-limit key material (hashed), never trusted
+    for auth."""
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+async def _enforce_otp_limit(request: Request, digits: str, phone_limiter: str, ip_limiter: str) -> None:
+    """Fail-closed per-phone + per-IP rate limiting on the real OTP path.
+
+    Skipped entirely for bypassed numbers (dev/test/review) — those make no
+    Twilio call, so there's nothing to abuse, and skipping keeps dev/test
+    login working even when Redis is down. On the real path a Redis outage
+    blocks OTP (503) rather than leaving SMS cost / code brute-forcing
+    unbounded, matching the reverify endpoints' fail-closed policy."""
+    if otp_bypass_active(digits):
+        return
+    redis = await get_redis()
+    for limiter, material in ((phone_limiter, digits), (ip_limiter, _client_ip(request))):
+        try:
+            result = await check_rate_limit(limiter, hash_identifier(material), redis)
+        except RateLimitUnavailable:
+            raise HTTPException(status_code=503, detail="Could not process the request right now. Try again in a moment.")
+        if not result.allowed:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many attempts. Please wait and try again.",
+                headers={"Retry-After": str(result.retry_after)},
+            )
 
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -63,10 +99,12 @@ class VerifyOTPResponse(BaseModel):
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
 @router.post("/send", response_model=SendOTPResponse)
-async def send_otp_route(body: SendOTPRequest) -> SendOTPResponse:
+async def send_otp_route(body: SendOTPRequest, request: Request) -> SendOTPResponse:
     digits = body.phone.replace("+91", "").replace(" ", "").strip()
     if len(digits) != 10 or not digits.isdigit():
         raise HTTPException(status_code=422, detail="Enter a valid 10-digit Indian mobile number.")
+
+    await _enforce_otp_limit(request, digits, "otp_request", "otp_request_ip")
 
     try:
         await send_otp(digits)
@@ -139,6 +177,7 @@ async def _fetch_prior_session(conn: asyncpg.Connection, user_id: Any) -> PriorS
 @router.post("/verify", response_model=VerifyOTPResponse)
 async def verify_otp_route(
     body: VerifyOTPRequest,
+    request: Request,
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> VerifyOTPResponse:
     """Verify the OTP code with Twilio. Then (only on success) look up
@@ -148,6 +187,8 @@ async def verify_otp_route(
     digits = body.phone.replace("+91", "").replace(" ", "").strip()
     if len(digits) != 10 or not digits.isdigit():
         raise HTTPException(status_code=422, detail="Invalid phone number format.")
+
+    await _enforce_otp_limit(request, digits, "otp_verify", "otp_verify_ip")
 
     # Step 1: verify with Twilio.
     try:

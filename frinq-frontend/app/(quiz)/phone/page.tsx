@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Header from "@/app/components/Header";
 import { getQuizState, setQuizState, clearQuizState, isDevMode } from "@/app/lib/storage";
 import { apiUrl } from "@/app/lib/session";
+import { track } from "@/app/lib/analytics";
 
 const DEV_PHONE = process.env.NEXT_PUBLIC_DEV_PHONE ?? "";
 
@@ -56,6 +57,8 @@ export default function PhonePage() {
       return;
     }
 
+    track("otp_requested");
+
     // Create a quiz_submissions row NOW (before OTP verify) so users who
     // drop off between OTP-sent and OTP-entered still show up in admin.
     // Fire-and-forget; if it fails, /verify will retry.
@@ -66,7 +69,10 @@ export default function PhonePage() {
     })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (d?.submission_id) setQuizState("frinq_submission_id", d.submission_id);
+        if (d?.submission_id) {
+          setQuizState("frinq_submission_id", d.submission_id);
+          track("quiz_started");
+        }
       })
       .catch(() => {});
 

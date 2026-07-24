@@ -941,9 +941,13 @@ function UsersView({ submissions, adminKey, onRetry, onDelete, onBulkDelete, onR
   }
 
   async function handleBulkDelete() {
-    if (!confirm(`Delete all ${visibleSubmissions.length} test rows? This can't be undone.`)) return;
+    // Operate on the rows actually shown (search/filter/archetype applied),
+    // NOT every test row — an admin who narrowed the table with a search must
+    // not silently delete rows they can't see.
+    const targets = filtered;
+    if (!confirm(`Delete ${targets.length} test row(s) currently shown? This can't be undone.`)) return;
     setBulkDeleting(true);
-    try { await onBulkDelete(visibleSubmissions.map((s) => s.id)); }
+    try { await onBulkDelete(targets.map((s) => s.id)); }
     finally { setBulkDeleting(false); }
   }
 
@@ -1013,10 +1017,10 @@ function UsersView({ submissions, adminKey, onRetry, onDelete, onBulkDelete, onR
           <option value="oldest">oldest first</option>
           <option value="name">by name</option>
         </select>
-        {mode === "testing" && visibleSubmissions.length > 0 && (
+        {mode === "testing" && filtered.length > 0 && (
           <button onClick={handleBulkDelete} disabled={bulkDeleting}
             className="ml-auto font-[family-name:var(--font-motive)] text-[9px] tracking-[0.14em] px-3 py-1.5 border border-[rgba(124,28,11,0.4)] text-[#7C1C0B] hover:bg-[rgba(124,28,11,0.05)] transition-colors disabled:opacity-40">
-            {bulkDeleting ? "deleting..." : `delete all ${visibleSubmissions.length} test rows`}
+            {bulkDeleting ? "deleting..." : `delete ${filtered.length} shown test rows`}
           </button>
         )}
         {mode === "users" && filter === "dropped" && (

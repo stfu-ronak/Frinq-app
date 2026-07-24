@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from uuid import uuid4
+
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import CurrentAccount, get_current_account, get_pool
+from app.core.realtime import publish_ban_event
+from app.core.redis_client import get_redis
+from app.core.reverify import ACCOUNT_DELETE_ACTION, ReauthTokenError, consume_reauth_token
 from app.core.session import revoke_all_sessions
-from app.schemas.user import UserDeleteResponse, UserPatchRequest, UserResponse
+from app.schemas.user import DeleteAccountRequest, UserDeleteResponse, UserPatchRequest, UserResponse
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -51,21 +57,64 @@ async def patch_me(
 
 @router.delete("/me", response_model=UserDeleteResponse)
 async def delete_me(
+    body: DeleteAccountRequest,
     account: CurrentAccount = Depends(get_current_account),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> UserDeleteResponse:
+    """Requires a fresh reauth token (POST /auth/reverify/request + /verify)
+    bound to this exact user+session — a login access token or a token for
+    a different action is rejected by consume_reauth_token itself.
+
+    A real hard delete, not a soft-delete flag: quiz_submissions/
+    user_sessions/community_members/user_blocks/push_tokens/
+    legal_acceptances all CASCADE; messages.user_id/
+    message_reports.reporter_user_id/moderation_actions.target_user_id all
+    SET NULL, preserving chat/audit history while permanently disconnecting
+    it from this account (voice_clips cascades transitively via
+    quiz_submissions). tracking_events has no FK to users at all (bare
+    phone column) and is cleaned explicitly below.
+    """
+    redis = await get_redis()
+    if redis is None:
+        raise HTTPException(status_code=503, detail="try again shortly")
+    try:
+        await consume_reauth_token(
+            redis, body.reauth_token,
+            user_id=account.id, session_id=account.session_id, action=ACCOUNT_DELETE_ACTION,
+        )
+    except ReauthTokenError:
+        raise HTTPException(status_code=401, detail="reverification required")
+
+    deletion_id = uuid4()
+    deleted_at = datetime.now(tz=timezone.utc)
     async with pool.acquire() as conn:
         async with conn.transaction():
-            row = await conn.fetchrow(
-                "UPDATE users SET deleted_at = now(), updated_at = now() "
-                "WHERE id = $1 AND deleted_at IS NULL RETURNING id, deleted_at",
-                account.id,
-            )
-            if row is None:
+            # Revoke first — even if anything below the line fails, no
+            # session should ever remain usable past this point.
+            await revoke_all_sessions(conn, account.id)
+            if account.phone:
+                await conn.execute("DELETE FROM tracking_events WHERE phone = $1", account.phone)
+            result = await conn.execute("DELETE FROM users WHERE id = $1", account.id)
+            if result == "DELETE 0":
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="user not found",
                 )
-            await revoke_all_sessions(conn, account.id)
-    logger.info("users.delete", user_id=str(account.id))
-    return UserDeleteResponse(id=row["id"], deleted_at=row["deleted_at"])
+
+    # Force any still-active WebSocket connection closed immediately —
+    # reuses the exact same control channel Phase 5's ban enforcement uses.
+    redis_after = await get_redis()
+    if redis_after is not None:
+        try:
+            await publish_ban_event(redis_after, account.id)
+        except Exception as exc:  # noqa: BLE001 — best-effort, deletion already committed
+            logger.warning("users.delete_ban_event_failed", deletion_id=str(deletion_id), error=type(exc).__name__)
+
+    # Audit trail per the plan: deletion_id + former user UUID + completed_at
+    # only — never phone/content — via the same structured-logging
+    # convention used everywhere else in this codebase, not a new table.
+    logger.info(
+        "users.deleted", deletion_id=str(deletion_id),
+        former_user_id=str(account.id), completed_at=deleted_at.isoformat(),
+    )
+    return UserDeleteResponse(id=account.id, deleted_at=deleted_at)

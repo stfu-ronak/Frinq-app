@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hmac
 import io
 import json
 from datetime import datetime
@@ -51,7 +52,7 @@ def _require_admin(
     if authorization and authorization.lower().startswith("bearer "):
         provided = authorization[7:].strip()
     admin_key = settings.ADMIN_KEY
-    if not admin_key or provided != admin_key:
+    if not admin_key or not hmac.compare_digest(provided, admin_key):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid admin key")
 
 
@@ -61,7 +62,7 @@ def _require_action_password(
     """Second-factor for destructive actions — X-Action-Password header only."""
     expected = settings.ADMIN_ACTION_PASSWORD
     provided = x_action_password or ""
-    if not expected or provided != expected:
+    if not expected or not hmac.compare_digest(provided, expected):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid action password")
 
 

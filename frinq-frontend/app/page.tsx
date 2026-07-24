@@ -7,7 +7,7 @@ import StaggerWords from "@/app/components/motion/StaggerWords";
 import Float from "@/app/components/motion/Float";
 import { getQuizState, clearQuizState, hardResetQuizState, syncDevFlagFromURL, isDevMode } from "@/app/lib/storage";
 import { getIdentity } from "@/app/lib/identity";
-import { restoreSession } from "@/app/lib/session";
+import { restoreSession, loadPendingLegalAcceptance } from "@/app/lib/session";
 import { apiFetch } from "@/app/lib/api";
 
 const DEV_PHONE = process.env.NEXT_PUBLIC_DEV_PHONE ?? "";
@@ -91,8 +91,12 @@ export default function SplashPage() {
   }, [router]);
 
   function go() {
-    if (document.startViewTransition) document.startViewTransition(() => router.push("/s0"));
-    else router.push("/s0");
+    // First-run legal gate — must happen before any name/city/dob/phone/
+    // quiz-answer/voice capture. A pending or already-recorded acceptance
+    // from earlier in this session skips straight to the quiz.
+    const dest = loadPendingLegalAcceptance() ? "/s0" : "/terms/accept";
+    if (document.startViewTransition) document.startViewTransition(() => router.push(dest));
+    else router.push(dest);
   }
 
   return (
@@ -188,6 +192,37 @@ export default function SplashPage() {
       {/* "start over" link removed per request — users with a prior session
           will be auto-resumed by the splash useEffect; if they want a fresh
           start they can still visit /?start=fresh manually or use ?dev=1. */}
+
+      {/* Legal/support links reachable before login — sits above the
+          full-stage tap target (zIndex 5) with pointerEvents re-enabled so
+          taps land here, not on the "begin" button underneath. */}
+      <div
+        style={{
+          position: "absolute", bottom: 22, left: 26, right: 26,
+          display: "flex", justifyContent: "center", gap: 16,
+          zIndex: 20, pointerEvents: "auto",
+        }}
+      >
+        {(
+          [
+            ["terms", "/terms/"],
+            ["privacy", "/privacy/"],
+            ["support", "/support/"],
+          ] as const
+        ).map(([label, href]) => (
+          <a
+            key={href}
+            href={href}
+            style={{
+              fontFamily: "var(--font-motive)", fontSize: 9,
+              letterSpacing: "0.14em", color: "#8B7355",
+              textDecoration: "underline", textUnderlineOffset: 2,
+            }}
+          >
+            {label}
+          </a>
+        ))}
+      </div>
 
       <style>{`
         @keyframes fqDotPop {

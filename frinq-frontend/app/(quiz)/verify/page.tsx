@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
 import { getQuizState, setQuizState, isDevMode } from "@/app/lib/storage";
 import { setIdentityField } from "@/app/lib/identity";
-import { apiUrl, saveRefreshToken, setAccessToken } from "@/app/lib/session";
+import { apiUrl, saveRefreshToken, setAccessToken, loadPendingLegalAcceptance, clearPendingLegalAcceptance } from "@/app/lib/session";
+import { apiFetch } from "@/app/lib/api";
+import { track } from "@/app/lib/analytics";
 
 const DEV_PHONE = process.env.NEXT_PUBLIC_DEV_PHONE ?? "";
 
@@ -162,9 +164,39 @@ export default function VerifyPage() {
       // heuristic. Identify analytics with the opaque backend user id only.
       await saveRefreshToken(data.refresh_token);
       setAccessToken(data.access_token);
+      track("otp_verified");
       setIdentityField("phone", phone);
       if (window.clarity && data.user?.id) {
         window.clarity("identify", data.user.id);
+      }
+
+      // Persist the /terms/accept acceptance recorded before this account
+      // existed. If it fails (network) or the server rejects it (versions
+      // changed since), route back to accept the current versions rather
+      // than let the user into the quiz/chat unaccepted.
+      const pendingLegal = loadPendingLegalAcceptance();
+      if (pendingLegal) {
+        try {
+          const legalRes = await apiFetch("/api/v1/legal/accept", {
+            method: "POST",
+            body: JSON.stringify({
+              terms_version: pendingLegal.termsVersion,
+              privacy_version: pendingLegal.privacyVersion,
+              locale: pendingLegal.locale,
+              source: platform(),
+            }),
+          });
+          if (!legalRes.ok) {
+            setLoading(false);
+            router.replace("/terms/accept");
+            return;
+          }
+          clearPendingLegalAcceptance();
+        } catch {
+          setLoading(false);
+          router.replace("/terms/accept");
+          return;
+        }
       }
 
       const isDev = isDevMode() || (DEV_PHONE && phone === DEV_PHONE);

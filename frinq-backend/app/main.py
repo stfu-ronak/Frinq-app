@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1 import admin as admin_routes
 from app.api.v1 import auth as auth_routes
 from app.api.v1 import communities as communities_routes
+from app.api.v1 import legal as legal_routes
 from app.api.v1 import moderation as moderation_routes
 from app.api.v1 import otp as otp_routes
 from app.api.v1 import profile as profile_routes
@@ -33,6 +34,10 @@ async def lifespan(app: FastAPI):
     if settings.APP_ENV == "production":
         if settings.SECRET_KEY == "dev-secret-change-me":
             raise RuntimeError("SECRET_KEY must be set in production")
+        if settings.SESSION_HASH_PEPPER == "dev-pepper-change-me":
+            raise RuntimeError("SESSION_HASH_PEPPER must be set in production")
+        if settings.RATE_LIMIT_PEPPER == "dev-rate-limit-pepper-change-me":
+            raise RuntimeError("RATE_LIMIT_PEPPER must be set in production")
         if settings.ADMIN_KEY == "frinq-admin":
             raise RuntimeError("ADMIN_KEY must be set in production")
         if not settings.ADMIN_ACTION_PASSWORD:
@@ -64,11 +69,12 @@ app = FastAPI(
 )
 
 
-# Request body size limit — voice routes have their own 5MB cap inside
-# the handler. For everything else (JSON quiz answers, admin patches),
-# cap at 1MB. Anything bigger is almost certainly an attack or accident.
+# Request body size limit — voice routes have their own 10MB cap inside
+# the handler (app/api/v1/voice.py's _MAX_AUDIO_BYTES). For everything else
+# (JSON quiz answers, admin patches), cap at 1MB. Anything bigger is almost
+# certainly an attack or accident.
 _MAX_REQUEST_BYTES = 1_000_000  # 1MB
-_VOICE_UPLOAD_LIMIT = 6_000_000  # 6MB to leave headroom over the voice handler's 5MB cap
+_VOICE_UPLOAD_LIMIT = 11_000_000  # 11MB: 10MB audio cap + multipart encoding headroom
 
 
 @app.middleware("http")
@@ -100,6 +106,7 @@ app.add_middleware(
 
 app.include_router(auth_routes.router, prefix=API_V1_PREFIX)
 app.include_router(communities_routes.router, prefix=API_V1_PREFIX)
+app.include_router(legal_routes.router, prefix=API_V1_PREFIX)
 app.include_router(moderation_routes.router, prefix=API_V1_PREFIX)
 app.include_router(otp_routes.router, prefix=API_V1_PREFIX)
 app.include_router(users_routes.router, prefix=API_V1_PREFIX)

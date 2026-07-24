@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import NavLink from "@/app/components/NavLink";
 import { getQuizState, setQuizState } from "@/app/lib/storage";
 import { apiFetch } from "@/app/lib/api";
+import { track } from "@/app/lib/analytics";
 
 // force-dynamic removed for static export (Task 13) — unsupported under
 // output: "export" and would fail the build. See app/page.tsx.
@@ -867,6 +868,7 @@ export default function VibeBoxPage() {
           // Profile built → reveal the sealed envelope. User taps it to
           // trigger the opening animation. We do NOT auto-advance — the
           // tap is the moment of intent.
+          track("result_viewed");
           setPhase("sealed");
         } else if (d.status === "error") {
           clearInterval(pollRef.current!);
@@ -948,6 +950,7 @@ export default function VibeBoxPage() {
         }
       }
       if (!submissionId) { setPhase("error"); return; }
+      track("quiz_completed");
       pollForSummary(submissionId);
     } catch { setPhase("error"); }
   }, [pollForSummary]);
@@ -989,6 +992,7 @@ export default function VibeBoxPage() {
         .then((d) => {
           if (d && d.status === "done" && d.insights?.length > 0) {
             setSummary(d);
+            track("result_viewed");
           } else if (d && d.status === "error") {
             setPhase("error");
           } else {

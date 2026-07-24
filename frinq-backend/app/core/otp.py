@@ -120,6 +120,20 @@ def _review_bypass_allowed(phone: str) -> bool:
     return now < expires_at <= now + timedelta(days=30)
 
 
+def otp_bypass_active(phone: str) -> bool:
+    """True when this phone's OTP is short-circuited (global skip, or a
+    dev/test/review bypass) — no real Twilio call happens, so there's no SMS
+    cost and no brute-forceable code. Routes use this to skip rate limiting
+    for bypassed numbers, so dev/test login keeps working even when Redis is
+    down (fail-closed limiters would otherwise 503 the whole login path)."""
+    return (
+        _skip_all_otp()
+        or (_dev_bypass_allowed() and phone == settings.DEV_PHONE)
+        or _test_phone_bypass_allowed(phone)
+        or _review_bypass_allowed(phone)
+    )
+
+
 async def send_otp(phone: str) -> None:
     """Send OTP via Twilio Verify. Raises RuntimeError on failure."""
     if _skip_all_otp():

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { adminFetch, loadAdminKey, saveAdminKey, clearAdminKey } from "@/app/lib/adminFetch";
+import PasswordModal from "@/app/components/PasswordModal";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -89,6 +90,15 @@ export default function RsvpDashboard() {
   // Cached for this tab's session once entered correctly — sendReply is
   // now action-password-gated on the backend (Task 16 hardening).
   const [actionPassword, setActionPassword] = useState("");
+  // Masked modal instead of window.prompt (which shows the password in
+  // cleartext and is blocked in some hardened/embedded browsers) — same
+  // pattern as the main dashboard + moderation views.
+  const [pwdModal, setPwdModal] = useState<{ resolve: (p: string | null) => void } | null>(null);
+
+  const requestPassword = useCallback((): Promise<string | null> => {
+    if (actionPassword) return Promise.resolve(actionPassword);
+    return new Promise<string | null>((resolve) => setPwdModal({ resolve }));
+  }, [actionPassword]);
 
   const load = useCallback(async () => {
     if (!adminKey) return;
@@ -171,11 +181,8 @@ export default function RsvpDashboard() {
 
   async function sendReply() {
     if (!chatWith || !replyText.trim() || sending) return;
-    let pwd = actionPassword;
-    if (!pwd) {
-      pwd = window.prompt("Admin action password:") || "";
-      if (!pwd) return;
-    }
+    const pwd = await requestPassword();
+    if (!pwd) return;
     setSending(true);
     setChatNote(null);
     try {
@@ -454,6 +461,11 @@ export default function RsvpDashboard() {
           </div>
         </div>
       )}
+      <PasswordModal
+        open={!!pwdModal}
+        onSubmit={(p) => { setActionPassword(p); pwdModal?.resolve(p); setPwdModal(null); }}
+        onCancel={() => { pwdModal?.resolve(null); setPwdModal(null); }}
+      />
     </div>
   );
 }

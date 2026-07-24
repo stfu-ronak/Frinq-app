@@ -5,12 +5,91 @@ from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, ConfigDict
 
-from app.api.deps import get_pool, get_supabase_claims
+from app.api.deps import CurrentAccount, get_current_account, get_pool, get_supabase_claims
+from app.config import settings
+from app.core.otp import send_otp, verify_otp
+from app.core.rate_limit import RateLimitUnavailable, check_rate_limit
+from app.core.redis_client import get_redis
+from app.core.reverify import ACCOUNT_DELETE_ACTION, create_reauth_token
 from app.schemas.user import RegisterRequest, UserResponse
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+class ReverifyVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+
+
+class ReauthTokenResponse(BaseModel):
+    reauth_token: str
+    expires_in: int
+
+
+@router.post("/reverify/request", status_code=status.HTTP_202_ACCEPTED)
+async def reverify_request(account: CurrentAccount = Depends(get_current_account)) -> dict:
+    """Sends an OTP to the account's own stored phone only — never accepts
+    a phone field, so this can't be used to send an OTP to someone else's
+    number under an authenticated session."""
+    if not account.phone:
+        raise HTTPException(status_code=400, detail="no phone on file for this account")
+
+    redis = await get_redis()
+    try:
+        limit_result = await check_rate_limit("otp_request", str(account.id), redis)
+    except RateLimitUnavailable:
+        raise HTTPException(status_code=503, detail="try again shortly")
+    if not limit_result.allowed:
+        raise HTTPException(
+            status_code=429, detail="too many requests",
+            headers={"Retry-After": str(limit_result.retry_after)},
+        )
+
+    try:
+        await send_otp(account.phone)
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="could not send code, try again")
+    return {"ok": True}
+
+
+@router.post("/reverify/verify", response_model=ReauthTokenResponse)
+async def reverify_verify(
+    body: ReverifyVerifyRequest,
+    account: CurrentAccount = Depends(get_current_account),
+) -> ReauthTokenResponse:
+    """On success, returns a single-purpose reauth token bound to this user
+    ID, session ID, and the account_delete action — 5-minute expiry,
+    single-use (app/core/reverify.py). Never a general-purpose login token."""
+    if not account.phone:
+        raise HTTPException(status_code=400, detail="no phone on file for this account")
+
+    redis = await get_redis()
+    try:
+        limit_result = await check_rate_limit("otp_verify", str(account.id), redis)
+    except RateLimitUnavailable:
+        raise HTTPException(status_code=503, detail="try again shortly")
+    if not limit_result.allowed:
+        raise HTTPException(
+            status_code=429, detail="too many attempts",
+            headers={"Retry-After": str(limit_result.retry_after)},
+        )
+
+    try:
+        await verify_otp(account.phone, body.code.strip())
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail="verification took too long, try again")
+    except ValueError as exc:
+        if str(exc) == "expired":
+            raise HTTPException(status_code=410, detail="code expired, request a new one")
+        raise HTTPException(status_code=400, detail="incorrect code")
+
+    token = create_reauth_token(user_id=account.id, session_id=account.session_id, action=ACCOUNT_DELETE_ACTION)
+    logger.info("auth.reverify_verified", user_id=str(account.id))
+    return ReauthTokenResponse(reauth_token=token, expires_in=settings.REAUTH_TOKEN_TTL_SECONDS)
 
 
 @router.post(

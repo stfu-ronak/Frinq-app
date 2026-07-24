@@ -71,12 +71,21 @@ export default function ProfilePage() {
 
   return (
     <div className="px-8 pt-14">
-      <h1
-        className="font-[family-name:var(--font-things)] text-[#2A1810] leading-[1.05] mb-8"
-        style={{ fontSize: "clamp(24px, 6vw, 32px)" }}
-      >
-        {profile.display_name || "your profile"}
-      </h1>
+      <div className="flex items-baseline justify-between gap-4 mb-8">
+        <h1
+          className="font-[family-name:var(--font-things)] text-[#2A1810] leading-[1.05]"
+          style={{ fontSize: "clamp(24px, 6vw, 32px)" }}
+        >
+          {profile.display_name || "your profile"}
+        </h1>
+        <a
+          href="/profile/edit/"
+          style={{ minHeight: 44 }}
+          className="flex items-center font-[family-name:var(--font-motive)] text-[10px] tracking-[0.14em] uppercase text-[#7C1C0B] underline underline-offset-2 shrink-0"
+        >
+          edit
+        </a>
+      </div>
       <div>
         <Row label="phone" value={maskPhone(profile.phone)} />
         <Row label="gender" value={profile.gender || "—"} />
@@ -84,6 +93,16 @@ export default function ProfilePage() {
         <Row label="area" value={profile.ncr_zone ? profile.ncr_zone.replace(/_/g, " ") : "—"} />
         <Row label="community" value={profile.community_slug ? profile.community_slug.replace(/-/g, " ") : "—"} />
       </div>
+      {/* Archetype/result summary is quiz-derived and stays read-only here —
+          the existing vibe-box report is the canonical place it renders,
+          not duplicated into this page. */}
+      <a
+        href="/vibe-box/"
+        style={{ minHeight: 44 }}
+        className="flex items-center mt-6 font-[family-name:var(--font-motive)] text-[11px] tracking-[0.1em] text-[#8B7355] underline underline-offset-2"
+      >
+        view your full vibe report
+      </a>
     </div>
   );
 }

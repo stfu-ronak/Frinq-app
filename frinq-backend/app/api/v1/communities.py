@@ -20,7 +20,7 @@ from uuid import UUID
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.deps import CurrentAccount, get_current_account, get_pool
+from app.api.deps import CurrentAccount, get_current_account, get_pool, require_current_legal
 from app.schemas.community import CommunityMeResponse, CommunityPreferencesRequest
 from app.schemas.message import MessageHistoryResponse, MessageOut, PublicAuthor
 from app.utils.logger import logger
@@ -78,7 +78,7 @@ async def get_my_community(
 async def get_messages(
     before: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=100),
-    account: CurrentAccount = Depends(get_current_account),
+    account: CurrentAccount = Depends(require_current_legal),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> MessageHistoryResponse:
     if account.community_slug is None:
@@ -142,7 +142,7 @@ async def get_messages(
 @router.patch("/community/preferences")
 async def update_preferences(
     body: CommunityPreferencesRequest,
-    account: CurrentAccount = Depends(get_current_account),
+    account: CurrentAccount = Depends(require_current_legal),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict:
     if account.community_slug is None:

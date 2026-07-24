@@ -10,6 +10,15 @@ from httpx import AsyncClient
 from tests.conftest import FakePool
 
 
+@pytest.fixture(autouse=True)
+def _bypass_otp_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests exercise account/session creation, not rate limiting.
+    Force the OTP bypass on so they're deterministic regardless of the
+    ambient .env SKIP_OTP flag or whether a live Redis is reachable — the
+    rate limiter itself is covered in test_otp_rate_limit.py."""
+    monkeypatch.setattr("app.api.v1.otp.otp_bypass_active", lambda phone: True)
+
+
 def _user_row(**overrides: Any) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     row: dict[str, Any] = {

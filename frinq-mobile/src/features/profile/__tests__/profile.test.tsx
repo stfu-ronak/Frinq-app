@@ -1,0 +1,155 @@
+import React from 'react';
+import { render, waitFor, fireEvent } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ProfileScreen } from '../screens/ProfileScreen';
+import { EditProfileScreen } from '../screens/EditProfileScreen';
+import { ApiError } from '../../../services/api/apiError';
+
+const mockNavigate = jest.fn();
+const mockGoBack = jest.fn();
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ navigate: mockNavigate, goBack: mockGoBack }),
+}));
+
+const mockUseSession = jest.fn();
+jest.mock('../../../services/session/sessionContext', () => ({
+  useSession: () => mockUseSession(),
+}));
+
+const USER = {
+  id: 'user-1',
+  phone: '+919876543210',
+  display_name: 'Ada',
+  gender: 'female',
+  age: 27,
+  ncr_zone: 'south_delhi',
+  community_slug: 'quiet-storm',
+  onboarding_complete: true,
+  onboarding_state: 'active',
+  banned: false,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+};
+
+function renderWithClient(ui: React.ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { gcTime: 0 } },
+  });
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+});
+
+describe('ProfileScreen', () => {
+  it('renders masked phone and formatted fields, never the raw phone number', async () => {
+    mockUseSession.mockReturnValue({ apiClient: { request: jest.fn().mockResolvedValue(USER) } });
+    const { findByText, queryByText } = renderWithClient(<ProfileScreen />);
+
+    expect(await findByText('Ada')).toBeTruthy();
+    expect(await findByText('+91 98**** **10')).toBeTruthy();
+    expect(queryByText(USER.phone)).toBeNull();
+    expect(await findByText('south delhi')).toBeTruthy(); // ncr_zone underscores -> spaces
+    expect(await findByText('quiet storm')).toBeTruthy(); // community_slug dashes -> spaces
+  });
+
+  it('never exposes an editable archetype/quiz-derived field', async () => {
+    mockUseSession.mockReturnValue({ apiClient: { request: jest.fn().mockResolvedValue(USER) } });
+    const { findByLabelText, queryByLabelText } = renderWithClient(<ProfileScreen />);
+
+    expect(await findByLabelText('edit')).toBeTruthy(); // only the display-name edit link exists
+    expect(queryByLabelText(/edit.*(archetype|community|area|age|gender)/i)).toBeNull();
+  });
+
+  it('navigates to EditProfile and VibeReport', async () => {
+    mockUseSession.mockReturnValue({ apiClient: { request: jest.fn().mockResolvedValue(USER) } });
+    const { findByLabelText } = renderWithClient(<ProfileScreen />);
+
+    fireEvent.press(await findByLabelText('edit'));
+    expect(mockNavigate).toHaveBeenCalledWith('EditProfile');
+
+    fireEvent.press(await findByLabelText('view your full vibe report'));
+    expect(mockNavigate).toHaveBeenCalledWith('VibeReport');
+  });
+
+  it('shows a retryable error on fetch failure', async () => {
+    mockUseSession.mockReturnValue({ apiClient: { request: jest.fn().mockRejectedValue(new Error('network')) } });
+    const { findByRole } = renderWithClient(<ProfileScreen />);
+    const alert = await findByRole('alert');
+    expect(alert).toBeTruthy();
+  });
+});
+
+describe('EditProfileScreen', () => {
+  it('disables save until the name is actually changed', async () => {
+    mockUseSession.mockReturnValue({ apiClient: { request: jest.fn().mockResolvedValue(USER) } });
+    const { findByLabelText } = renderWithClient(<EditProfileScreen />);
+
+    const saveButton = await findByLabelText('save');
+    expect(saveButton.props.accessibilityState.disabled).toBe(true);
+  });
+
+  it('cancel with no changes goes back immediately, no confirm dialog', async () => {
+    mockUseSession.mockReturnValue({ apiClient: { request: jest.fn().mockResolvedValue(USER) } });
+    const { findByLabelText, queryByText } = renderWithClient(<EditProfileScreen />);
+
+    fireEvent.press(await findByLabelText('cancel'));
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+    expect(queryByText('discard your changes?')).toBeNull();
+  });
+
+  it('cancel with unsaved changes shows a confirm dialog; discard navigates back', async () => {
+    mockUseSession.mockReturnValue({ apiClient: { request: jest.fn().mockResolvedValue(USER) } });
+    const { findByLabelText, findByText } = renderWithClient(<EditProfileScreen />);
+
+    fireEvent.changeText(await findByLabelText('display name'), 'Ada Lovelace');
+    fireEvent.press(await findByLabelText('cancel'));
+    expect(mockGoBack).not.toHaveBeenCalled();
+
+    fireEvent.press(await findByText('discard'));
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('saves successfully and navigates back only after server acceptance', async () => {
+    const updated = { ...USER, display_name: 'Ada Lovelace' };
+    const request = jest.fn()
+      .mockResolvedValueOnce(USER) // initial GET
+      .mockResolvedValueOnce(updated); // PATCH
+    mockUseSession.mockReturnValue({ apiClient: { request } });
+
+    const { findByLabelText } = renderWithClient(<EditProfileScreen />);
+    fireEvent.changeText(await findByLabelText('display name'), 'Ada Lovelace');
+    fireEvent.press(await findByLabelText('save'));
+
+    await waitFor(() => expect(mockGoBack).toHaveBeenCalledTimes(1));
+    expect(request).toHaveBeenCalledWith({ path: '/api/v1/users/me', method: 'PATCH', body: { display_name: 'Ada Lovelace' } });
+  });
+
+  it('maps a backend display_name error code to a user-facing message', async () => {
+    const request = jest.fn()
+      .mockResolvedValueOnce(USER)
+      .mockRejectedValueOnce(new ApiError(422, 'display_name_reserved_term'));
+    mockUseSession.mockReturnValue({ apiClient: { request } });
+
+    const { findByLabelText, findByText } = renderWithClient(<EditProfileScreen />);
+    fireEvent.changeText(await findByLabelText('display name'), 'admin');
+    fireEvent.press(await findByLabelText('save'));
+
+    expect(await findByText(/isn't available/i)).toBeTruthy();
+    expect(mockGoBack).not.toHaveBeenCalled();
+  });
+
+  it('shows a generic message on a network error', async () => {
+    const request = jest.fn()
+      .mockResolvedValueOnce(USER)
+      .mockRejectedValueOnce(new Error('network'));
+    mockUseSession.mockReturnValue({ apiClient: { request } });
+
+    const { findByLabelText, findByText } = renderWithClient(<EditProfileScreen />);
+    fireEvent.changeText(await findByLabelText('display name'), 'Ada Lovelace');
+    fireEvent.press(await findByLabelText('save'));
+
+    expect(await findByText(/network error/i)).toBeTruthy();
+  });
+});

@@ -41,6 +41,17 @@ export default function AccountGate({ children }: { children: React.ReactNode })
         }
         const user = await res.json();
         if (user.onboarding_state === "active") {
+          const legalRes = await apiFetch("/api/v1/legal/current");
+          if (legalRes.ok) {
+            const legal = await legalRes.json();
+            if (
+              user.terms_version !== legal.terms_version ||
+              user.privacy_version !== legal.privacy_version
+            ) {
+              redirectTo("/terms/accept");
+              return;
+            }
+          }
           if (!cancelled) setState("ready");
         } else if (user.onboarding_state === "profile_processing") {
           redirectTo("/vibe-box");

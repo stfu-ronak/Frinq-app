@@ -55,12 +55,14 @@ def content_hash(body: str) -> str:
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
-def moderate(body: str, *, blocked_terms: frozenset[str] = frozenset()) -> ModerationResult:
+def moderate(
+    body: str, *, blocked_terms: frozenset[str] = frozenset(), max_length: int = _MAX_BODY_LEN
+) -> ModerationResult:
     normalized = unicodedata.normalize("NFKC", body).strip()
 
     if not normalized:
         return ModerationResult("rejected", "empty_after_normalization")
-    if len(normalized) > _MAX_BODY_LEN:
+    if len(normalized) > max_length:
         return ModerationResult("rejected", "too_long")
     if _CONTROL_CHAR_RE.search(normalized):
         return ModerationResult("rejected", "control_characters")

@@ -18,6 +18,7 @@ from app.api.deps import (
     get_pool,
     get_supabase_claims,
 )
+from app.config import settings
 from app.main import app as fastapi_app
 from app.workers import queue as queue_module
 
@@ -139,9 +140,12 @@ class FakeRedis:
         self._expire_if_due(key)
         return self._data.get(key)
 
-    async def set(self, key: str, value: Any, ex: int | None = None) -> bool:
+    async def set(self, key: str, value: Any, ex: int | None = None, nx: bool = False) -> bool | None:
         self._check_available()
-        self.calls.append(("set", (key, value, ex)))
+        self.calls.append(("set", (key, value, ex, nx)))
+        self._expire_if_due(key)
+        if nx and key in self._data:
+            return None
         self._data[key] = value
         if ex is not None:
             self._expires_at[key] = self._now() + ex
@@ -236,8 +240,15 @@ def user_row() -> dict[str, Any]:
         "banned_reason": None,
         "banned_at": None,
         "last_seen_at": None,
-        "terms_version": None,
-        "terms_accepted_at": None,
+        "suspended_until": None,
+        # Default test persona has already accepted the current legal
+        # versions (an "ordinary logged-in user") — tests exercising
+        # require_current_legal's stale-acceptance path explicitly
+        # override these two fields, e.g. {**user_row, "terms_version": "old"}.
+        "terms_version": settings.CURRENT_TERMS_VERSION,
+        "terms_accepted_at": now,
+        "privacy_version": settings.CURRENT_PRIVACY_VERSION,
+        "privacy_accepted_at": now,
         "created_at": now,
         "updated_at": now,
         "deleted_at": None,

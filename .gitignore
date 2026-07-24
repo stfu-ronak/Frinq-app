@@ -38,3 +38,16 @@ htmlcov/
 *.log
 .dev-server.*
 .prod-server.*
+
+# frinq-mobile (bare React Native) — native build artifacts and local machine
+# config. frinq-mobile/.gitignore covers these too; duplicated at root as a
+# belt-and-suspenders guard so builds never get staged from the repo root.
+frinq-mobile/node_modules/
+frinq-mobile/android/.gradle/
+frinq-mobile/android/build/
+frinq-mobile/android/app/build/
+frinq-mobile/android/local.properties
+frinq-mobile/ios/build/
+frinq-mobile/ios/Pods/
+frinq-mobile/**/*.keystore
+!frinq-mobile/android/app/debug.keystore

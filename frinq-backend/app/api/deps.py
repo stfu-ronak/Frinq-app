@@ -229,3 +229,20 @@ async def get_current_account(
         banned=data["banned"],
         suspended_until=data.get("suspended_until"),
     )
+
+
+async def require_current_legal(
+    account: CurrentAccount = Depends(get_current_account),
+) -> CurrentAccount:
+    """Gates community chat (history/preferences, WS-ticket issuance) behind
+    current Terms/Privacy acceptance — everything else (legal/support/
+    deletion/session routes) stays reachable via plain get_current_account."""
+    if (
+        account.row.get("terms_version") != settings.CURRENT_TERMS_VERSION
+        or account.row.get("privacy_version") != settings.CURRENT_PRIVACY_VERSION
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "legal_acceptance_required"},
+        )
+    return account

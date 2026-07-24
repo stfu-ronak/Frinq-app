@@ -5,10 +5,6 @@ import { useRouter } from "next/navigation";
 import { apiFetch } from "@/app/lib/api";
 import { clearRefreshToken } from "@/app/lib/session";
 
-// Notification controls (Task 29) and account-deletion controls (Task 24)
-// are intentionally not rendered here yet — not stubbed/disabled, just
-// absent, so nothing dead ships ahead of those tasks landing.
-
 export default function SettingsPage() {
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
@@ -37,6 +33,18 @@ export default function SettingsPage() {
 
       <div className="flex flex-col gap-4 mb-10">
         <a
+          href="/settings/community/"
+          className="font-[family-name:var(--font-things)] text-[#2A1810] text-[15px] underline underline-offset-2"
+        >
+          community notifications
+        </a>
+        <a
+          href="/settings/privacy/"
+          className="font-[family-name:var(--font-things)] text-[#2A1810] text-[15px] underline underline-offset-2"
+        >
+          privacy &amp; analytics
+        </a>
+        <a
           href="/privacy/"
           className="font-[family-name:var(--font-things)] text-[#2A1810] text-[15px] underline underline-offset-2"
         >
@@ -47,6 +55,12 @@ export default function SettingsPage() {
           className="font-[family-name:var(--font-things)] text-[#2A1810] text-[15px] underline underline-offset-2"
         >
           terms of service
+        </a>
+        <a
+          href="/settings/account/"
+          className="font-[family-name:var(--font-things)] text-[#7C1C0B] text-[15px] underline underline-offset-2"
+        >
+          delete account
         </a>
       </div>
 

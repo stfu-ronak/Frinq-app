@@ -140,6 +140,18 @@ class Settings(BaseSettings):
     # in app/core/moderation.py; this list is an ops-configurable add-on).
     MODERATION_BLOCKED_TERMS: str = Field(default="")
 
+    # Legal acceptance — DRAFT placeholder versions. Real counsel-reviewed
+    # Terms/Privacy content has not been written yet; these version
+    # strings exist so the acceptance gate/audit-trail mechanism is fully
+    # exercisable end-to-end. Replace before any real launch.
+    CURRENT_TERMS_VERSION: str = Field(default="draft-1")
+    CURRENT_PRIVACY_VERSION: str = Field(default="draft-1")
+
+    # Account-deletion re-verification — signed JWT (SECRET_KEY) + Redis
+    # single-use jti consumption, same "hybrid of the two existing
+    # precedents" reasoning as app/core/reverify.py's own docstring.
+    REAUTH_TOKEN_TTL_SECONDS: int = Field(default=300)
+
 
 @lru_cache
 def get_settings() -> Settings:

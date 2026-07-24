@@ -131,9 +131,12 @@ async def test_ws_ticket_404_without_community(
 ) -> None:
     from app.api.deps import CurrentAccount, get_current_account
 
+    from app.config import settings
+
     fastapi_app.dependency_overrides[get_current_account] = lambda: CurrentAccount(
-        id=uuid4(), phone=None, row={}, session_id=uuid4(),
-        onboarding_state="active", community_slug=None, banned=False,
+        id=uuid4(), phone=None,
+        row={"terms_version": settings.CURRENT_TERMS_VERSION, "privacy_version": settings.CURRENT_PRIVACY_VERSION},
+        session_id=uuid4(), onboarding_state="active", community_slug=None, banned=False,
     )
     try:
         resp = await client.post("/api/v1/community/ws-ticket")

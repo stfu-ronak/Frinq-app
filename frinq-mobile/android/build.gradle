@@ -1,0 +1,39 @@
+buildscript {
+    ext {
+        buildToolsVersion = "36.0.0"
+        minSdkVersion = 24
+        compileSdkVersion = 36
+        targetSdkVersion = 36
+        ndkVersion = "27.1.12297006"
+        kotlinVersion = "2.1.20"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle")
+        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+    }
+}
+
+apply plugin: "com.facebook.react.rootproject"
+
+// The app module already pins CMake 4.1.2 for Windows long-path support (see
+// android/app/build.gradle). react-native-audio-api configures its own
+// separate Gradle module and resolves AGP's default CMake 3.22.1 (ninja
+// 1.10.2, no long-path support) unless told otherwise — its deep
+// node_modules path mirrors past ninja's ~260-char mkdir limit under that
+// older toolchain. Force the same pinned version there too. Scoped to this
+// one project (not a blanket subprojects{} hook) because some other
+// autolinked module is already evaluated by the time this root script body
+// runs, and a project-wide afterEvaluate collides with that.
+def audioApiProject = findProject(":react-native-audio-api")
+if (audioApiProject != null) {
+    audioApiProject.afterEvaluate {
+        if (audioApiProject.hasProperty("android")) {
+            audioApiProject.android.externalNativeBuild.cmake.version = "4.1.2"
+        }
+    }
+}

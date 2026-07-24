@@ -56,6 +56,35 @@ export interface SessionState {
   authenticated: boolean;
 }
 
+const PENDING_LEGAL_KEY = "frinq.pending_legal_acceptance";
+
+export interface PendingLegalAcceptance {
+  termsVersion: string;
+  privacyVersion: string;
+  locale: string;
+}
+
+/** Set on /terms/accept BEFORE authentication exists — sessionStorage
+ * only, cleared once POSTed to /api/v1/legal/accept right after OTP
+ * creates the account. Never persisted anywhere more durable than that. */
+export function savePendingLegalAcceptance(acceptance: PendingLegalAcceptance): void {
+  sessionStorage.setItem(PENDING_LEGAL_KEY, JSON.stringify(acceptance));
+}
+
+export function loadPendingLegalAcceptance(): PendingLegalAcceptance | null {
+  const raw = sessionStorage.getItem(PENDING_LEGAL_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as PendingLegalAcceptance;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingLegalAcceptance(): void {
+  sessionStorage.removeItem(PENDING_LEGAL_KEY);
+}
+
 /**
  * Reads the stored refresh token (if any) and exchanges it for a fresh
  * access/refresh pair via POST /api/v1/auth/refresh. Does NOT fetch
