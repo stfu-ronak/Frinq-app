@@ -25,13 +25,13 @@ export default function PrivacyPage() {
       <h2 className="font-[family-name:var(--font-things)] text-[#2A1810] text-[18px] mt-8 mb-3">
         what we collect
       </h2>
-      <p className="font-[family-name:var(--font-things)] text-[#8B7355] text-[13px] mb-4">
+      <p className="font-[family-name:var(--font-things)] text-[#5E4636] text-[13px] mb-4">
         draft data inventory — pending full legal/product review, not a final compliance document.
       </p>
       <div className="overflow-x-auto mb-4">
         <table className="w-full text-left font-[family-name:var(--font-things)] text-[13px] text-[#2A1810]">
           <thead>
-            <tr className="text-[#8B7355]">
+            <tr className="text-[#5E4636]">
               <th className="pr-4 pb-2">field</th>
               <th className="pr-4 pb-2">purpose</th>
               <th className="pr-4 pb-2">processor</th>
@@ -58,7 +58,7 @@ export default function PrivacyPage() {
         </table>
       </div>
 
-      <p className="font-[family-name:var(--font-things)] text-[#8B7355] text-[13px]">
+      <p className="font-[family-name:var(--font-things)] text-[#5E4636] text-[13px]">
         version: draft-1
       </p>
     </div>

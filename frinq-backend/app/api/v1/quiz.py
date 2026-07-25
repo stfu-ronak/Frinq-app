@@ -26,6 +26,8 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import CurrentAccount, get_current_account, get_pool
+from app.config import settings
+from app.core import metrics
 from app.core.age_gate import AgeGateError, validate_frinq_dob
 from app.schemas.quiz import (
     InsightItem,
@@ -214,6 +216,11 @@ async def start_quiz(
     If the same phone already has a recent incomplete submission (last 24h),
     return that id instead of creating a duplicate.
     """
+    if settings.QUIZ_STARTS_DISABLED:
+        metrics.feature_disabled_rejections_total.labels(feature="quiz_start").inc()
+        logger.warning("quiz.starts_disabled")
+        raise HTTPException(status_code=503, detail="New quizzes are temporarily paused. Try again shortly.")
+
     async with pool.acquire() as conn:
         if body.phone:
             existing = await conn.fetchrow(

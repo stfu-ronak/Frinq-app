@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyleSheet, TextInput, View } from 'react-native';
 import { render, fireEvent } from '@testing-library/react-native';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ChoicePill } from '../components/ChoicePill';
@@ -12,6 +13,15 @@ import { ChoiceListRow } from '../components/ChoiceListRow';
 import { TagPicker } from '../components/TagPicker';
 import { QuizProgress } from '../components/QuizProgress';
 import { Dialog } from '../components/Dialog';
+import { Sheet } from '../components/Sheet';
+import { ArrowButton } from '../components/ArrowButton';
+import { NavRow } from '../components/NavRow';
+import { QuizHeader } from '../components/QuizHeader';
+import { touchTarget } from '../tokens/spacing';
+
+function flatten(style: unknown) {
+  return StyleSheet.flatten(style as never) as Record<string, number | undefined>;
+}
 
 describe('PrimaryButton', () => {
   it('fires onPress when enabled', () => {
@@ -50,6 +60,70 @@ describe('ChoicePill / ChoiceCard selection state (not color-only)', () => {
   it('card composes title+description into one accessible label', () => {
     const { getByRole } = render(<ChoiceCard title="Night in" description="cozy" selected={false} onPress={jest.fn()} />);
     expect(getByRole('button').props.accessibilityLabel).toBe('Night in. cozy');
+  });
+
+  it('card reports its own selected state via accessibilityState, not just its label', () => {
+    const { getByRole, rerender } = render(<ChoiceCard title="Night in" selected={false} onPress={jest.fn()} />);
+    expect(getByRole('button').props.accessibilityState).toMatchObject({ selected: false });
+    rerender(<ChoiceCard title="Night in" selected onPress={jest.fn()} />);
+    expect(getByRole('button').props.accessibilityState).toMatchObject({ selected: true });
+  });
+});
+
+describe('touch target minimums (44/48dp token, not just spot-checked)', () => {
+  it('ArrowButton meets the preferred minimum height', () => {
+    const { getByRole } = render(<ArrowButton label="resend code" onPress={jest.fn()} />);
+    expect(flatten(getByRole('button').props.style).minHeight).toBeGreaterThanOrEqual(touchTarget.preferred);
+  });
+
+  it('NavRow meets the preferred minimum height', () => {
+    const { getByRole } = render(<NavRow label="support" onPress={jest.fn()} />);
+    expect(flatten(getByRole('button').props.style).minHeight).toBeGreaterThanOrEqual(touchTarget.preferred);
+  });
+
+  it('PrimaryButton meets the preferred minimum height', () => {
+    const { getByRole } = render(<PrimaryButton label="Continue" onPress={jest.fn()} />);
+    expect(flatten(getByRole('button').props.style).minHeight).toBeGreaterThanOrEqual(touchTarget.preferred);
+  });
+
+  it('ChoicePill meets the token minimum height', () => {
+    const { getByRole } = render(<ChoicePill label="Coffee" selected={false} onPress={jest.fn()} />);
+    expect(flatten(getByRole('button').props.style).minHeight).toBeGreaterThanOrEqual(touchTarget.min);
+  });
+
+  it('ChoiceListRow meets the preferred minimum height', () => {
+    const { getByRole } = render(<ChoiceListRow label="A" selected={false} onPress={jest.fn()} />);
+    expect(flatten(getByRole('radio').props.style).minHeight).toBeGreaterThanOrEqual(touchTarget.preferred);
+  });
+
+  it('TextField meets the preferred minimum height', () => {
+    const { getByLabelText } = render(<TextField label="City" value="" onChangeText={jest.fn()} />);
+    expect(flatten(getByLabelText('City').props.style).minHeight).toBeGreaterThanOrEqual(touchTarget.preferred);
+  });
+
+  it('PhoneField meets the preferred minimum height (the row wrapping the input, which carries the tap target)', () => {
+    const { UNSAFE_getAllByType } = render(<PhoneField value="" onChangeText={jest.fn()} />);
+    const rows = UNSAFE_getAllByType(View).map((v) => flatten(v.props.style));
+    expect(rows.some((s) => (s.minHeight ?? 0) >= touchTarget.preferred)).toBe(true);
+  });
+
+  it('OtpField: each digit box meets the preferred minimum tap-target size (sighted-user re-edit target, even though hidden from screen readers behind the one labeled field)', () => {
+    const { UNSAFE_getAllByType } = render(<OtpField value="" onChangeText={jest.fn()} length={6} />);
+    const boxes = UNSAFE_getAllByType(TextInput);
+    expect(boxes).toHaveLength(6);
+    for (const box of boxes) {
+      const style = flatten(box.props.style);
+      expect(style.width).toBeGreaterThanOrEqual(touchTarget.preferred);
+      expect(style.height).toBeGreaterThanOrEqual(touchTarget.preferred);
+    }
+  });
+
+  it('QuizHeader back button has a real accessible name and meets the preferred minimum size', () => {
+    const { getByLabelText } = render(<QuizHeader section="quiz" onBack={jest.fn()} />);
+    const back = getByLabelText('Go back');
+    const style = flatten(back.props.style);
+    expect(style.width).toBeGreaterThanOrEqual(touchTarget.preferred);
+    expect(style.height).toBeGreaterThanOrEqual(touchTarget.preferred);
   });
 });
 
@@ -147,5 +221,33 @@ describe('Dialog', () => {
     );
     fireEvent.press(getByText('Delete'));
     expect(confirm).toHaveBeenCalled();
+  });
+
+  it('renders as a real native modal region while visible — the platform (not custom JS) is what moves screen-reader focus in on open', () => {
+    const { UNSAFE_getByProps } = render(
+      <Dialog visible title="Delete?" confirm={{ label: 'Delete', onPress: jest.fn() }} />,
+    );
+    expect(UNSAFE_getByProps({ accessibilityViewIsModal: true })).toBeTruthy();
+  });
+});
+
+describe('Sheet', () => {
+  it('renders as a real native modal region while visible, title included', () => {
+    const { getByText, UNSAFE_getByProps } = render(
+      <Sheet visible onClose={jest.fn()} title="message actions">
+        <></>
+      </Sheet>,
+    );
+    expect(getByText('message actions')).toBeTruthy();
+    expect(UNSAFE_getByProps({ accessibilityViewIsModal: true })).toBeTruthy();
+  });
+
+  it('renders nothing accessible while not visible', () => {
+    const { queryByText } = render(
+      <Sheet visible={false} onClose={jest.fn()} title="message actions">
+        <></>
+      </Sheet>,
+    );
+    expect(queryByText('message actions')).toBeNull();
   });
 });

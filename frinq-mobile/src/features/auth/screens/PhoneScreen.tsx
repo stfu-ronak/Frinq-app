@@ -53,7 +53,7 @@ export function PhoneScreen() {
   }
 
   return (
-    <Screen>
+    <Screen scroll>
       <View style={{ flex: 1, justifyContent: 'center' }}>
         <BodyText variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>
           before we start

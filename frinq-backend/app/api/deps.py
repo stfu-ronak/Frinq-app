@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -229,6 +230,21 @@ async def get_current_account(
         banned=data["banned"],
         suspended_until=data.get("suspended_until"),
     )
+
+
+def require_admin(
+    authorization: str | None = Header(default=None),
+) -> None:
+    """Verify admin auth via Authorization: Bearer <key>. Header-only — query
+    auth would leak the key via browser history, server access logs, and the
+    Referer header. Shared by admin.py's routes and any other endpoint that
+    needs the same protection (e.g. the metrics/dependency-status endpoints)."""
+    provided = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        provided = authorization[7:].strip()
+    admin_key = settings.ADMIN_KEY
+    if not admin_key or not hmac.compare_digest(provided, admin_key):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid admin key")
 
 
 async def require_current_legal(

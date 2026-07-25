@@ -16,6 +16,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from app.api.deps import get_pool
+from app.config import settings
+from app.core import metrics
 from app.core.otp import otp_bypass_active, send_otp, verify_otp
 from app.core.rate_limit import RateLimitUnavailable, check_rate_limit, hash_identifier
 from app.core.redis_client import get_redis
@@ -50,8 +52,10 @@ async def _enforce_otp_limit(request: Request, digits: str, phone_limiter: str, 
         try:
             result = await check_rate_limit(limiter, hash_identifier(material), redis)
         except RateLimitUnavailable:
+            metrics.otp_requests_total.labels(outcome="rate_limit_unavailable").inc()
             raise HTTPException(status_code=503, detail="Could not process the request right now. Try again in a moment.")
         if not result.allowed:
+            metrics.otp_requests_total.labels(outcome="rate_limited").inc()
             raise HTTPException(
                 status_code=429,
                 detail="Too many attempts. Please wait and try again.",
@@ -100,6 +104,11 @@ class VerifyOTPResponse(BaseModel):
 
 @router.post("/send", response_model=SendOTPResponse)
 async def send_otp_route(body: SendOTPRequest, request: Request) -> SendOTPResponse:
+    if settings.OTP_REQUESTS_DISABLED:
+        metrics.feature_disabled_rejections_total.labels(feature="otp_request").inc()
+        logger.warning("otp.requests_disabled")
+        raise HTTPException(status_code=503, detail="New sign-ins are temporarily paused. Try again shortly.")
+
     digits = body.phone.replace("+91", "").replace(" ", "").strip()
     if len(digits) != 10 or not digits.isdigit():
         raise HTTPException(status_code=422, detail="Enter a valid 10-digit Indian mobile number.")
@@ -109,11 +118,13 @@ async def send_otp_route(body: SendOTPRequest, request: Request) -> SendOTPRespo
     try:
         await send_otp(digits)
     except RuntimeError:
+        metrics.otp_requests_total.labels(outcome="send_failed").inc()
         raise HTTPException(
             status_code=503,
             detail="Could not send OTP right now. Try again in a moment.",
         )
 
+    metrics.otp_requests_total.labels(outcome="sent").inc()
     return SendOTPResponse(ok=True)
 
 
@@ -194,6 +205,7 @@ async def verify_otp_route(
     try:
         await verify_otp(digits, body.code.strip())
     except TimeoutError:
+        metrics.otp_requests_total.labels(outcome="verify_timeout").inc()
         raise HTTPException(
             status_code=504,
             detail="Verification took too long. Try again in a moment.",
@@ -201,10 +213,12 @@ async def verify_otp_route(
     except ValueError as exc:
         reason = str(exc) if exc.args else ""
         if reason == "expired":
+            metrics.otp_requests_total.labels(outcome="verify_expired").inc()
             raise HTTPException(
                 status_code=410,
                 detail="That code is no longer valid. Tap 'resend code' to get a new one.",
             )
+        metrics.otp_requests_total.labels(outcome="verify_wrong_code").inc()
         raise HTTPException(
             status_code=400,
             detail="Incorrect code. Check your WhatsApp and try again.",
@@ -262,6 +276,7 @@ async def verify_otp_route(
 
             pair: TokenPair = await create_session(conn, data["id"], body.platform)
 
+    metrics.otp_requests_total.labels(outcome="verified").inc()
     logger.info("otp.verified", phone=digits[:4] + "****", has_prior=prior is not None)
     return VerifyOTPResponse(
         access_token=pair.access_token,

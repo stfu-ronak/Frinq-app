@@ -93,7 +93,7 @@ export function OtpScreen() {
   }
 
   return (
-    <Screen>
+    <Screen scroll>
       <View style={{ flex: 1, justifyContent: 'center' }}>
         <BrandHeading variant="title" style={{ marginBottom: spacing.sm }}>
           enter the code

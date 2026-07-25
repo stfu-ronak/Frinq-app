@@ -1,4 +1,5 @@
 import React from 'react';
+import { ScrollView } from 'react-native';
 import { render, waitFor, fireEvent } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DeleteAccountScreen } from '../screens/DeleteAccountScreen';
@@ -138,5 +139,24 @@ describe('DeleteAccountScreen', () => {
     // never succeed a second time, so a fresh OTP is the only real recovery.
     expect(await findByText('send verification code')).toBeTruthy();
     expect(mockClearLocalSessionState).not.toHaveBeenCalled();
+  });
+
+  it('scrolls rather than clipping at every step, including the two keyboard-active entry screens', async () => {
+    const request = jest
+      .fn()
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ reauth_token: 'reauth-abc', expires_in: 300 });
+    mockUseSession.mockReturnValue({ apiClient: { request }, coordinator: {} });
+
+    const { findByText, findByLabelText, UNSAFE_getByType } = renderWithClient();
+    expect(UNSAFE_getByType(ScrollView)).toBeTruthy(); // 'confirm' step
+
+    fireEvent.press(await findByText('send verification code'));
+    await findByLabelText(/enter the 6-digit verification code/i);
+    expect(UNSAFE_getByType(ScrollView)).toBeTruthy(); // 'otp_sent' step
+
+    fireEvent.changeText(await findByLabelText(/enter the 6-digit verification code/i), '123456');
+    await findByLabelText('type DELETE');
+    expect(UNSAFE_getByType(ScrollView)).toBeTruthy(); // 'type_delete' step
   });
 });

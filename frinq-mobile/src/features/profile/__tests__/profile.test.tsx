@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, waitFor, fireEvent } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ScrollView } from 'react-native';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { EditProfileScreen } from '../screens/EditProfileScreen';
 import { ApiError } from '../../../services/api/apiError';
@@ -88,6 +89,13 @@ describe('EditProfileScreen', () => {
 
     const saveButton = await findByLabelText('save');
     expect(saveButton.props.accessibilityState.disabled).toBe(true);
+  });
+
+  it('scrolls rather than clipping the form at large text sizes', async () => {
+    mockUseSession.mockReturnValue({ apiClient: { request: jest.fn().mockResolvedValue(USER) } });
+    const { findByLabelText, UNSAFE_getByType } = renderWithClient(<EditProfileScreen />);
+    await findByLabelText('save');
+    expect(UNSAFE_getByType(ScrollView)).toBeTruthy();
   });
 
   it('cancel with no changes goes back immediately, no confirm dialog', async () => {

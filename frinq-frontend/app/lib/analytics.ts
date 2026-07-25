@@ -1,8 +1,11 @@
 "use client";
 
-import { apiUrl } from "@/app/lib/session";
-
 const CONSENT_KEY = "frinq.analytics_consent";
+
+function apiUrl(path: string): string {
+  const base = process.env.NEXT_PUBLIC_API_URL ?? "";
+  return `${base}${path}`;
+}
 
 // Fixed allowlist — mirrors app/api/v1/tracking.py's ALLOWED_EVENTS, checked
 // again server-side as defense in depth. Never phone/message-text/voice/

@@ -135,7 +135,7 @@ export function DeleteAccountScreen() {
 
   if (step === 'otp_sent') {
     return (
-      <Screen>
+      <Screen scroll>
         <View style={styles.center}>
           <BrandHeading variant="title" style={styles.title}>
             enter the code
@@ -169,7 +169,7 @@ export function DeleteAccountScreen() {
   }
 
   return (
-    <Screen>
+    <Screen scroll>
       <BrandHeading variant="title" style={styles.title}>
         type DELETE to confirm
       </BrandHeading>

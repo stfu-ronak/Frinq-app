@@ -22,11 +22,11 @@ export default function SupportPage() {
       >
         {SUPPORT_EMAIL}
       </a>
-      <p className="font-[family-name:var(--font-things)] text-[#8B7355] text-[13px] mb-2">
+      <p className="font-[family-name:var(--font-things)] text-[#5E4636] text-[13px] mb-2">
         want to delete your account? see{" "}
         <a href="/delete-account/" className="underline underline-offset-2">account deletion</a>.
       </p>
-      <p className="font-[family-name:var(--font-things)] text-[#8B7355] text-[13px]">
+      <p className="font-[family-name:var(--font-things)] text-[#5E4636] text-[13px]">
         read our{" "}
         <a href="/terms/" className="underline underline-offset-2">terms</a>,{" "}
         <a href="/privacy/" className="underline underline-offset-2">privacy policy</a>, or{" "}

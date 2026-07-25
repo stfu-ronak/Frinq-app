@@ -15,10 +15,10 @@ export default function CommunityRulesPage() {
         <li>no impersonation of other members, moderators, or the frinq team.</li>
         <li>report anything that concerns you — reports are reviewed by a real person.</li>
       </ul>
-      <p className="font-[family-name:var(--font-things)] text-[#8B7355] text-[13px] mb-4">
+      <p className="font-[family-name:var(--font-things)] text-[#5E4636] text-[13px] mb-4">
         this is placeholder text pending full legal/product review.
       </p>
-      <p className="font-[family-name:var(--font-things)] text-[#8B7355] text-[13px]">
+      <p className="font-[family-name:var(--font-things)] text-[#5E4636] text-[13px]">
         version: draft-1
       </p>
     </div>

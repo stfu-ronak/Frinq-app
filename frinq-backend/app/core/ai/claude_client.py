@@ -28,10 +28,13 @@ _semaphore: asyncio.Semaphore | None = None
 
 
 def get_client() -> AsyncAnthropic:
-    """Lazy-init the AsyncAnthropic singleton."""
+    """Lazy-init the AsyncAnthropic singleton. Explicit timeout — the SDK's
+    own default (10 minutes) is far too generous for a request a user is
+    actively waiting on; a slow/hung provider call must fail and free the
+    connection rather than tie it up indefinitely."""
     global _client
     if _client is None:
-        _client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        _client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY, timeout=60.0)
     return _client
 
 

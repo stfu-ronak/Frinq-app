@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# frinq-frontend
 
-## Getting Started
+The public Frinq website. **This is not the app** — Frinq's actual product (quiz, account, community
+chat) is the native app in `../frinq-mobile`. This site is a small static export (`output: "export"` in
+`next.config.ts`) covering only:
 
-First, run the development server:
+- `/` — a minimal landing page with app-store download links
+- `/terms`, `/privacy`, `/community-rules` — legal documents
+- `/support` — contact info
+- `/delete-account` — account-deletion instructions (also the required Play Console external-deletion
+  link target)
+
+Everything else — the quiz, OTP login, community chat, profile/settings, account deletion itself — was
+removed from this site in the Task 43 native cutover (see
+`frinq-backend/docs/launch/execution-ledger.md`'s Task 43 entry for the full removal list and
+reasoning). No Capacitor, no consumer session/token storage, no quiz state.
+
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev       # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Testing
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm test                      # vitest — app/lib/analytics.ts's consent/allowlist behavior
+npx playwright test           # tests/e2e/legal-public-pages.spec.ts — retained pages render,
+                               # former consumer/quiz/auth routes return 404
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Build
 
-## Learn More
+```bash
+npm run build      # static export to out/
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Note on `public/illustrations` and `public/photos`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+These are no longer referenced by any page after the Task 43 cutover (they were quiz-screen art).
+Left in place rather than deleted — some (the `archetypes/` set) may be the only copies of licensed
+illustration assets rather than duplicates of something bundled elsewhere; confirm before removing.

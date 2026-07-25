@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -30,6 +31,7 @@ from app.core.ai.archetypes import get_archetype
 from app.core.ai.insights import generate_insights
 from app.core.ai.openai_client import generate_deep_report
 from app.core.communities import assign_user_to_community, get_user_community
+from app.core import metrics
 from app.database import get_pool
 from app.utils.logger import logger
 
@@ -64,12 +66,19 @@ async def _mark_error(pool: Any, submission_id: UUID, user_id: UUID, error_code:
                 "UPDATE users SET onboarding_state='error', updated_at=now() WHERE id=$1",
                 user_id,
             )
+    metrics.quiz_jobs_total.labels(outcome="failed").inc()
     logger.error("quiz_insights.failed", submission_id=str(submission_id), error_code=sanitized)
 
 
 async def generate_quiz_insights(ctx: dict[str, Any], submission_id: str) -> None:
     sid = UUID(submission_id)
     pool = get_pool()
+
+    enqueue_time = ctx.get("enqueue_time")
+    if isinstance(enqueue_time, datetime):
+        if enqueue_time.tzinfo is None:
+            enqueue_time = enqueue_time.replace(tzinfo=timezone.utc)
+        metrics.quiz_job_wait_seconds.observe((datetime.now(timezone.utc) - enqueue_time).total_seconds())
 
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -187,4 +196,5 @@ async def generate_quiz_insights(ctx: dict[str, Any], submission_id: str) -> Non
         await _mark_error(pool, sid, user_id, _error_code(exc))
         return
 
+    metrics.quiz_jobs_total.labels(outcome="done").inc()
     logger.info("quiz_insights.done", submission_id=submission_id, archetype_slug=slug)

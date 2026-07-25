@@ -7,6 +7,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import CurrentAccount, get_current_account, get_pool
+from app.core import metrics
 from app.core.realtime import publish_ban_event
 from app.core.redis_client import get_redis
 from app.core.reverify import ACCOUNT_DELETE_ACTION, ReauthTokenError, consume_reauth_token
@@ -76,6 +77,7 @@ async def delete_me(
     """
     redis = await get_redis()
     if redis is None:
+        metrics.account_deletion_failures_total.labels(reason="redis_unavailable").inc()
         raise HTTPException(status_code=503, detail="try again shortly")
     try:
         await consume_reauth_token(
@@ -83,6 +85,7 @@ async def delete_me(
             user_id=account.id, session_id=account.session_id, action=ACCOUNT_DELETE_ACTION,
         )
     except ReauthTokenError:
+        metrics.account_deletion_failures_total.labels(reason="reverification_required").inc()
         raise HTTPException(status_code=401, detail="reverification required")
 
     deletion_id = uuid4()
@@ -96,6 +99,7 @@ async def delete_me(
                 await conn.execute("DELETE FROM tracking_events WHERE phone = $1", account.phone)
             result = await conn.execute("DELETE FROM users WHERE id = $1", account.id)
             if result == "DELETE 0":
+                metrics.account_deletion_failures_total.labels(reason="not_found").inc()
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="user not found",

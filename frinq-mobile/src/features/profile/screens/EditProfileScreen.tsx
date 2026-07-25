@@ -60,7 +60,7 @@ export function EditProfileScreen() {
   if (query.isPending || original === null) return null;
 
   return (
-    <Screen>
+    <Screen scroll>
       <BrandHeading variant="title" style={styles.title}>
         edit profile
       </BrandHeading>

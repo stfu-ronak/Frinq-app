@@ -19,6 +19,7 @@ from uuid import UUID, uuid4
 from jose import JWTError, jwt
 
 from app.config import settings
+from app.core import metrics
 
 _JWT_ALG = "HS256"
 _ISSUER = "frinq-api"
@@ -141,6 +142,7 @@ async def rotate_session(conn: Any, refresh_token: str) -> TokenPair:
             await conn.execute(
                 "UPDATE user_sessions SET revoked_at = now() WHERE id = $1", session_id
             )
+            metrics.refresh_reuse_detected_total.inc()
             raise SessionReuseError("refresh secret mismatch")
 
         new_secret = secrets.token_urlsafe(48)

@@ -11,7 +11,7 @@ import { UserResponse, LegalCurrent } from '../services/api/contracts';
 
 export type BootResolver = () => Promise<BootState>;
 
-function BootController({ resolveBoot }: { resolveBoot?: BootResolver }) {
+export function BootController({ resolveBoot }: { resolveBoot?: BootResolver }) {
   const { coordinator, apiClient, authenticated } = useSession();
   const [state, setState] = useState<BootState>('checking');
   const stateRef = useRef<BootState>(state);

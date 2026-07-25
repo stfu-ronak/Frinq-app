@@ -2,6 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Task 41 review (2026-07-25): categories reconciled against this app's actual
+	     dependencies — FileTimestamp (voice-clip cache cleanup, @dr.pogodin/react-native-fs),
+	     UserDefaults (RN core's internal native-module bridging), SystemBootTime
+	     (react-native-audio-api's internal timing/session diagnostics) — all still apply.
+	     This was built without Xcode's own static privacy-API scanner (only available at
+	     archive time on a Mac — Task 42); reconcile against Xcode's real "Privacy Report"
+	     before submission. Several third-party modules (react-native-mmkv, Firebase) ship
+	     their OWN PrivacyInfo.xcprivacy via CocoaPods that Apple merges automatically —
+	     this file only needs to cover APIs this app's own code/config causes to be touched. -->
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<dict>

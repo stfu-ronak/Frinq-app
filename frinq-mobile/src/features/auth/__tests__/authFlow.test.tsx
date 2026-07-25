@@ -1,4 +1,5 @@
 import React from 'react';
+import { ScrollView } from 'react-native';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { PhoneScreen } from '../screens/PhoneScreen';
 import { OtpScreen } from '../screens/OtpScreen';
@@ -88,6 +89,11 @@ describe('PhoneScreen', () => {
     await findByText('Too many attempts — wait a bit and try again.');
     expect(mockNavigate).not.toHaveBeenCalled();
   });
+
+  it('scrolls rather than clipping the field + button when the OS keyboard and large text both eat vertical space', () => {
+    const { UNSAFE_getByType } = render(<PhoneScreen />);
+    expect(UNSAFE_getByType(ScrollView)).toBeTruthy();
+  });
 });
 
 describe('OtpScreen', () => {
@@ -143,5 +149,10 @@ describe('OtpScreen', () => {
     fireEvent.changeText(getByLabelText('Enter the 6-digit verification code'), '123456');
     await waitFor(() => expect(fakeCoordinator.setTokens).toHaveBeenCalled());
     expect(mockAcceptLegal).not.toHaveBeenCalled();
+  });
+
+  it('scrolls rather than clipping the code entry when the OS keyboard and large text both eat vertical space', () => {
+    const { UNSAFE_getByType } = render(<OtpScreen />);
+    expect(UNSAFE_getByType(ScrollView)).toBeTruthy();
   });
 });

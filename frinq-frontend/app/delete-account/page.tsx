@@ -36,7 +36,7 @@ export default function DeleteAccountInfoPage() {
         confirm your identity before deleting.
       </p>
 
-      <p className="font-[family-name:var(--font-things)] text-[#8B7355] text-[13px]">
+      <p className="font-[family-name:var(--font-things)] text-[#5E4636] text-[13px]">
         read our{" "}
         <a href="/terms/" className="underline underline-offset-2">terms</a>{" "}
         or{" "}
