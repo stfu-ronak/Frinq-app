@@ -15,6 +15,7 @@ public web privacy page's own data table.
 | Push notification token (Task 39, not yet live) | Deliver push notifications for new community activity | Firebase Cloud Messaging, Supabase Postgres (encrypted token + HMAC lookup hash) | Until logout/uninstall/token invalidation | Cascades with the account (`push_tokens.user_id ON DELETE CASCADE`) | Device ID / Identifiers — linked to user |
 | Anonymous usage analytics (screen views, quiz progress milestones, chat activity — allowlisted event names only) | Product analytics | Supabase Postgres (`tracking_events`) | Not linked to any account at write time (no FK, no phone column) — see note | Not touched by deletion (nothing to unlink — see note | Usage Data — **not linked** to user (opt-in, off by default) |
 | Session/refresh tokens | Keep the user signed in | iOS Keychain / Android Keystore (device-local only, never leaves the device except as an opaque bearer value over HTTPS) | Until logout or expiry | Revoked as part of the deletion transaction | Not collected by Frinq's servers as a stored personal record — an auth artifact, not profile data |
+| Crash/error reports (Task 46, no backend wired yet) | Diagnose app crashes/handled errors | Whatever crash backend is configured (`configureCrashReporter`) — currently none; a no-op until a Crashlytics config exists | Whatever the eventual crash backend's own retention is (not this app's data) | Not linked to an account at all — no user/phone/session identifier is ever attached, see note below | Crash Data — **not linked** to user |
 
 **Voice content is never sent to a third-party AI provider.** Traced directly in code
 (`app/api/v1/voice.py`, `app/api/v1/admin.py`): the only reads of `voice_clips.audio_data` are
@@ -29,6 +30,17 @@ an AI vendor; only typed text is.
 `app/api/v1/tracking.py`'s insert path and the allowlist in `docs/route-parity-matrix.md`. Consent is
 off by default (`PrivacySettingsScreen.tsx`), gates every event, and can be revoked at any time with
 immediate effect.
+
+**Crash reports carry only an allowlisted field set** (`frinq-mobile/src/services/telemetry/
+crashReporter.ts`, built Task 46): app version, build number, OS family, device performance CLASS
+(never the raw device model — a fingerprinting vector), screen identifier (route name only), lifecycle
+state, network class, and a sanitized error code. Every string value — including the error code itself
+— is scrubbed against phone-number/bearer-token/JWT/PEM-key patterns before it can leave the module
+(`scrubText()`), and forbidden-named fields (phone, any token, message/report/quiz/voice/profile/
+community content, raw request/response bodies) are dropped entirely regardless of value — proven with
+planted secrets/content in `crashReporter.test.ts`, not just asserted. No backend is wired yet (default
+is a no-op) — this row exists so the disclosure is ready the moment a real Crashlytics config lands,
+not backfilled after the fact.
 
 ## What Frinq does NOT collect
 
