@@ -14,6 +14,8 @@ const CONFIG = join(SCRIPTS, 'verify-native-config.mjs');
 const NOWEB = join(SCRIPTS, 'verify-no-webview.mjs');
 const ASSETS = join(SCRIPTS, 'verify-assets.mjs');
 const CONTRACTS = join(SCRIPTS, 'verify-contracts.mjs');
+const RELEASE_ARTIFACT = join(SCRIPTS, 'verify-release-artifact.mjs');
+const STORE_ASSETS = join(SCRIPTS, 'verify-store-assets.mjs');
 const PROJECT_ROOT = join(__dirname, '..');
 
 function run(script, root) {
@@ -219,6 +221,17 @@ describe('verify-contracts', () => {
     },
     InsightItem: { required: ['label', 'text'], properties: { label: {}, text: {} } },
     UserDeleteResponse: { required: ['id', 'deleted_at'], properties: { id: {}, deleted_at: {} } },
+    CommunityMeResponse: {
+      required: ['archetype_slug', 'name', 'description', 'muted', 'joined_at'],
+      properties: { archetype_slug: {}, name: {}, description: {}, muted: {}, joined_at: {} },
+    },
+    PublicAuthor: { required: ['id'], properties: { id: {}, display_name: {}, avatar_key: {}, archetype_slug: {} } },
+    MessageOut: {
+      required: ['id', 'client_message_id', 'body', 'created_at', 'author'],
+      properties: { id: {}, client_message_id: {}, body: {}, created_at: {}, author: {} },
+    },
+    MessageHistoryResponse: { required: ['messages'], properties: { messages: {}, next_cursor: {} } },
+    WsTicketResponse: { required: ['ticket'], properties: { ticket: {}, expires_in: {} } },
   };
   const snapshot = (schemas) => JSON.stringify({ components: { schemas } });
 
@@ -268,5 +281,39 @@ describe('verify-contracts', () => {
     const r = run(CONTRACTS, dir);
     expect(r.status).toBe(1);
     expect(r.out).toMatch(/missing docs\/openapi-snapshot\.json/);
+  });
+});
+
+describe('verify-release-artifact', () => {
+  // Building a real fixture APK (a zip with a Hermes bundle, dex, and a
+  // signed cert) isn't worth hand-rolling a zip writer for — this script's
+  // real verification is running it against an actual built release APK
+  // (documented in the Task 40 ledger entry, run manually since a release
+  // build isn't produced by every `npm run verify`). This covers the one
+  // path that's always deterministic regardless of environment.
+  test('fails clearly when the given APK path does not exist', () => {
+    let r;
+    try {
+      r = { status: 0, out: execFileSync('node', [RELEASE_ARTIFACT, '--apk', join(PROJECT_ROOT, 'no-such-file.apk')], { encoding: 'utf8' }) };
+    } catch (e) {
+      r = { status: e.status ?? 1, out: `${e.stdout || ''}${e.stderr || ''}` };
+    }
+    expect(r.status).toBe(1);
+    expect(r.out).toMatch(/release artifact not found/);
+  });
+});
+
+describe('verify-store-assets', () => {
+  // Every real check this script runs (icon pixel dimensions/alpha, manifest
+  // permissions, plist strings, privacy manifest) reads real binary PNGs and
+  // the actual native project files — same reasoning as verify-release-artifact
+  // above: hand-rolling synthetic icon-set fixtures isn't worth it when the
+  // real, always-up-to-date project tree is sitting right there to check
+  // against. This is the one test that would catch a regression (a future
+  // task replacing an icon with the wrong size, deleting a store doc, etc.).
+  test('passes on the real project (real icons, manifests, store docs)', () => {
+    const r = run(STORE_ASSETS, PROJECT_ROOT);
+    if (r.status !== 0) console.error(r.out);
+    expect(r.status).toBe(0);
   });
 });

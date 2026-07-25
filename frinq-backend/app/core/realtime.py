@@ -28,6 +28,8 @@ from uuid import UUID
 
 import asyncpg
 
+from app.config import settings
+from app.core import metrics
 from app.core.moderation import moderate
 from app.core.rate_limit import check_rate_limit
 from app.utils.logger import logger
@@ -105,13 +107,20 @@ async def persist_before_publish(
 ) -> PersistResult:
     """normalize -> moderate -> rate-limit -> insert (idempotent) -> publish.
     Never publishes an uncommitted message."""
+    if settings.CHAT_DISABLED:
+        metrics.chat_message_outcomes_total.labels(outcome="chat_disabled").inc()
+        metrics.feature_disabled_rejections_total.labels(feature="chat_send").inc()
+        return PersistResult(accepted=False, code="chat_disabled")
+
     limit_result = await check_rate_limit("chat_send", str(author_id), redis)
     if not limit_result.allowed:
+        metrics.chat_message_outcomes_total.labels(outcome="rate_limited").inc()
         logger.info("realtime.message_rate_limited", user_id=str(author_id))
         return PersistResult(accepted=False, code="rate_limited", retry_after=limit_result.retry_after)
 
     verdict = moderate(body, blocked_terms=blocked_terms)
     if verdict.verdict != "accepted":
+        metrics.chat_message_outcomes_total.labels(outcome="rejected_moderation").inc()
         logger.info(
             "realtime.message_rejected",
             user_id=str(author_id),
@@ -158,9 +167,11 @@ async def persist_before_publish(
         # caller's reader loop (the message may still be durably persisted
         # even if the subsequent publish failed — client can retry safely
         # since client_message_id makes the insert idempotent).
+        metrics.chat_message_outcomes_total.labels(outcome="error").inc()
         logger.error("realtime.persist_or_publish_failed", user_id=str(author_id), error=type(exc).__name__)
         return PersistResult(accepted=False, code="internal_error")
 
+    metrics.chat_message_outcomes_total.labels(outcome="accepted").inc()
     return PersistResult(accepted=True, code="ok", message=message)
 
 
@@ -203,6 +214,15 @@ class ConnectionManager:
         self._by_user: dict[UUID, set[LocalConnection]] = {}
         self._pubsub_tasks: dict[str, asyncio.Task] = {}
         self._ban_task: asyncio.Task | None = None
+
+    def connected_user_ids(self, community_slug: str) -> set[UUID]:
+        """Users with a live local socket in this community right now — the
+        push worker excludes them since they're already seeing the message
+        in-app. Process-local only (matches this whole class's "one
+        instance per API process, shared pub/sub fan-out" model); a user
+        connected to a *different* process still gets a push, an accepted
+        tradeoff rather than a cross-process presence registry for beta."""
+        return {c.user_id for c in self._by_community.get(community_slug, ())}
 
     async def start(self) -> None:
         if self._ban_task is None:
@@ -259,6 +279,13 @@ class ConnectionManager:
                     logger.error("realtime.fanout_error", community_slug=community_slug, error=type(exc).__name__)
         except asyncio.CancelledError:
             pass
+        except Exception as exc:  # noqa: BLE001 — a dead listener must be visible, not silent (this
+            # exact class of bug — the shared client's read-timeout killing this
+            # long-lived subscription — went undetected until a live device test;
+            # register()'s existing.done() check recovers on the NEXT connection,
+            # but only if this is logged loudly enough to notice sooner than that).
+            logger.error("realtime.listener_crashed", community_slug=community_slug, error_type=type(exc).__name__, error=str(exc))
+            raise
         finally:
             await pubsub.unsubscribe(channel_for_community(community_slug))
 

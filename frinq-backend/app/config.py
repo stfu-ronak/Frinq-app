@@ -125,6 +125,29 @@ class Settings(BaseSettings):
     APP_ENV: Literal["development", "staging", "production"] = "development"
     SECRET_KEY: str = Field(default="dev-secret-change-me")
 
+    # Observability — attached to every structured log line and the /health/*
+    # responses so an incident can be pinned to the exact running build.
+    # DigitalOcean App Platform doesn't expose a verified commit-SHA bindable
+    # variable in this repo's docs access, so this is set from a plain env var
+    # at deploy time (owner-supplied) rather than a guessed platform variable.
+    DEPLOYMENT_VERSION: str = Field(default="dev")
+
+    # Emergency global kill switch for new chat messages — Task 46 Step 5's
+    # "if no trained moderator is available, disable new messages rather than
+    # leave reports unattended." A blunt, global, env-var-only flag (no admin
+    # UI toggle) by design: an incident response reaches for the fastest lever
+    # (flip the env var, redeploy), not a feature with its own attack surface.
+    # Existing membership/history/reads are unaffected — only new sends reject.
+    CHAT_DISABLED: bool = Field(default=False)
+
+    # Task 47 Step 5's remaining three server-side audited failure switches —
+    # same blunt env-var-only convention as CHAT_DISABLED. Reads, legal/
+    # support, logout, and deletion always stay available; these only ever
+    # gate the specific new-action path named.
+    OTP_REQUESTS_DISABLED: bool = Field(default=False)
+    QUIZ_STARTS_DISABLED: bool = Field(default=False)
+    PUSH_SENDS_DISABLED: bool = Field(default=False)
+
     # Sessions — refresh-token secrets are HMACed with this pepper before
     # storage (never the JWT signing key, so rotating one doesn't invalidate
     # the other). Deliberately separate from SECRET_KEY.
@@ -151,6 +174,25 @@ class Settings(BaseSettings):
     # single-use jti consumption, same "hybrid of the two existing
     # precedents" reasoning as app/core/reverify.py's own docstring.
     REAUTH_TOKEN_TTL_SECONDS: int = Field(default=300)
+
+    # Push notifications — push_tokens.token_ciphertext is a Fernet
+    # (symmetric, reversible) encryption of the real FCM/APNs token, since
+    # the delivery worker needs the plaintext back to call the provider;
+    # token_hash (HMAC, one-way) is the lookup/uniqueness key so a DB read
+    # or backup leak never exposes a usable token. Deliberately separate
+    # peppers/keys from every other secret, same "one per purpose" pattern
+    # as SESSION_HASH_PEPPER/RATE_LIMIT_PEPPER. Generate a real key with
+    # `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+    PUSH_TOKEN_ENCRYPTION_KEY: str = Field(default="")
+    PUSH_TOKEN_HASH_PEPPER: str = Field(default="dev-push-pepper-change-me")
+
+    # Firebase Cloud Messaging — service-account credentials for the
+    # firebase-admin SDK. Inline JSON (not a file path) so it can be
+    # injected as a single env var in CI/hosting without writing a file to
+    # disk. Never commit real credentials; push send is a no-op (logged)
+    # when empty, same "absent config = feature off, not a crash" pattern
+    # as TWILIO_WHATSAPP_FROM.
+    FCM_SERVICE_ACCOUNT_JSON: str = Field(default="")
 
 
 @lru_cache

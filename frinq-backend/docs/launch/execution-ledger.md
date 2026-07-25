@@ -1286,3 +1286,927 @@ rows carry no phone — corrected to "kept, never linked to your account." Lint/
 **⚠️ STILL OUTSTANDING (unchanged, must flag):** real secrets remain committed in `frinq-backend/.env`
 (Supabase DB password, service key, JWT secret, admin passwords) — credential rotation is still not
 done. This is separate from the dummy-OTP change and remains the top pre-launch security item.
+
+## Phase 10, Tasks 37-38: native community realtime chat (2026-07-25)
+
+Mobile-side build (`frinq-mobile/src/services/realtime/`, `frinq-mobile/src/features/community/`) —
+see `frinq-mobile/docs/route-parity-matrix.md` for the full mobile file-by-file breakdown. This entry
+covers the **two real backend bugs found and fixed** via a genuine live two-account device test (Android
+emulator + this backend + a real Redis container) — both were 100% invisible to the existing test suite
+and would have made native chat non-functional (or DOA at the handshake) in any real deployment.
+
+**Bug 1 — `app/api/v1/realtime.py`'s WS Origin check rejected every native client.** The check assumed
+"no Origin header = native client, always allow"; "Origin present = browser, must be allowlisted."
+Wrong assumption: React Native's OkHttp-based WebSocket client sends an Origin header too, defaulted to
+the connection's own target scheme+host (confirmed live: `http://10.0.2.2:8000` against the Android
+emulator's host-loopback alias) — not a browser's page origin, not absent either. Every mobile WS upgrade
+was rejected with `CLOSE_FORBIDDEN` before the ticket was ever consumed.
+Fix: allow when Origin is either absent, matches the request's own `Host` header (covers this native
+behavior AND legitimate same-origin browser pages), or is on the explicit `CORS_ORIGINS` allowlist
+(legitimate cross-origin web frontend). Reject only a genuine mismatch — the actual attack this check
+exists for (a malicious third-party page embedding JS that opens a cross-origin WS with a stolen ticket).
++4 tests in `tests/test_api/test_realtime_origin.py`.
+
+**Bug 2 — CRITICAL — `app/core/redis_client.py`'s shared client silently killed chat delivery after
+~2 seconds of quiet.** The one shared `get_redis()` client (`socket_timeout=2`, correct for fast
+request/response commands like rate-limit checks) was also the client `ConnectionManager` used for its
+long-lived per-community `pubsub.listen()` subscription. `socket_timeout` is a hard per-read deadline on
+the underlying socket, and `listen()` blocks on that same socket waiting for the next published message —
+any gap over 2 seconds between chat messages (i.e. completely normal real-world usage) hit the deadline
+and raised an unhandled `TimeoutError` inside the listener task, silently killing it. Every message still
+persisted to Postgres successfully (`persist_before_publish` completed); the `message.created` confirmation
+just never reached any connected client — not the sender, not anyone else — until a new WebSocket
+connection happened to trigger `register()`'s dead-task-replacement path and recreate the listener. This
+was **completely silent**: no exception surfaced anywhere in normal logs (an asyncio task's unhandled
+exception only becomes visible if something retrieves it), `PUBLISH` from Redis's own perspective
+correctly reported 0 receivers (the subscription really was gone), and no existing test could have caught
+it — the unit tests use `FakeRedis` (no real socket timeout behavior) and the one "real Redis" integration
+test (`tests/test_integration/test_realtime_redis.py`) is skip-by-default and completes in well under 2
+seconds regardless.
+Diagnosed by adding temporary structured logging to `register()`/`_listen_community()`, reproducing with
+a minimal standalone `redis-py` pub/sub script (worked fine alone — proved it wasn't a library bug), then
+confirming via `docker exec ... redis-cli CLIENT LIST` / `PUBSUB NUMSUB` that the app's subscriber
+connection had zero active subscriptions minutes after a successful subscribe.
+Fix: a **separate** `get_pubsub_redis()` client (`app/core/redis_client.py`) with `socket_timeout=None`
+(block indefinitely — correct for a call that's supposed to wait for the next message) and
+`health_check_interval=30` (periodic PING to detect a genuinely dead connection, since there's no read
+deadline to fall back on). `get_connection_manager()` (`app/api/v1/realtime.py`) now uses this client
+instead of the fast-command one; nothing else changed. Also kept a permanent (non-debug) `logger.error`
+in `_listen_community`'s crash path — this exact bug class must never be silent again, even if a
+different root cause recurs. Verified live after the fix: message round-trip and real-time cross-user
+delivery both confirmed working correctly after 60+ seconds of connection idle time (well past the old
+2-second failure window). +4 tests in `tests/test_core/test_redis_client.py`, +1 in
+`tests/test_api/test_realtime.py` (`get_connection_manager` wires the pubsub client, not the fast one).
+
+**Verification:** backend **304 passed** (291 baseline + 4 origin + 4 redis-client + 1 connection-manager
+wiring + 4 mobile-review race-condition fix — see mobile ledger). Live device test: two dummy accounts
+(seeded into the same `quiet-storm` community via a one-off script calling the existing
+`sync_communities`/`assign_user_to_community` core functions) exchanged real-time messages on-screen,
+correctly styled as own/other with author attribution, plus a working report/block action sheet.
+
+**Not a code bug, environment-only:** Docker Desktop wasn't running at the start of this test session —
+started manually to get a real Redis instance (no bundled/portable Redis for Windows was available).
+Not a finding, just a note for reproducing this test later.
+
+---
+
+## Phase 10, Task 39: opt-in native push (code complete, paused for real credentials)
+
+Backend fully built and tested: `app/core/push.py` (encrypted-token + HMAC-hash storage, same
+one-pepper-per-purpose convention as session/rate-limit peppers), `app/api/v1/push.py` (register/
+remove/preferences), `app/workers/tasks/push.py` (ARQ task, best-effort, throttled per user+community),
+boot guard on `PUSH_TOKEN_HASH_PEPPER`, realtime hook enqueues push only for recipients who aren't
+already connected, ban hook removes tokens. 25 new tests; full backend suite 328 passed / 2 skipped.
+
+Mobile built as far as possible without native Firebase linking: `src/services/push/pushService.ts`
+(permission request/status, token register/remove, local-storage-backed preferences mirror since
+there's no GET endpoint for current server state), `NotificationSettingsScreen.tsx` (device toggle +
+denied-permission deep link to OS settings), settings nav wired, logout removes the push token before
+clearing the session (account deletion needs no explicit call — `push_tokens.user_id` is
+`ON DELETE CASCADE`, confirmed by reading migration 012 directly), community-entry opt-in prompt
+(shown once, OS permission requested only after an explicit tap). A real hoisting bug was found and
+fixed in `pushService.test.ts`'s own mock: a `jest.mock()` factory referenced an outer `const` that
+import-hoisting made read as `undefined` at factory-execution time (diagnosed via manual babel
+transform inspection, not guessed) — fixed by inlining the mocked value instead of referencing an
+outer variable, the safe pattern Jest's own docs describe. 44 suites / 381 tests at the time.
+
+**Paused, by the owner's explicit choice:** native Android config (`google-services.json`,
+`AndroidManifest.xml`, the Firebase Gradle plugin) and any native push build/device test wait for the
+owner to provide (1) `google-services.json` from a real Firebase project and (2) a Firebase
+service-account key for `FCM_SERVICE_ACCOUNT_JSON`. `frinq-mobile/.gitignore` gained entries for both
+credential file paths pre-emptively, before either file exists, so neither can land in git by accident
+once provided.
+
+---
+
+## Phase 11, Task 40: native parity, accessibility gates, and Android release quality
+
+**Step 1 — closed every open parity row.** A full re-scan of `docs/route-parity-matrix.md` for
+"similar/later/not tested" language found exactly two open items, both product-level, both decided:
+`/social-verify` is excluded outright (the design spec's own top-level exclusion list already names
+"social-account verification"; native's quiz order already skips straight from `age` to `ready`), and
+the web `/vibe-box` WhatsApp launch-notice (`POST /whatsapp/notify/{sid}`) is not ported — it exists to
+nudge a browser user to open WhatsApp after finishing the quiz, which doesn't apply to someone already
+inside the native app; Task 39's push notifications are the native equivalent engagement channel.
+
+**Step 2 — automated accessibility gates, all net-new.** `src/design/__tests__/contrast.test.ts` (13
+tests: a real WCAG relative-luminance contrast-ratio calculator, `src/design/contrastRatio.ts`, checked
+against every text/background pair the app actually renders — confirms the ratios `tokens/colors.ts`'s
+own comments have promised all along are actually true, not merely asserted in a comment).
+`no-font-scale-caps.test.js` and `decorative-icon-hiding.test.js` (source-scans, same convention as the
+existing `no-raw-hex.test.js`: nothing in `src/` disables font scaling; every `<Svg>` decorative icon
+carries `accessibilityElementsHidden`). `src/design/motion/__tests__/useReducedMotion.test.ts` and
+`PressableScale.test.tsx` (4 tests: the reduce-motion hook and its one consumer had **zero** test
+coverage before this task — now covers initial value, live OS-setting changes, unsubscribe-on-unmount,
+and that the selection haptic is genuinely skipped under reduce-motion). `src/__tests__/
+criticalJourneys.test.tsx` (9 tests: per-message components never set `accessibilityLiveRegion` while
+`CommunityHeader` sets it exactly once; composer/action-button touch targets meet the 44/48dp tokens;
+roles/names/state on `NavRow`/`PrimaryButton`; failed-message state is conveyed by literal text, not
+color alone). All 31 new tests pass against **unmodified** app code — every invariant they check was
+already true; they exist so a future regression fails CI instead of shipping silently. New
+`docs/accessibility-checklist.md` maps every plan-required item to what's automated vs. what still
+needs a device pass.
+
+**Step 3 — a real crash found, root-caused, and fixed via actual device testing, not code review.**
+Toggling `adb shell settings put system font_scale 2.0` while the app was open crashed it instantly:
+
+```
+java.lang.IllegalStateException: Screen fragments should never be restored.
+  at com.swmansion.rnscreens.ScreenFragment.<init>
+```
+
+`react-native-screens` explicitly refuses to restore its own Fragments from a saved instance-state
+bundle — any Activity re-creation (an OS config change on a *running* app, or the OS killing and later
+recreating the process) needs `MainActivity.onCreate` to pass `null` through to `super.onCreate()`
+regardless of what the OS handed it. `MainActivity.kt` had no `onCreate` override at all, so the
+default `ReactActivity` behavior passed the real bundle straight through, crashing on the very first
+Activity relaunch of any kind. This is the single most common Android-only "random crash" source for RN
+apps using react-native-screens — it would have hit real users on device rotation, a system font-size
+change, or the OS reclaiming memory in the background, and no Jest test could ever catch it (there's no
+JVM/Fragment lifecycle under Jest). Fixed: `MainActivity.kt` now overrides `onCreate` to always call
+`super.onCreate(null)`. Rebuilt the debug APK, reinstalled, and re-ran the *exact* same trigger — clean
+re-creation, same in-progress quiz answer state intact, no crash. Real device coverage this pass
+(single android-36 emulator, no other system image installed on this machine — see
+`docs/device-test-matrix.md` for the honest list of what a tablet/API-24/physical-device pass would
+still need): process kill + relaunch (state restored from the encrypted MMKV draft, not from Android's
+own Activity-state mechanism — RN has no separate code path for "OS killed it" vs. "user force-stopped
+it," so this doubles as the low-memory-recreation check), app background/foreground, the config-change
+crash-and-fix above, 200% text on the quiz screen (clean, no clipping), and a fresh `uiautomator dump`
+confirming real TalkBack labels on the quiz screen ("Go back", "Step 2 of 24", "where do you live?",
+"continue"). Chat's TalkBack/200%-text/reduced-motion/offline/background-grace-period coverage and
+voice recording's mic-permission coverage were already verified live in Tasks 38 and 33 respectively —
+not re-run here to avoid duplicating that work.
+
+**Step 4 — release performance, measured with Android's own tooling, not estimated.** A real
+`gradlew assembleRelease` (Hermes bytecode, minified, R8-shrunk) installed fresh: cold start (`adb
+shell am start -W`) **1700ms** (`LaunchState: COLD`), hot start **246ms** (`LaunchState: HOT`), memory
+after boot **~194MB PSS** (`dumpsys meminfo`), release APK **120MB** (a *universal* APK bundling all 4
+ABIs — a real Play-distributed AAB would ship a single per-device ABI split and measure substantially
+smaller; that measurement is Task 41's job). No ANRs observed. Quiz-transition smoothness, a
+300-message chat-list scroll frame-timing pass (`dumpsys gfxinfo`), and memory-after-repeated-
+navigation were not captured this pass — honestly flagged, not estimated: the release build's test
+account was wiped by the fresh install needed for a clean cold-start number, and re-creating one needs
+a real OTP round-trip against `https://api.frinq.in`, which doesn't exist yet (Task 41). Chat scrolling
+and pagination were already confirmed functionally correct on-device in Task 38, just without an
+attached frame-timing number.
+
+A genuine, unrelated environment failure surfaced mid-measurement: the release build failed after 37
+minutes with `java.io.IOException: There is not enough space on the disk` — the F: drive this session
+runs on was at 100% (239GB/239GB). Root cause: ~21GB of regenerable native-module CMake/`.cxx` build
+intermediates had piled up inside `node_modules/*/android/build/` across this session's several native
+rebuilds (react-native-worklets alone: 4.8GB; react-native-reanimated: 6.3GB) — all gitignored, all
+safe to delete, all automatically regenerated on the next build. Deleted them plus `android/app/build`,
+freeing ~25GB; the release build then succeeded in 24m42s. The same fix was needed twice more for the
+two subsequent debug rebuilds this task required — this machine's disk is genuinely undersized for
+back-to-back debug+release native builds of this app without cleaning between them.
+
+**Step 5 — a release-artifact scanner that initially cried wolf, fixed until it didn't.**
+`scripts/verify-release-artifact.mjs` (new) unzips a real release APK and scans it for dev endpoints,
+test-fixture values, embedded secrets, forbidden-framework fingerprints, wrong app id, debug signing,
+and missing 16KB page-size ELF alignment. The first run against the actual just-built release APK
+produced dozens of findings — investigated every one individually rather than trusting the raw output,
+and every single one was a false positive in the *scanner*, not a real app problem:
+- `"10.0.2.2"` and a `"service_account"` match traced to `classes2.dex` — Play Services' own
+  emulator-detection string pool (paired with `"10.0.3.2"`, unrelated version-number strings) and its
+  `"google_auth_service_accounts"` constant respectively. Neither has anything to do with this app's
+  configuration; both are unavoidable in any Android app pulling in Play Services/Firebase.
+- `"http://schemas.android.com"`, `www.android.com`, `www.apache.org`, `www.w3.org` — the standard XML
+  namespace URIs present in the compiled resources of *every* Android app ever built.
+- `"http://api/v1/push/preferences"` — traced into the actual JS bundle and found to be a byte-scanning
+  artifact: Hermes's string table packs literal constants with no separator between entries, so a naive
+  "runs of printable bytes" scan can glue two unrelated adjacent strings together. The real app string
+  (confirmed present, correct, and unrelated) is `https://api.frinq.in` — HTTPS, exactly as written in
+  `config.ts`.
+- Every `armeabi-v7a`/`x86` (32-bit) `.so` "failed" 16KB alignment — a real logic bug in the check
+  itself: Google's 16KB page-size migration applies to 64-bit native libraries only; 32-bit ABIs are
+  explicitly exempt. Restricted the check to `arm64-v8a`/`x86_64` only; all 56 real 64-bit libraries in
+  this build passed.
+- The debug-signing check (string-matching for `"androiddebugkey"`) silently never fired on a build
+  that genuinely *is* debug-signed — replaced with a real `apksigner verify --print-certs` call
+  (needed `{ shell: true }`: `.bat` tools aren't directly spawnable via `execFileSync` on Windows) that
+  checks the actual certificate DN for `CN=Android Debug`, the standard, universal Android debug-cert
+  subject. This one now correctly fires: **the current release build is debug-signed**, an accurate
+  and expected finding (real release signing is Task 41's job, not skipped by an oversight here).
+
+Rewrote the scanner to scope all content-based checks (dev endpoints, secrets, test fixtures, framework
+fingerprints) to `assets/` (the JS bundle + any raw assets — the only artifact this app's own code
+controls) instead of the whole APK, and to check exact known-bad literals rather than an open-ended
+`http://` pattern. Re-run against the same real APK: one clean, correct, expected finding (debug
+signing) and zero false positives. `npm run verify:release-artifact` added as its own script (not
+folded into the default `verify` chain, matching the existing `android:release-check` precedent, since
+it needs an actual release build + `apksigner`/`llvm-readelf`, not always present).
+
+**Step 6 — full verify.** Mobile: **50 suites / 413 tests**, tsc + eslint (0 errors), all 5 native
+verifiers (including the new release-artifact scan against the real build). Backend: **330 passed**.
+Public web (`frinq-frontend`): **48 tests / 6 files**, lint clean (14 pre-existing warnings, 0 errors,
+none introduced here). Admin (`frinq-admin`): lint clean (1 pre-existing warning); no automated test
+suite exists for this app (pre-existing state, not a Task 40 gap). Real `gradlew assembleDebug` and
+`gradlew assembleRelease` both succeeded; the debug build was reinstalled and confirmed booting cleanly
+live on-device after the `MainActivity.kt` fix, reconnected to a freshly-restarted Metro (the original
+dev-server process had died silently at some point mid-session; restarting it and re-running `adb
+reverse` resolved an unrelated "Unable to load script" screen with no crash log — an environment
+hiccup, not a code issue).
+
+**Not covered on this machine — genuine gaps, not silently dropped** (full detail in
+`docs/device-test-matrix.md`): API 24 (`minSdk`) on a real API-24 image (only android-36 is installed),
+tablet compatibility width (no tablet AVD), any physical device, an app-upgrade-over-existing-install
+scenario (low risk pre-release, `versionCode` has stayed at 1 throughout), and slow-network throttling
+specifically (full offline/airplane-mode was tested extensively in Task 38; a degraded-but-connected
+network is a different failure mode this pass didn't reach).
+
+**Task 40: complete**, with the gaps above explicitly flagged for whoever picks up a real device lab or
+additional emulator images, rather than claimed as covered.
+
+---
+
+## Phase 11, Task 41: production identity, permissions, privacy metadata, and store assets
+
+**Step 1 — identity fields drafted, not invented as final.** Per the owner's explicit choice this
+task, every store-facing field without a real answer already in the repo (product copyright, seller/
+developer legal name, final marketing copy) is written as a clearly-marked DRAFT in
+`store/metadata/en-IN.md` — same treatment Task 24 gave placeholder legal text. Fields that already
+have a real answer in the codebase (product name, support email, category fit, app id) are used as-is,
+not re-guessed.
+
+**Step 2 — real native assets generated, not left as the default RN scaffold.** The app shipped with
+the stock React Native Community CLI robot-on-graph-paper launcher icon and the stock
+"FrinqMobile / Powered by React Native" launch screen — both replaced. New `scripts/
+generate-placeholder-icon.mjs` (uses `sharp`, added as a devDependency — no image-rasterization tool
+existed in this environment beforehand) renders the same "quiet dot" motif `BootSplash` already uses
+(`src/navigation/placeholders.tsx`: cream background, small maroon dot) at every required size:
+Android legacy launcher + round (5 densities), Android adaptive icon foreground (5 densities, new
+`mipmap-anydpi-v26/ic_launcher.xml`/`_round.xml` + `colors.xml` background — **adaptive icons didn't
+exist at all before this task**, only flat legacy PNGs), a monochrome white notification-icon asset
+(prepared now, wired into the manifest only once Task 39's push resumes), and every iOS
+`AppIcon.appiconset` slot with `Contents.json`'s filenames populated (previously blank — Xcode had
+nothing assigned). A real bug in the generator was caught and fixed before trusting the output: several
+distinct iOS icon slots share the same pixel size (40pt@3x and 60pt@2x are both 120px), and a
+size-only reverse lookup silently assigned one slot's filename to the wrong slot; fixed to match by
+name key instead. `LaunchScreen.storyboard` now matches `BootSplash`'s own cream background with no
+text (removed the scaffold labels entirely); Android's `styles.xml` gained a matching
+`windowBackground` so there's no color flash before the JS layer mounts. This is still placeholder
+creative, explicitly flagged in `store/metadata/en-IN.md` and the reviewer/owner questions raised
+before starting this task — not final brand design.
+
+**Step 3 — permissions/capabilities audited against what's actually used, one real gap found.**
+Android's manifest already correctly declared only `INTERNET`/`RECORD_AUDIO` (no location/camera/
+contacts/photos) and `android:allowBackup="false"` (the strongest backup exclusion — nothing extra
+needed for credentials/drafts). iOS's `Info.plist` already had a real, specific
+`NSMicrophoneUsageDescription`. The real gap: **no orientation lock existed on Android at all**,
+despite the entire app being portrait-only by design (`Screen.tsx`'s phone-portrait `maxWidth` cap, no
+landscape layout anywhere in the design system) and iOS already being portrait-locked for iPhone in
+its own `Info.plist`. Added `android:screenOrientation="portrait"` to `MainActivity`. Added
+`ITSAppUsesNonExemptEncryption = false` to `Info.plist` (the app uses only standard HTTPS/TLS +
+OS-provided local-storage encryption, both exempt from Apple's annual export self-classification
+report — reasoned from what the app's own crypto usage actually is, not guessed). Push
+entitlements/capabilities remain untouched, per the standing Task 39 pause.
+
+**Step 4 — a real, code-verified privacy data inventory, not a template.** `store/
+privacy-data-inventory.md` traces every collected field to the actual code path that touches it
+(`app/api/v1/voice.py`, `app/core/ai/insights.py`, `app/api/v1/tracking.py`, `push_tokens`'s cascade
+FK). One finding worth having verified rather than assumed: **voice recordings are never sent to a
+third-party AI provider.** The only reads of `voice_clips.audio_data` in the entire backend are
+admin/moderation endpoints (playback, review, listing) — the AI insights pipeline
+(`app/core/ai/insights.py`, OpenAI + Anthropic) only ever receives the **typed** text answer from the
+same quiz question, confirmed by tracing `VoiceOrTextTemplate`'s text-baseline-plus-additive-mic
+design (Task 33) all the way through. This is an important distinction to get right on the actual
+Apple/Play forms — voice is collected and stored, but not "shared with" an AI vendor. `PrivacyInfo.
+xcprivacy` (already existed from an earlier phase) was reviewed against this task's dependency
+audit — its three declared categories (FileTimestamp, UserDefaults, SystemBootTime) still hold; added
+the missing `NSPrivacyTrackingDomains` empty-array key for schema completeness.
+
+**Step 5 — deterministic metadata checks, real bugs caught before trusting the script.** New
+`scripts/verify-store-assets.mjs` checks real icon pixel dimensions/alpha (via `sharp`), manifest
+permissions against a forbidden-list, `Info.plist` string presence, the privacy manifest, the
+production API endpoint's scheme, backup rules, font-license evidence, and that every `store/` doc this
+task produces actually exists. Folded into the default `npm run verify` chain (cheap, deterministic,
+no build/emulator dependency, unlike the release-artifact scanner). New
+`store/reviewer-notes.md` documents the backend's **existing** `REVIEW_PHONE`/`REVIEW_OTP`/
+`REVIEW_OTP_EXPIRES_AT` App Store/Play reviewer OTP-bypass mechanism (`app/core/otp.py`, already
+built, fails closed on expiry/misconfiguration) — reviewers get a fixed phone+code pair instead of a
+real SMS, once the owner sets real values as production secrets (never committed). New
+`store/territory-review.md` recommends an India-only initial launch, reasoned from the app's own
+existing signals (every seed/test phone number is `+91` format, the quiz collects an India-specific
+`ncr_zone` field, the production domain is `frinq.in`, `en-IN` locale formatting is already hardcoded
+in `CommunityMessage.tsx`) — a recommendation for the owner to confirm, not invented from nothing.
+
+**Verification:** mobile `npm run verify` → **50 suites / 414 tests**, tsc + eslint (0 errors), all 5
+native verifiers including the new store-assets check, all passing against the real project tree (not
+just fixtures). New `sharp` devDependency confirmed unused by app code (`src/`) — dev-tooling only,
+does not affect the JS bundle or native build.
+
+**Explicitly NOT done here — genuine owner-decision or Mac-only items, flagged rather than guessed:**
+- Real (non-placeholder) icon/brand art — needs actual design approval.
+- Final store copy, copyright holder, seller/developer legal name — marked DRAFT pending sign-off.
+- Territory beyond India, and any pricing/monetization/age-rating specifics — business decisions.
+- Real `REVIEW_PHONE`/`REVIEW_OTP` production values — must be set as real secrets before submission.
+- iOS backup-exclusion (`NSURLIsExcludedFromBackupKey`) for the encrypted MMKV quiz-draft file — needs
+  native Swift/ObjC code that can't be meaningfully tested without a Mac; left as a flagged TODO for
+  Task 42 rather than blind-coded and untested here.
+- `PrivacyInfo.xcprivacy`'s final reconciliation against Xcode's own static Required-Reason-API
+  scanner — only available at real archive time (Task 42).
+
+**Task 41: complete**, with the above explicitly carried forward rather than silently assumed done.
+
+---
+
+## Phase 11, Task 43: cut the consumer web app down to public legal/support pages
+
+**Deviation from the plan's own Step 1, done at the owner's explicit direction:** the plan requires
+Tasks 40-42 to pass before this removal begins. Task 42 (the Mac/iPhone gate) is blocked — no Mac is
+available in this environment — and the owner explicitly directed continuing past it, with manual iOS
+testing and any remaining credentials to be supplied once everything else is code-complete. Proceeding
+on that basis; this is a real, acknowledged gate skip, not an oversight.
+
+**What was actually removed**, traced by import graph before deleting anything (every retained page —
+`terms`, `privacy`, `community-rules`, `support`, `delete-account` — had **zero** imports from `app/lib`
+or `app/components` beyond what stayed, confirmed by grep before touching a single file):
+`app/(quiz)/` (all 41 quiz routes), `app/(app)/` (community/profile/settings), 16 consumer-only
+components (`AccountGate`, `AppTabBar`, `ContinueBtn`, `HashtagInput`, `ImageCard`, `ListOption`,
+`NavLink`, `NumberedInputs`, `QuestionLabel`, `QuizProgressTracker`, `ShareCard`, `SinglePickPage`,
+`TripScreen`, `UrlMask`, `VoiceRecorder`, `Header`, plus `components/chat/` and `components/motion/`
+wholesale), `app/lib/{session,api,identity,storage,realtime}.ts` (+ their tests), the real Capacitor
+packages (`@aparajita/capacitor-secure-storage`, `@capacitor/{app,core,status-bar,android,cli,ios}` —
+82 packages removed from the lockfile after `npm install`), and the now-orphaned `html-to-image`
+dependency (only `ShareCard.tsx` used it). Obsolete Playwright specs (`app-shell`, `auth-routing`,
+`community-chat`, `smoke`) and the root `tests/session.test.ts` removed too — all tested routes that no
+longer exist.
+
+**One reasoned call beyond the plan's literal file list:** `app/terms/accept/` is nested under the
+directory the plan says to "Preserve: app/terms/", but it's actually a consumer/auth route (imports
+`session.ts`'s `getAccessToken`/`savePendingLegalAcceptance`, gates quiz entry) — removed along with
+the rest of the auth flow, keeping only `app/terms/page.tsx` (the plain read-only document). The
+plan's own Step 2 language ("former consumer/auth/quiz routes redirect... or return a deliberate
+not-found") makes clear this was the intent; the file-list shorthand just didn't spell out the
+subdirectory split.
+
+**`app/lib/analytics.ts` kept, trimmed of its one dependency on the removed `session.ts`** (inlined the
+one-line `apiUrl()` helper it needed rather than keeping the whole session module alive for it) — this
+is Task 25's real, consent-gated, allowlisted `screen_view`-only tracking, distinct from the raw
+unconditional Google Analytics + Microsoft Clarity `<script>` tags that were also in `app/layout.tsx`
+with **no consent gate at all** (real tracking IDs, real session-replay tag). Those two removed — this
+is exactly the "browser analytics/session replay" Step 3 calls out, and having them ungated on every
+page (including now the legal/support pages) was a real, pre-existing gap this task's own scope covers.
+
+**Root `app/page.tsx` rewritten** from the old quiz-entry splash (session restore, local quiz-state
+resume, dev-mode flags, "begin" tap-to-start) to a static download-landing page (brand colors/type
+preserved, no client-side routing logic needed — it's a plain Server Component now, not `"use client"`)
+with placeholder App Store/Play Store links, marked DRAFT pending real store URLs once published
+(same treatment as Task 41's store metadata).
+
+**Verified for real, not just assumed:** new `tests/e2e/legal-public-pages.spec.ts` — **14 real
+Playwright tests**, run against a live `next dev` server: every retained page actually renders, and
+every former consumer/quiz/auth route (`/name`, `/phone`, `/verify`, `/city`, `/vibe-box`,
+`/terms/accept`, `/community`, `/settings`) returns a genuine 404, not a stale cached page. `npm run
+build` (`output: "export"`) produces exactly the 7 expected static routes. `grep` across the retained
+tree and `package-lock.json` for "capacitor" and any access/refresh-token reference: zero matches.
+Full verify: vitest 7/7 (only `analytics.test.ts` remains — everything else tested was inside a removed
+directory), lint clean (0 errors, 0 warnings — the 14 pre-existing warnings from Task 40 were all in
+now-deleted files), tsc clean (after clearing a stale `.next/types` cache from before the route
+deletions, which briefly looked like 47 errors but was just Next's own auto-generated route-type file
+being out of date).
+
+**Left alone, flagged rather than silently deleted:** `public/illustrations/` and `public/photos/` are
+now unreferenced by any remaining page (they were quiz-screen art) but not removed — the `archetypes/`
+subset (24 files) may be the only copies of licensed illustration assets rather than duplicates of
+something bundled in `frinq-mobile` (confirmed `frinq-mobile/src/assets` has no raster copies of them),
+and deleting a possibly-irreplaceable asset isn't a call to make without confirming first. Noted in
+`frinq-frontend/README.md` (also rewritten from the unmodified `create-next-app` boilerplate to
+actually describe what this site is post-cutover).
+
+**Task 43: complete**, with the Task 42 gate-skip and the illustrations question both explicitly
+carried forward, not silently resolved.
+
+---
+
+## Phase 12, Task 44: harden HTTP, native secrets, uploads, and production configuration
+
+**A real, previously-undiscovered deployment bug found and fixed before Step 1 even started.**
+Reproduced locally: `python scripts/predeploy.py` (the exact command `.do/app.yaml`'s PRE_DEPLOY
+migration job runs) fails with `ModuleNotFoundError: No module named 'app'` — running a script by path
+puts the script's own directory (`scripts/`) at the front of `sys.path`, not the project root, so
+`from app...` never resolves. Tests pass locally only because `pyproject.toml`'s
+`[tool.pytest.ini_options] pythonpath = ["."]` is pytest-specific and doesn't apply to a plain `python
+scripts/x.py` invocation. This means **every real deploy's migration job was one`PYTHONPATH=.` away
+from silently failing** (DO's PRE_DEPLOY semantics block the deploy on a nonzero exit, so at least it
+wouldn't have shipped broken — but migrations would never have run). Fixed by prefixing the job's
+`run_command` with `PYTHONPATH=.` in `.do/app.yaml`; confirmed the fix locally.
+
+**Step 1 — boundary tests written and passing, `tests/test_api/test_security_boundaries.py` (16
+tests) + `tests/test_boot_guard.py` (12 new).** One real Starlette gotcha hit and fixed during this
+step: `@app.exception_handler(Exception)` does not reliably convert an exception into its handled
+response when custom `BaseHTTPMiddleware`-based middleware (this app's `SecurityHeadersMiddleware`/
+body-size enforcer) sits above it in the stack — the exception re-propagated past both middlewares to
+the client as a raw exception instead of a clean 500, confirmed by writing the test first and watching
+it fail with the real traceback. Fixed by moving the redaction try/except directly into
+`SecurityHeadersMiddleware.dispatch()` (which already wraps every request) instead of relying on
+FastAPI's exception-handler registration — more robust, and now has direct test coverage proving it
+actually works end-to-end, not just in theory.
+
+**Step 2 — new `app/core/security_headers.py`, wired as middleware.** Every response now carries
+`X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options:
+DENY`, a least-privilege `Permissions-Policy` (this API never needs camera/mic/geolocation/etc. — it's
+the mobile app that needs microphone, at the OS level, not the backend), and a CSP. Since this is a pure
+JSON/WS API with no server-rendered HTML surface of its own (aside from the optional Swagger docs), the
+CSP is the strictest possible (`default-src 'none'; frame-ancestors 'none'`) everywhere except `/docs`/
+`/redoc`, which get a separate CDN-script-friendly policy and only exist outside production. HSTS is
+sent only when `APP_ENV=production` (never over what could be a plain-HTTP dev server — browsers cache
+HSTS aggressively and it can't be un-sent by accident). `Cache-Control: no-store` added on every
+auth/session/account/push response prefix. `/docs`, `/redoc`, `/openapi.json` are now `None` (fully
+disabled, not just unauthenticated) when `APP_ENV=production` — previously live and unauthenticated in
+every environment including production. frinq-admin already had a complete, thoughtful `next.config.ts`
+`headers()` implementation from an earlier phase — reviewed, no changes needed. frinq-frontend
+(`output: "export"`) can't use Next's `headers()` at all (static export), and this session couldn't
+verify DigitalOcean App Platform's exact static-site custom-header mechanism without a live deploy or
+doc access — flagged as a genuine open item rather than guessing at unverified YAML/file-convention
+that might silently do nothing.
+
+**Step 3 — request/timeout bounds, one already existed, three real gaps closed.** WebSocket inbound
+frame size was **already capped at exactly 8KB** (`app/core/realtime.py`'s `MAX_INBOUND_FRAME_BYTES`,
+built in an earlier phase) — verified this holds with a new direct test (`_reader_loop` fed an
+oversized fake frame), since no test had ever actually exercised it before. Real gaps found and fixed:
+the Anthropic client had no explicit timeout (relying on the SDK's own 10-minute default — now 60s);
+Firebase push send had no timeout at all (`asyncio.to_thread(_send_sync, ...)` could hang a worker slot
+indefinitely on a stuck provider call — now wrapped in `asyncio.wait_for(10s)`, swallowed on timeout
+same as every other transient-failure path in that function). Twilio OTP/WhatsApp calls and the
+DB/Redis connection pools already had real, correct timeouts from earlier phases — confirmed by reading
+the code directly, not assumed.
+
+**Step 4 — new `app/core/production_guard.py`, one pure function shared by boot and CI.** Extracted
+`app/main.py`'s inline production checks (already covered SECRET_KEY/SESSION_HASH_PEPPER/
+RATE_LIMIT_PEPPER/PUSH_TOKEN_HASH_PEPPER/ADMIN_KEY/ADMIN_ACTION_PASSWORD/CORS_ORIGINS/REVIEW_OTP_EXPIRES_AT
+from earlier phases) into `validate_production_settings(settings) -> list[str]`, then added the real
+gaps Task 44 asks for: `ADMIN_ACTOR_ID` must be set and not the generic `"admin"` default (previously
+unchecked — every moderation action in a real deploy could have attributed to the same generic actor);
+`ADMIN_KEY` must not equal `ADMIN_ACTION_PASSWORD`; `CORS_ORIGINS` must contain no wildcard and no
+cleartext `http://` origin; `PUSH_TOKEN_ENCRYPTION_KEY` must actually be a valid Fernet key (constructed
+and validated, not just checked non-empty); `DATABASE_URL` must be set and `REDIS_URL` must not be the
+localhost default; `SKIP_OTP_VERIFICATION`/`TEST_PHONES` (already hard-ignored in production by
+`otp.py`'s own logic) get a second, boot-time layer of rejection. New standalone
+`scripts/verify_production_config.py --env-file <path>` runs the exact same function against any `.env`
+file without booting the app or touching a real DB/Redis connection — real-tested against both a
+synthetic valid production env (passes) and a deliberately bad one (correctly reports all 9 violations
+at once). `.do/app.yaml` gained the missing secret declarations these checks require in a real deploy:
+`ADMIN_ACTOR_ID`, `RATE_LIMIT_PEPPER`, `PUSH_TOKEN_HASH_PEPPER`, `PUSH_TOKEN_ENCRYPTION_KEY`,
+`FCM_SERVICE_ACCOUNT_JSON` (the last three were missing from the **worker** service too, even though
+`send_community_push` runs there, not in the API service — a real gap, now fixed in both places). Also
+added `--proxy-headers` to the API service's uvicorn `run_command` — `app/api/v1/realtime.py`'s own
+comment already anticipated this exact flag being needed for `wss`/HTTPS scheme detection behind DO's
+load balancer, but it was never actually set.
+
+**Step 5 — no gitleaks binary available in this environment (no internet access to fetch one, solo dev
+machine, no CI pipeline) — built a lightweight, real equivalent instead.** New
+`frinq-backend/scripts/scan_for_secrets.py` scans every `git ls-files`-tracked file (automatically
+respects every `.gitignore` rule, same boundary a real gitleaks-against-history run would use) for
+credential shapes this project's own providers actually issue: AWS keys, Twilio SIDs/tokens, OpenAI/
+Anthropic API key prefixes, PEM private keys, Firebase/Google service-account JSON markers, JWT-shaped
+bearer tokens, and this session's own real test-fixture phone numbers. Real run against the actual
+repo: **clean, zero findings** — confirms no secret has ever been accidentally committed. 7 new tests
+(`tests/test_scripts/test_scan_for_secrets.py`, using real temporary git repos, not mocks) prove both
+directions: real credential shapes are caught, and untracked files (like a real local `.env`) are
+correctly ignored. `frinq-mobile/scripts/verify-release-artifact.mjs` (built in Task 40) gained the two
+checks Step 5 explicitly asks for that it didn't have yet: disallowed source maps (a `.map` file or a
+live `sourceMappingURL` reference in the release JS bundle) and hardcoded bearer-token examples. Not
+re-verified against a fresh real release build (the Task 40 build was already cleaned up for disk
+space, and rebuilding release again — a ~20-minute native build — wasn't judged worth it for two simple,
+low-risk regex/extension checks); flagged rather than silently assumed proven.
+
+**Step 6 — full verify, everywhere.** Backend: **366 passed** (357 baseline + 16 security-boundary +
+12 boot-guard + 7 secret-scan + 2 trusted-proxy-IP, minus the 2 pre-existing that already covered
+review-OTP). Mobile: 50 suites/414 tests, tsc + eslint (0 errors), all 6 verifiers (including the
+now-extended release-artifact scanner). Public web: 7 vitest tests, lint clean, static build produces
+the expected 7 routes. Admin: lint clean (1 pre-existing warning), build succeeds. **Live-verified, not
+just unit-tested:** restarted the real backend server (the one that had been running all session was
+serving stale pre-Task-44 code with none of the new headers) and confirmed with real `curl` requests:
+every new security header present on `/health`, `/docs` reachable in dev, `Cache-Control: no-store` on
+a real `/api/v1/users/me` 401 response.
+
+**Left explicitly open, not silently resolved:**
+- `frinq-frontend`'s static-site security headers — DigitalOcean's exact mechanism for this couldn't be
+  verified without a live deploy or doc access; `frinq-admin`'s server-rendered headers already existed
+  and are solid.
+- The 2 new mobile release-artifact checks (source maps, bearer-token examples) haven't been re-run
+  against a fresh real release build this task — logic is simple and low-risk, but not yet proven
+  against a real APK the way Task 40's original checks were.
+- Whatever Task 45's real device/journey pass surfaces — this task hardens configuration and
+  boundaries; it doesn't replace an end-to-end functional pass.
+
+**Task 44: complete.**
+
+## Task 45: Prove end-to-end release journeys and native accessibility
+
+**Step 1 — isolated staging test-data script.** New `frinq-backend/scripts/seed_release_test_data.py`:
+`seed --tag <tag> --count N` creates uniquely-tagged, deterministically-phoned (never random) test
+users directly at an active, community-assigned state, matching Task 38's earlier one-off scratch
+seeding pattern but as a real, reusable tool this time. `cleanup --ids ...` / `cleanup --tag <tag>`
+deletes only explicitly-passed IDs or rows matching that exact tag's display-name pattern — never a
+broad `DELETE FROM users`. Hard-refuses under `APP_ENV=production`, same convention as every other
+boot-guard in this repo — this is a CLI-only tool with no HTTP surface, so the production refusal is
+the whole protection (no separate admin-auth layer needed the way an endpoint would). 8 new tests
+(`tests/test_scripts/test_seed_release_test_data.py`), same monkeypatched-`init_pool`/`close_pool`
+pattern as `test_backfill_quiz_activation.py` — no live DB needed for CI.
+
+**Step 2 — portable journeys, one genuine gap found and fixed.** Audited all 15 journeys the step
+lists against existing coverage before writing anything new — most were already solid (new OTP account,
+Terms acceptance, quiz resume after process death, durable processing, active result, assigned
+community, two-user thread/report/block, mute, profile edit, logout/login, refresh rotation). Two were
+genuine gaps, both closed:
+- **Reconnect without duplicate — a real, previously-unimplemented behavior, not just untested.**
+  `CommunitySocket.pendingSends`'s own doc comment said "so a disconnect-then-retry resends the exact
+  same body under the exact same idempotency key" — but nothing actually did this automatically. A
+  message sent right before a connection drop (retrying-reconnect, not an explicit `disconnect()`)
+  stayed stuck on "sending…" forever: never resent, and never marked `'failed'` either (that only
+  happens on an explicit `message.rejected` frame, which a silent drop never produces). Fixed with a
+  new `resendPending()` called from the `'ready'` handler on every (re)connect. 2 new
+  `CommunitySocket.test.ts` tests plus a new `chatSafety.test.tsx` wiring the REAL `CommunitySocket`
+  to a REAL `CommunityScreen` over a mock WebSocket (CommunityScreen.test.tsx/CommunitySocket.test.ts
+  each only proved their own half against a fake counterpart before). Both new tests confirmed to fail
+  without the fix before being left in place.
+- **Revoked-session rejection and account deletion — each already proven at the unit level, never
+  proven end to end.** `SessionCoordinator.test.ts` already proved a rejected refresh token wipes the
+  coordinator's own state; `deleteAccount.test.tsx` already proved the full confirm→OTP→type-DELETE UI
+  flow calls `clearLocalSessionState`. Neither proved the flip actually reaches the real
+  `BootController` and re-resolves to `authRequired` through the real `routeForUser` (vs. an injected
+  `resolveBoot`, which every existing render-based test used). New `src/test/releaseFixtures.ts`
+  (`renderBootJourney()` mounts the real `AppProviders`/`BootController` — `BootController` gained one
+  export from `App.tsx` purely for this, no behavior change — against a fake `HttpTransport`, with a
+  probe component handing back the live `SessionCoordinator` so a test can call the exact
+  `coordinator.clear()` deletion/logout perform) + `routedTransport()`. New `releaseJourneys.test.tsx`
+  (revoked-token → real sign-in screen; unreachable server → real offline screen, never sign-in) and
+  `accountDeletion.test.tsx` (cleared coordinator → real sign-in screen, not a stale prior screen or a
+  hung splash).
+
+**Step 3 — native accessibility, three of six categories were genuine gaps.** Gap-checked all six
+failure categories the step names against Task 40's existing coverage before writing anything (full
+detail in `frinq-mobile/docs/accessibility-checklist.md`'s Task 45 section):
+- **Incorrect selection state**: `SnapSlider` (quiz's 5-stop selector) had zero test coverage — new
+  `SnapSlider.test.tsx` (5 tests: exactly-one-selected, none-when-unanswered, tap reports value, touch
+  target, adjustable role/value). `ChoiceCard`'s `accessibilityState.selected` was only ever
+  label-tested, never state-tested. `MainTabs`' active-tab `accessibilityState.selected` was untested.
+  All three closed.
+- **Inaccessible modal focus**: every modal in the app already goes through `Sheet`/`Dialog`, both
+  wrapping RN's real native `Modal` with `accessibilityViewIsModal` — focus-into-modal is a **platform
+  guarantee** here, not custom JS needing a fix. Confirmed structurally (new `Dialog`/`Sheet` tests
+  assert the modal region prop and that nothing renders while `visible={false}`) rather than faking an
+  unfalsifiable JS focus-trap test; the one thing that genuinely can't be proven outside a real device
+  (a live screen reader actually honoring it) is now an explicit line in `device-test-matrix.md` instead
+  of an unstated assumption.
+- **Controls below the token minimum**: was spot-checked (2 components). Systematic sweep added across
+  every previously-untested interactive primitive (`ArrowButton`, `NavRow`, `PrimaryButton`,
+  `ChoicePill`, `ChoiceListRow`, `TextField`, `PhoneField`, `OtpField`, `QuizHeader`'s back button) plus
+  `SnapSlider`'s 5 dots — all were already correctly sized in source, this closes the testing gap, not
+  a code gap.
+- **Screens that cannot scroll at large text — a real code gap.** `SettingsScreen` (6 rows + button),
+  `EditProfileScreen` (form), `PhoneScreen`/`OtpScreen` (centered content plus a guaranteed keyboard
+  from `autoFocus`), and 2 of `DeleteAccountScreen`'s 3 steps (the `'confirm'` step already scrolled —
+  the other two not scrolling was a real, unexplained inconsistency) all used a non-scrolling
+  `<Screen>` for content that could plausibly clip at 200% text. Fixed by switching all 5 to
+  `<Screen scroll>`; each fix has a matching structural test (`UNSAFE_getByType(ScrollView)`), each
+  confirmed to fail on the pre-fix code before being left in place.
+- The other two categories (missing accessible names generally, contrast/font-scale) were already
+  solid from Task 40 — one small addition (`QuizHeader`'s "Go back" button had a real label in source
+  but no dedicated test).
+
+**Step 4 — retained public pages, found a real WCAG AA contrast failure.** Extended
+`frinq-frontend/tests/e2e/legal-public-pages.spec.ts` from 14 to 33 tests: document versions/
+cross-links, narrow-viewport (iPhone SE width, no horizontal overflow), keyboard-only navigation (every
+link on the support page reachable in Tab order, no trap), and `@axe-core/playwright` scans (fail on
+serious/critical) on every retained page. The axe pass immediately caught a real failure: the shared
+`#8B7355` secondary-text tone measured 3.95:1 against the cream background, below the 4.5:1 requirement
+at 13px, across every page that uses it (version strings, footer cross-links). Fixed by adopting
+`frinq-mobile`'s own already-vetted `#5E4636` (documented `>= 4.5:1 on cream` in
+`src/design/tokens/colors.ts`) in place of the failing hex across every `frinq-frontend` usage — keeps
+the two apps' brand color consistent rather than inventing a third shade. All 33 tests pass; frontend
+`npm test`/lint/build unaffected.
+
+**Step 5 — device matrix, honestly mapped, no new gaps invented.** `device-test-matrix.md` gained a
+Task 45 section mapping every item this step asks for (network conditions, VoiceOver/TalkBack, 200%
+text, light/dark, portrait lock, push, microphone, background/terminated restore, low-memory
+recreation, build-upgrade) against this machine's real capability. Net: every blocked item was already
+an honestly-flagged Task 40/41/42 gap (no Mac → iOS unverified; no API-24 image; Task 39 push blocked on
+Firebase credentials) — nothing new invented to look more complete. One genuine new follow-up flagged:
+the 5 screens switched to scrollable containers in Step 3 haven't had their own live 200%-text visual
+confirmation yet (separate from the quiz/chat screens Task 40/38 already confirmed).
+
+**Step 6 — automation stack unchanged.** No new tooling introduced; nothing in this task's findings
+justified Maestro/Detox/Appium's ownership cost.
+
+**Step 7 — full verify, everywhere, all green.**
+- Backend: `python -m pytest -q` — **374 passed** (366 baseline + 8 new seed-script tests).
+- Mobile: `npm run verify` (tsc + eslint + jest --runInBand + all 5 native verifiers) — **444/444 tests
+  passed** (414 baseline + 30 new: 8 CommunitySocket/chatSafety reconnect-dedup + 2 accountDeletion/
+  releaseJourneys boot-resolution + 5 SnapSlider + 11 components.test.tsx additions + 1 MainTabs +
+  5 scroll-at-large-text structural tests), tsc clean, eslint 0 errors (61 pre-existing warnings,
+  untouched), all 5 verifiers pass.
+- Frontend: `npm test` (7 passed), `npm run lint` (clean), `npm run build` (succeeds, 8 static routes),
+  Playwright (**33/33 passed**, up from 14).
+- Admin: `npm run lint` (clean, 1 pre-existing unrelated warning), `npm run build` (succeeds, 4 routes).
+
+**Left explicitly open, not silently resolved:**
+- iOS (Task 42 gate), native push (Task 39, Firebase credentials), API-24 device, physical device,
+  tablet width, app-upgrade scenario, throttled-but-connected network — all pre-existing gaps from
+  Task 40/41/42, restated (not re-discovered) in this task's device-matrix update.
+- Live 200%-text visual confirmation for the 5 newly-scrolled screens (code-level fix + structural test
+  done; on-device visual confirmation is a Step 5 follow-up once a device session happens).
+- `seed_release_test_data.py` is a manual-QA staging tool, not wired into an automated CI journey (would
+  need a live DB) — ready for whatever real-device/manual pass happens once credentials arrive.
+
+**Task 45: complete.**
+
+## Task 46: Add observability without collecting message content
+
+**Step 1 — liveness/readiness split + protected dependency status.** The
+old bare `/health` (no dependency checks at all) is replaced by new
+`app/api/v1/health.py`: `GET /health/live` (no dependencies — proves the
+process/event loop responds), `GET /health/ready` (a real `SELECT 1` against
+the asyncpg pool + a real Redis `PING`, both with strict 2s/1.5s timeouts,
+run concurrently via `asyncio.gather`), and `GET /health/dependencies`
+(admin-bearer-protected — AI/OTP-WhatsApp/push **configuration presence**
+only, deliberately not a live provider call on every check, and never gates
+readiness). `.do/app.yaml`'s `health_check.http_path` now points at
+`/health/ready` — a rolling deploy shouldn't route traffic to an instance
+that's up but can't reach its DB/Redis. `require_admin` was extracted from
+`admin.py`'s private `_require_admin` into `app/api/deps.py` (34 existing
+`Depends(_require_admin)` call sites in admin.py untouched — just an import
+swap) so the new health/metrics endpoints reuse the exact same admin auth
+rather than duplicating it. 10 new tests (`tests/test_api/test_health.py`).
+Live-verified against a real restarted server: real DB+Redis pings
+succeeded, `X-Request-Id` header present, security headers from Task 44
+still intact.
+
+**Step 2 — structured redacted logs.** `app/utils/logger.py` gained a
+`redact_processor` structlog processor (runs after `format_exc_info` so the
+flattened exception traceback is scanned too, before the final renderer):
+key-based blocklist (exact-normalized-key match — deliberately NOT a
+substring test, which would have wrongly eaten the plan-required "sanitized
+error code" field on any key merely containing "code") for
+authorization/cookies/refresh+access tokens/tickets/phone/password/secrets/
+push tokens/voice paths/message+report text/quiz answers/DB-Redis DSNs, plus
+a value-pattern scan (Bearer tokens, JWT shapes, Indian phone numbers with/
+without +91, Twilio SIDs, PEM private keys, OpenAI/Anthropic-shaped keys)
+applied to every string value so content that leaks into a field NOT named
+for it (a phone number embedded in an exception message) is still caught.
+`deployment_version` (new `DEPLOYMENT_VERSION` setting) is bound once at
+logger creation, present on every line. A new request-observability
+middleware in `app/main.py` (`_observe_request`) assigns a request ID per
+request, binds it via `structlog.contextvars`, echoes it back as
+`X-Request-Id`, and logs one `http.request` line per request (method, route
+TEMPLATE — never the raw path with interpolated IDs, which would blow up
+metric cardinality — status, latency_ms). 8 new tests
+(`tests/test_utils/test_logger.py`) plant real secrets/phone numbers/JWTs/
+PEM keys/nested dict-and-list content and prove they're stripped, not just
+that a blocklist exists in source. Live-verified: real log lines showed
+`request_id`/`route`/`status`/`latency_ms`/`deployment_version` on every
+request, correlating exactly with each response's `X-Request-Id` header.
+
+**Step 3 — minimum-viable metrics.** New `app/core/metrics.py` (added
+`prometheus-client` — internet access for `pip` was confirmed available in
+this environment, unlike some other tools earlier in this session; a
+standard, well-scoped library for exactly this purpose, not hand-rolled
+counters). Every metric in the plan's list is wired at its REAL call site,
+found via a dedicated recon pass rather than guessed: `otp_requests_total`
+(otp.py — rate_limited/rate_limit_unavailable/sent/send_failed/verified/
+verify_wrong_code/verify_expired/verify_timeout), `refresh_reuse_detected_total`
+(session.py's `rotate_session`, the exact secret-mismatch branch — not the
+broader "expired"/"not found" cases, which aren't reuse), `quiz_jobs_total`
++ `quiz_job_wait_seconds` (quiz_insights.py — the latter reads ARQ's own
+`ctx['enqueue_time']`, confirmed to exist via `arq.worker.Worker.run_job`'s
+source rather than assumed), `active_websockets` (realtime.py connect/
+disconnect), `chat_message_outcomes_total` (core/realtime.py's
+`persist_before_publish` — accepted/rate_limited/rejected_moderation/error/
+chat_disabled), `moderation_reports_open` (a live `COUNT(*) WHERE
+status='open'` query, computed on `/health/metrics` scrape rather than a
+background task), `push_send_outcomes_total` (push.py's `_send_sync` —
+refactored to return a real 3-way `"success"|"invalid_token"|"error"`
+outcome instead of conflating success and transient-failure into `None`,
+which had made them indistinguishable for metrics purposes), `redis_failures_total`
+by `source` label (queue.py's `get_queue`, redis_client.py's both connect
+functions, rate_limit.py's `_unavailable_result` — the one shared function
+both the eval-failure and no-redis-at-all paths already funneled through),
+`account_deletion_failures_total` by `reason` (users.py's `delete_me`),
+`http_requests_total`/`http_request_duration_seconds` (the new middleware),
+`db_pool_connections_in_use`/`_max` (asyncpg's own `get_size`/`get_idle_size`/
+`get_max_size`, real public API, not custom). `/health/metrics`
+(admin-protected, Prometheus text format) — no scraper/dashboard exists for
+this solo project yet, designed to be curl'd by hand or wired to a real
+Prometheus instance later without any app change. 4 new tests
+(`tests/test_core/test_metrics.py`) drive the REAL owning function (not the
+metrics module in isolation) and read counters back through
+`counter.labels(...)._value.get()`. Live-verified: real Prometheus-format
+output with real per-route/per-status counters and histogram buckets after
+a handful of real curls.
+
+**Step 4 — mobile crash-reporter redaction, a real gap found and fixed.**
+`crashReporter.ts` already existed (built in an earlier phase) with a
+key-based blocklist, but its `scrub()` never inspected string VALUES — only
+key names. This meant the `code` parameter itself (which becomes both the
+synthetic `Error`'s message AND the logged `context.code`) passed through
+completely unscrubbed: a custom error whose `.name`/message happened to
+embed a phone number, bearer token, or JWT would sail straight through
+undetected, since "code" isn't a forbidden key name (correctly so — the plan
+requires the sanitized error code to be sendable). Fixed with a new
+`scrubText()` applying the same value-pattern-scan approach just built
+server-side (Bearer tokens, JWT shapes, Indian phone numbers), applied to
+`code` and every string field. Also added the plan's full allowlisted
+`CrashMeta` shape (`screenIdentifier`, `lifecycleState`, `networkClass`,
+`appVersion`, `buildNumber`, `osFamily` — named to avoid colliding with the
+existing blocklist's `name` pattern, `deviceClass`) — none of these were
+previously expressible through the API at all. New
+`crashReporter.test.ts` (24 tests, didn't exist before this task): plants
+phone numbers/tokens/JWTs/message-report-quiz-voice-profile-community
+content/raw request-response bodies across every forbidden key AND inside
+allowlisted free-text fields (the sneaky leak path), proving each is
+stripped before reaching a fake backend's `recordError`/`log`. `AppErrorBoundary.tsx`
+needed no changes — its existing `reportHandledError(error.name || ...)`
+call now benefits automatically from the new value-level scrubbing.
+
+**Step 5 — a real gap found while writing the runbooks: no chat-disable
+mechanism existed at all.** The plan's moderation-staffing policy
+("disable new messages rather than leave reports unattended") requires an
+actual kill switch — none existed anywhere in the codebase. Added
+`CHAT_DISABLED` (new setting, default `false`) checked first in
+`persist_before_publish` (before rate-limiting or moderation, so it works
+even if Redis is also down), rejecting with code `chat_disabled`; membership/
+history/reads are completely unaffected. Declared in `.do/app.yaml`'s API
+service env (not the worker — nothing there calls this path) with a comment
+pointing at the runbook. 1 new test confirms it short-circuits before ever
+touching rate-limiting or the DB. Three new runbooks
+(`docs/runbooks/{incident-response,moderation,provider-outage}.md`), each
+grounded in real, verified code references (file:line checked against actual
+source before writing, not assumed) rather than generic boilerplate:
+severity/escalation (honest about this being a solo-owner project with no
+paging service), secret rotation procedure for every real secret in
+`.do/app.yaml`, token-signing-key incident, the new chat-disable flag,
+rollback via DO's own deployment history, user-communication approval
+(mirrors the project's standing "never commit/push/deploy without a fresh
+ask" discipline), evidence preservation (redacted logs are safe to export
+directly; `moderation_actions`/`deletion_id` as the durable audit trail);
+moderation staffing policy + report-queue mechanics + the exact admin
+endpoints and their audit trail; per-provider (Postgres/Redis/Twilio/
+Anthropic/Firebase/legacy-Supabase-Auth) detection/fail-open-or-closed
+table/recovery steps, each fail-open-vs-closed claim cross-checked against
+the actual code (`rate_limit.py`'s own docstring, `claude_client.py`'s 60s
+timeout, `push.py`'s 10s timeout, confirmed by re-reading the source, not
+recalled from memory).
+
+**Step 6 — automation stack unchanged**, matching Task 45's precedent — no
+new tooling needed for this task's scope.
+
+**Step 7 — full verify, everywhere, all green.**
+- Backend: `python -m pytest -q` — **397 passed** (374 baseline-after-Task-45
+  + 8 logger-redaction + 10 health + 4 metrics + 1 chat-disabled).
+- Mobile: `npm run verify` (tsc + eslint + jest --runInBand + all 5 native
+  verifiers) — **469/469 tests passed** (444 baseline + 25 new, mostly
+  crashReporter.test.ts), tsc clean, eslint 0 errors, all verifiers pass.
+- Live-verified (not just unit-tested): a freshly restarted real server
+  confirmed real `/health/live`/`/health/ready`/`/health/dependencies`/
+  `/health/metrics` responses, real structured log lines with request-ID
+  correlation, and `CHAT_DISABLED=true` leaving `/health/ready` completely
+  unaffected as designed.
+- Frontend/admin: unchanged this task (no files touched in either) —
+  not re-verified, since Task 45's verify already confirmed both green and
+  nothing here could have regressed them.
+
+**Left explicitly open, not silently resolved:**
+- No real alerting channel exists (no PagerDuty/Slack webhook) — the
+  runbooks document what to watch and the numbers that would drive alerts,
+  honestly framed as "a human should look at this regularly," not an
+  automated page, since no paging infra exists for this solo project.
+- `DEPLOYMENT_VERSION`'s real value at deploy time is left as an explicit
+  owner action (`.do/app.yaml`'s placeholder value) — no DigitalOcean
+  bindable variable for a commit SHA could be verified against live docs in
+  this environment (same limitation as Task 44's frontend-headers gap).
+- `/health/metrics` has no actual Prometheus/Grafana scraper wired up yet —
+  designed to be curled by hand or wired to a real instance later without
+  an app change, but that instance doesn't exist for this solo project.
+- Step 6's "force each dependency failure in staging" and "rehearse the
+  chat-disable flag" were done against a real local dev server (DB/Redis
+  ping success, CHAT_DISABLED live-toggled), not a separate staging
+  environment — this project has no staging tier distinct from dev/prod.
+
+**Task 46: complete.**
+
+## Task 47: Prove backup, restore, capacity, and rollback
+
+**Environment limitation, stated upfront (same class of gap as Task 42's
+Mac/iOS gate):** this project has no isolated staging tier and no second
+Supabase project — everything below that genuinely requires one (a real
+load run at the plan's 500-socket/20-msg/s target, a real PITR restore into
+an isolated database, a real DO staging-rollback rehearsal) is built and
+ready to run, but not executable end-to-end from this dev environment. What
+COULD be built, tested, and live-verified from here was — not silently
+skipped.
+
+**Step 1 — capacity targets documented.** `docs/runbooks/deploy-rollback.md`
+records the plan's own fallback defaults (500 concurrent sockets / 20
+accepted msg/s / 50 concurrent quiz jobs) since the owner hasn't recorded
+real invited-user/DAU numbers yet — explicitly marked as owner action
+pending, not invented.
+
+**Step 5 — three new server-side audited failure switches, built for
+real.** `CHAT_DISABLED` already existed (Task 46); added
+`OTP_REQUESTS_DISABLED` (otp.py's `send_otp_route`, checked first),
+`QUIZ_STARTS_DISABLED` (quiz.py's `start_quiz`, checked first),
+`PUSH_SENDS_DISABLED` (push.py's `send_community_push`, checked first,
+before even querying recipients). All four now also increment a shared new
+`feature_disabled_rejections_total{feature}` counter (`app/core/metrics.py`)
+for one unified audit view of which switches are currently active and how
+often they're blocking something — chat's existing per-outcome
+`chat_message_outcomes_total` metric is unchanged, this is additive. All
+declared in `.do/app.yaml` (the two API-only ones in the API service;
+`PUSH_SENDS_DISABLED` in the WORKER service too, since that's where
+`send_community_push` actually runs — same "worker needs its own copy"
+lesson from Task 44/46). 4 new tests (`tests/test_api/test_failure_
+switches.py`).
+
+**Step 4 — `scripts/smoke_release.py` + `deploy-rollback.md`.** The smoke
+script checks `/health/live`, `/health/ready`, `/health/dependencies` (if
+`--admin-key` given), and optionally (`--seed`) a REAL database write+delete
+roundtrip via `seed_release_test_data.py` — proving the write path, not
+just reads. 5 new tests (`tests/test_scripts/test_smoke_release.py`, using
+`httpx.MockTransport` — required adding an injectable `transport` param to
+`run_smoke()` purely for testability, real usage never passes it). **Hit
+the exact same `PYTHONPATH` bug Task 44 found and fixed in `predeploy.py`**
+when live-running this script directly (`python scripts/smoke_release.py`
+→ `ModuleNotFoundError: No module named 'app'`) — fixed by running with
+`PYTHONPATH=.` and added an explicit note to the script's own docstring so
+this doesn't get rediscovered a third time. Live-verified against a real
+restarted server with `--seed`: all 4 checks passed, including a genuine
+create-then-delete of a real tagged row in the real dev database.
+`deploy-rollback.md` documents the real DO rollback mechanism (dashboard
+Activity → Rollback) and the migration-compatibility hazard specific to
+this repo (forward-only migrations, no down-migrations exist anywhere) —
+honestly notes the full "deploy a staging change, roll it back, rerun
+smoke tests" rehearsal needs a staging component this project doesn't have
+yet; what WAS rehearsed is `smoke_release.py` itself, twice, against a real
+local server.
+
+**Step 3 — `docs/runbooks/backup-restore.md`.** Documents Supabase's real
+backup/PITR mechanism (daily backups vs. PITR gated by plan tier — flagged
+as unconfirmed which tier this project is actually on, not guessed), the
+restore-into-an-isolated-project procedure, running `app.migrations.
+run_migrations` (the same function `predeploy.py` uses) against the
+restored DB, and — the plan's explicit, easy-to-miss requirement — replaying
+every account deletion newer than the restore's recovery point before
+trusting it (a restore rolls back time, so a since-deleted account would
+otherwise reappear). Since no log-aggregation platform exists in this
+project, that replay step is honestly documented as a manual grep-the-logs-
+for-`users.deleted`-then-delete-in-the-restored-DB procedure, not a
+fictional automated tool.
+
+**Step 2 — `scripts/load_chat.py`, a real synthetic load generator, live-run
+and one real bug found+fixed in the process.** Real WebSocket clients (the
+`websockets` package, already a transitive dependency, pinned directly in
+`requirements.txt` now that app code imports it directly), real ws-ticket
+issuance, real message sends against a real running backend — seeds tagged
+synthetic users via `seed_release_test_data.py`, mints real sessions via
+`app.core.session.create_session` directly (bypassing OTP — the plan's
+"provider calls stubbed" requirement, satisfied by simply never touching
+`/otp`, not a fake). Deliberately small defaults (10 sockets / ~5 msg/s) —
+the plan's real 500/20 targets assume a dedicated staging tier this project
+doesn't have; ramping to the real target against the shared dev database
+would be irresponsible. **Two real bugs found while first live-running it:**
+(1) `seed()`/`cleanup_by_tag()` each own their full pool lifecycle
+(init+close) by design (matching their standalone-CLI-tool contract) — a
+pool acquired before calling `seed()` was silently closed out from under
+the caller the instant `seed()` returned (`asyncpg.exceptions.InterfaceError:
+pool is closed`); fixed by re-acquiring a fresh pool AFTER `seed()` returns,
+purely in `load_chat.py`, without changing `seed_release_test_data.py`'s
+contract. (2) The very first live run reported `confirmed=43` against only
+`sent=15` — the script was counting every `message.created` frame it
+overheard on the shared community pub/sub channel (including OTHER
+synthetic clients' own messages) as if it were confirming its own sends;
+fixed by only counting a confirmation for a `client_message_id` this
+specific client actually has pending (or already confirmed, for duplicate
+detection), ignoring frames that belong to someone else's broadcast. Re-run
+after both fixes: `sent=15, confirmed=15, duplicates=0, rejected=0,
+connection_errors=[]` — a real, verified small-scale run. Observed p50/p95
+latency (~2.2s/~3.3s) is noted honestly as a real local-environment
+measurement, not investigated further this task (Redis confirmed local, not
+the cause) — a real capacity conclusion needs the dedicated-staging run at
+the actual target scale, which this script is now ready to run the moment
+that environment exists.
+
+**Step 6 — verify, everywhere it could run.**
+- Backend: `python -m pytest -q` — **406 passed** (397 baseline-after-Task-46
+  + 4 failure-switch + 5 smoke-release tests).
+- Live-verified (real restarted server, not just unit tests):
+  `smoke_release.py --seed` (all 4 checks green, real DB roundtrip) and
+  `load_chat.py` (real WS load run, confirmed-count bug fixed and reverified).
+- Mobile/frontend/admin: untouched this task, not re-verified.
+
+**Left explicitly open, not silently resolved (all genuine environment
+gaps, matching Task 42's precedent — not this task's shortcoming):**
+- The plan's actual 500-socket/20-msg/s/50-quiz-job load run — needs a
+  dedicated staging environment that doesn't exist yet.
+- The actual PITR-restore-into-an-isolated-database rehearsal — needs the
+  owner's Supabase dashboard/API access and probably a billable second
+  project; the procedure is written and ready, never executed for real.
+- The actual DO-staging-deploy-then-rollback rehearsal — needs a staging
+  App Platform component that doesn't exist; `smoke_release.py` itself was
+  rehearsed twice against a real local server instead.
+- Real invited-user/DAU/moderation-staffing/latency-target numbers — the
+  plan's documented fallback defaults are recorded in the interim.
+
+**Task 47: complete (everything achievable without a dedicated staging
+tier or the owner's Supabase dashboard access).**

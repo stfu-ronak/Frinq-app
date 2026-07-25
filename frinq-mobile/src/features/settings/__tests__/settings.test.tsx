@@ -1,9 +1,11 @@
 import React from 'react';
 import { render, waitFor, fireEvent } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Linking, ScrollView } from 'react-native';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { CommunitySettingsScreen } from '../screens/CommunitySettingsScreen';
 import { PrivacySettingsScreen } from '../screens/PrivacySettingsScreen';
+import { NotificationSettingsScreen } from '../screens/NotificationSettingsScreen';
 
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
@@ -25,6 +27,19 @@ jest.mock('../logoutService', () => ({
   performLogout: (...args: unknown[]) => mockPerformLogout(...args),
 }));
 
+const mockGetPushPermissionStatus = jest.fn();
+const mockGetStoredPushEnabled = jest.fn();
+const mockRegisterCurrentToken = jest.fn().mockResolvedValue(undefined);
+const mockRequestPushPermission = jest.fn();
+const mockSetPushEnabled = jest.fn().mockResolvedValue(undefined);
+jest.mock('../../../services/push/pushService', () => ({
+  getPushPermissionStatus: (...args: unknown[]) => mockGetPushPermissionStatus(...args),
+  getStoredPushEnabled: (...args: unknown[]) => mockGetStoredPushEnabled(...args),
+  registerCurrentToken: (...args: unknown[]) => mockRegisterCurrentToken(...args),
+  requestPushPermission: (...args: unknown[]) => mockRequestPushPermission(...args),
+  setPushEnabled: (...args: unknown[]) => mockSetPushEnabled(...args),
+}));
+
 function renderWithClient(ui: React.ReactElement) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { gcTime: 0 } },
@@ -43,6 +58,9 @@ describe('SettingsScreen', () => {
 
     fireEvent.press(await findByLabelText('community notifications'));
     expect(mockNavigate).toHaveBeenCalledWith('CommunitySettings');
+
+    fireEvent.press(await findByLabelText('notifications'));
+    expect(mockNavigate).toHaveBeenCalledWith('Notifications');
 
     fireEvent.press(await findByLabelText('privacy & analytics'));
     expect(mockNavigate).toHaveBeenCalledWith('PrivacySettings');
@@ -71,6 +89,13 @@ describe('SettingsScreen', () => {
 
     resolveLogout!();
     await waitFor(() => expect(logoutButton.props.accessibilityState.busy).toBe(false));
+  });
+
+  it('scrolls rather than clipping its 6 rows + logout button at large text sizes', async () => {
+    mockUseSession.mockReturnValue({ apiClient: {}, coordinator: {} });
+    const { findByLabelText, UNSAFE_getByType } = renderWithClient(<SettingsScreen />);
+    await findByLabelText('log out');
+    expect(UNSAFE_getByType(ScrollView)).toBeTruthy();
   });
 });
 
@@ -125,5 +150,92 @@ describe('PrivacySettingsScreen', () => {
 
     fireEvent(toggle, 'valueChange', true);
     expect(setEnabled).toHaveBeenCalledWith(true);
+  });
+});
+
+describe('NotificationSettingsScreen', () => {
+  beforeEach(() => {
+    mockUseSession.mockReturnValue({ apiClient: { request: jest.fn().mockResolvedValue(undefined) } });
+  });
+
+  it('shows the switch reflecting the stored preference when permission is already granted', async () => {
+    mockGetPushPermissionStatus.mockResolvedValue('authorized');
+    mockGetStoredPushEnabled.mockResolvedValue(true);
+
+    const { findByLabelText } = renderWithClient(<NotificationSettingsScreen />);
+    const toggle = await findByLabelText('notify me about new activity');
+    expect(toggle.props.value).toBe(true);
+  });
+
+  it('links out to device settings instead of a toggle when permission was denied', async () => {
+    mockGetPushPermissionStatus.mockResolvedValue('denied');
+    mockGetStoredPushEnabled.mockResolvedValue(false);
+    const openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);
+
+    const { findByText, queryByLabelText } = renderWithClient(<NotificationSettingsScreen />);
+    expect(queryByLabelText('notify me about new activity')).toBeNull();
+
+    fireEvent.press(await findByText('open device settings'));
+    expect(openSettings).toHaveBeenCalledTimes(1);
+    openSettings.mockRestore();
+  });
+
+  it('requests permission, registers the token, and enables preferences on first opt-in', async () => {
+    mockGetPushPermissionStatus.mockResolvedValueOnce('not-determined').mockResolvedValueOnce('authorized');
+    mockGetStoredPushEnabled.mockResolvedValue(false);
+    mockRequestPushPermission.mockResolvedValue('granted');
+
+    const { findByLabelText } = renderWithClient(<NotificationSettingsScreen />);
+    const toggle = await findByLabelText('notify me about new activity');
+    expect(toggle.props.value).toBe(false);
+
+    fireEvent(toggle, 'valueChange', true);
+
+    await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockRegisterCurrentToken).toHaveBeenCalledTimes(1));
+    expect(mockSetPushEnabled).toHaveBeenCalledWith(expect.anything(), true);
+  });
+
+  it('never enables preferences if the OS permission request is refused', async () => {
+    mockGetPushPermissionStatus.mockResolvedValueOnce('not-determined').mockResolvedValueOnce('denied');
+    mockGetStoredPushEnabled.mockResolvedValue(false);
+    mockRequestPushPermission.mockResolvedValue('denied');
+
+    const { findByLabelText } = renderWithClient(<NotificationSettingsScreen />);
+    const toggle = await findByLabelText('notify me about new activity');
+
+    fireEvent(toggle, 'valueChange', true);
+
+    await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(1));
+    expect(mockRegisterCurrentToken).not.toHaveBeenCalled();
+    expect(mockSetPushEnabled).not.toHaveBeenCalled();
+  });
+
+  it('turns preferences off without touching permission or the token', async () => {
+    mockGetPushPermissionStatus.mockResolvedValue('authorized');
+    mockGetStoredPushEnabled.mockResolvedValue(true);
+
+    const { findByLabelText } = renderWithClient(<NotificationSettingsScreen />);
+    const toggle = await findByLabelText('notify me about new activity');
+    expect(toggle.props.value).toBe(true);
+
+    fireEvent(toggle, 'valueChange', false);
+
+    await waitFor(() => expect(mockSetPushEnabled).toHaveBeenCalledWith(expect.anything(), false));
+    expect(mockRequestPushPermission).not.toHaveBeenCalled();
+    expect(mockRegisterCurrentToken).not.toHaveBeenCalled();
+  });
+
+  it('shows an error and leaves the switch alone if saving the preference fails', async () => {
+    mockGetPushPermissionStatus.mockResolvedValue('authorized');
+    mockGetStoredPushEnabled.mockResolvedValue(true);
+    mockSetPushEnabled.mockRejectedValueOnce(new Error('network'));
+
+    const { findByLabelText, findByRole } = renderWithClient(<NotificationSettingsScreen />);
+    const toggle = await findByLabelText('notify me about new activity');
+
+    fireEvent(toggle, 'valueChange', false);
+
+    await findByRole('alert');
   });
 });

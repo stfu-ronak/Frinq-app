@@ -5,6 +5,12 @@ import { NavigationContainer } from '@react-navigation/native';
 import { screenForState, RootNavigator } from '../RootNavigator';
 import { BootState } from '../../app/boot/bootMachine';
 
+// Real pushService.ts imports @react-native-firebase/messaging, which isn't
+// natively linked (or transform-allowed for Jest) yet. None of this file's
+// tests reach 'active' state (where MainTabs/CommunityScreen would actually
+// mount) — this only satisfies the static import chain.
+jest.mock('../../services/push/pushService', () => ({}));
+
 describe('screenForState (exhaustive routing)', () => {
   const cases: Array<[BootState, string]> = [
     ['checking', 'splash'],

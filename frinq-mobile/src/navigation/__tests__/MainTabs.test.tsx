@@ -20,6 +20,17 @@ jest.mock('../../storage/encryptedStorage', () => ({
   getEncryptedStore: async () => mockStore,
 }));
 
+// Real pushService.ts imports @react-native-firebase/messaging, which isn't
+// natively linked (or transform-allowed for Jest) yet.
+jest.mock('../../services/push/pushService', () => ({
+  hasPushPermission: async () => true,
+  hasShownPushOptInPrompt: async () => true,
+  markPushOptInPromptShown: async () => {},
+  registerCurrentToken: async () => {},
+  requestPushPermission: async () => 'granted',
+  setPushEnabled: async () => {},
+}));
+
 const USER = {
   id: 'user-1',
   phone: '+919876543210',
@@ -71,6 +82,19 @@ describe('MainTabs', () => {
 
     fireEvent.press(getByRole('button', { name: 'Settings' }));
     expect(await findByText('settings')).toBeTruthy(); // real SettingsScreen content
+  });
+
+  it('marks exactly the active tab as selected via accessibilityState — never color alone', async () => {
+    const { findByTestId, getByRole } = renderTabs();
+    await findByTestId('screen-community');
+
+    expect(getByRole('button', { name: 'Community' }).props.accessibilityState).toMatchObject({ selected: true });
+    expect(getByRole('button', { name: 'Profile' }).props.accessibilityState).toMatchObject({ selected: false });
+    expect(getByRole('button', { name: 'Settings' }).props.accessibilityState).toMatchObject({ selected: false });
+
+    fireEvent.press(getByRole('button', { name: 'Profile' }));
+    expect(getByRole('button', { name: 'Community' }).props.accessibilityState).toMatchObject({ selected: false });
+    expect(getByRole('button', { name: 'Profile' }).props.accessibilityState).toMatchObject({ selected: true });
   });
 
   it('navigates from Settings through the Legal hub into a LegalDocument route with the right doc param', async () => {

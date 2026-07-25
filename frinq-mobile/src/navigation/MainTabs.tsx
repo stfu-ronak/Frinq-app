@@ -3,11 +3,12 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { color } from '../design/tokens/colors';
 import { VibeReportScreen } from '../features/vibe-report/screens/VibeReportScreen';
-import { CommunityPlaceholderScreen } from '../features/community/screens/CommunityPlaceholderScreen';
+import { CommunityScreen } from '../features/community/screens/CommunityScreen';
 import { ProfileScreen } from '../features/profile/screens/ProfileScreen';
 import { EditProfileScreen } from '../features/profile/screens/EditProfileScreen';
 import { SettingsScreen } from '../features/settings/screens/SettingsScreen';
 import { CommunitySettingsScreen } from '../features/settings/screens/CommunitySettingsScreen';
+import { NotificationSettingsScreen } from '../features/settings/screens/NotificationSettingsScreen';
 import { PrivacySettingsScreen } from '../features/settings/screens/PrivacySettingsScreen';
 import { AccountScreen } from '../features/settings/screens/AccountScreen';
 import { DeleteAccountScreen } from '../features/settings/screens/DeleteAccountScreen';
@@ -37,6 +38,7 @@ export type ProfileStackParamList = {
 export type SettingsStackParamList = {
   SettingsHome: undefined;
   CommunitySettings: undefined;
+  Notifications: undefined;
   PrivacySettings: undefined;
   Legal: undefined;
   LegalDocument: { doc: LegalDocKey };
@@ -64,6 +66,7 @@ function SettingsNavigator() {
     <SettingsStack.Navigator screenOptions={{ headerShown: false }}>
       <SettingsStack.Screen name="SettingsHome" component={SettingsScreen} />
       <SettingsStack.Screen name="CommunitySettings" component={CommunitySettingsScreen} />
+      <SettingsStack.Screen name="Notifications" component={NotificationSettingsScreen} />
       <SettingsStack.Screen name="PrivacySettings" component={PrivacySettingsScreen} />
       <SettingsStack.Screen name="Legal" component={LegalHubScreen} />
       <SettingsStack.Screen name="LegalDocument" component={LegalDocumentScreen} />
@@ -84,7 +87,7 @@ export function MainTabs() {
         tabBarInactiveTintColor: color.text.secondary,
       }}
     >
-      <Tabs.Screen name="Community" component={CommunityPlaceholderScreen} />
+      <Tabs.Screen name="Community" component={CommunityScreen} />
       <Tabs.Screen name="Profile" component={ProfileNavigator} />
       <Tabs.Screen name="Settings" component={SettingsNavigator} />
     </Tabs.Navigator>

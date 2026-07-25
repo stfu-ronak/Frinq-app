@@ -44,7 +44,7 @@ account_deleted` — gated on explicit consent, property-free.
 | `/name` | First name | none | `frinq_name` → MMKV draft | SVT | (frinqTrack `submit_name` dropped) | — | Quiz template: single text field | FALSE |
 | `/phone` | WhatsApp number → send OTP | `POST /otp/send`, `POST /quiz/start` | `frinq_phone`, `frinq_submission_id` | `fetch` → ApiClient | `otp_requested`, `quiz_started` | loading, 429/network error | Auth: `PhoneField` screen | FALSE |
 | `/verify` | OTP verify + session + legal POST + resume | `POST /otp/verify`, `POST /legal/accept`, `POST /quiz/start` | restores all answers; pending legal (SS); refresh token | `fetch`, `AbortController`, `window.clarity` (drop), `location.search` | `otp_verified` | loading, 400/410/504/timeout, resend cooldown | Auth: `OtpField` screen | FALSE |
-| `/social-verify` | LinkedIn/IG links (skippable) | none | `frinq_linkedin_url`, `frinq_instagram`, `frinq_social_verified` | SVT | (frinqTrack dropped) | — | **Deferred/reviewed** — social-account verification is an excluded concept; keep only if the shipping web flow proves it in-scope, else drop | FALSE |
+| `/social-verify` | LinkedIn/IG links (skippable) | none | `frinq_linkedin_url`, `frinq_instagram`, `frinq_social_verified` | SVT | (frinqTrack dropped) | — | **Excluded (decided, Task 40)** — not ported. The design spec's own exclusion list already names "social-account verification" explicitly; this row's prior "deferred/reviewed" note pre-dated reconciling it against that list. Native onboarding skips straight from `/age` to `/ready` (see `QUIZ_STEPS`) | FALSE |
 
 ## B. Quiz — real input screens (23)
 
@@ -120,12 +120,8 @@ account_deleted` — gated on explicit consent, property-free.
 
 ---
 
-**Count check:** 5 + 23 + 10 + 1 + 7 + 6 = **52** routes. Matches the current Next.js route count.
-
-**Open product note (needs owner confirmation before Task 30/32):** `/social-verify` collects
-LinkedIn/Instagram handles. The design spec lists "social-account verification" as an *excluded*
-concept. Resolve whether this screen ships natively as-is, is reduced to optional non-verifying
-profile links, or is dropped. Flagged, not decided here.
+**Count check:** 5 + 23 + 10 + 1 + 7 + 6 = **52** routes (51 ported/retained + 1 excluded-by-decision,
+`/social-verify` — see Task 40 update below). Matches the current Next.js route count.
 
 ---
 
@@ -576,3 +572,94 @@ disposable-account deletion journey on a physical device/emulator against a live
 device pass, consistent with every prior task. Phase 9 gate items (24 archetypes, share-artifact privacy,
 Community/Profile/Settings guards, phone/ID exposure, legal/support/deletion reachability, public
 legal-site verification) are now all satisfied by Tasks 34-36 together.
+
+## Phase 10 — Tasks 37-38: native community realtime chat
+
+Real, live two-account chat verified end-to-end on a device (Android emulator) against the live backend
++ a real Redis instance — not just unit tests. This surfaced two genuine backend bugs (below) that no
+existing test caught, both fixed with regression tests.
+
+**Task 37 (`src/services/realtime/`):**
+- `realtimeMachine.ts` — pure decision logic ported from the web reference (Task 21): exponential
+  backoff with full jitter (1/2/4/8/16/30s), stable-connection reset window, ticket-error classification
+  (401→authExpired, 403 account_suspended/banned→terminal, else→retry), close-code classification
+  (4403→banned, else→retry). 10 tests.
+- `CommunitySocket.ts` — the stateful WebSocket wrapper: fetches a fresh single-use ticket per
+  (re)connect (never a bearer token in the URL), NetInfo-driven offline handling, AppState-driven
+  30-second background-grace-period (a documented judgment call — the plan didn't specify a number),
+  optimistic send/retry via a UUID `client_message_id` (generated from the existing native CSPRNG, no new
+  dependency), and a generation counter (added after code review) preventing a stale in-flight ws-ticket
+  fetch from resurrecting a connection the background/offline handler just tore down. 27 tests.
+- `communityMessageStore.ts` — pure reducer functions over a `DisplayMessage[]` array: history
+  load/prepend, optimistic add, reconcile-on-confirm (dedups by `clientMessageId`), mark-failed/retrying,
+  remove-by-author (block), capped at 300 in-memory (same accepted gap as the web reference, documented).
+  12 tests.
+- `communityService.ts` — REST: `reportMessage`, `blockUser`. 3 tests.
+
+**Task 38 (`src/features/community/`):** `CommunityHeader` (connection-state banner, single
+`accessibilityLiveRegion` — never per-message), `CommunityMessage` (own/other bubble, actions affordance
+on other-user messages only), `MessageComposer`, `MessageActionSheet`/`ReportSheet`/`BlockDialog`
+(built on existing `Sheet`/`Dialog`/`ChoiceListRow` design components), `MessageList` (inverted FlatList
+— "load older"/prepend-without-scroll-jump come free from RN's own inverted layout, a deliberate mobile-
+idiom deviation from the web's plain-div-plus-manual-scrollIntoView approach), `CommunityScreen` (wires
+profile→community_slug resolution, history load, socket lifecycle, send/retry/block/report, terminal
+states linking to `${WEB_BASE_URL}/support`). Swapped into `MainTabs` in place of the Task-30 placeholder
+(deleted). 11 tests (`CommunityScreen.test.tsx` + `safetyActions.test.tsx`).
+
+Deliberately out of scope (per the plan's own Task 38 file list, not an oversight): push notifications
+(Task 39), a "needs display name" nudge banner (web has one, mobile's plan doesn't), unblock UI.
+
+**Independent code review** (dispatched per the plan's explicit requirement for this task) found one
+Important issue — the race condition above — plus a flaky-test timeout and a missing documentation
+comment, both fixed. No Critical findings in the mobile code itself.
+
+**Real bugs found ONLY by the live two-account device test** (backend, not mobile — mobile code was
+correct throughout):
+1. **WS handshake rejected every native connection.** `app/api/v1/realtime.py`'s Origin check treated any
+   *present* Origin as needing allowlist validation, on the assumption a native client sends none. Wrong:
+   React Native's OkHttp WebSocket client sends an Origin defaulted to the connection's own target
+   scheme+host (confirmed on-device: `http://10.0.2.2:8000`). Fixed to allow a same-host Origin (covers
+   this native-client behavior and same-origin browser pages) or an explicit allowlist match (cross-origin
+   web frontend), rejecting only a genuine mismatch. +4 backend tests.
+2. **Critical — chat delivery silently died after ~2s of quiet.** `app/core/redis_client.py`'s shared
+   Redis client's `socket_timeout=2` (fine for fast commands) was also backing `ConnectionManager`'s
+   long-lived pub/sub `listen()` subscription. The deadline fired the moment no message arrived within 2s
+   — completely normal for real chat cadence — silently killing the listener task with an unhandled
+   `TimeoutError`. Messages still persisted successfully; their confirmation just never reached any
+   client, ever, until a new WebSocket connection recreated the listener. 100% silent — no existing test
+   (FakeRedis-based, no real socket behavior) could have caught this; the "real Redis" integration test
+   is skip-by-default. Fixed with a separate `get_pubsub_redis()` client (`socket_timeout=None` +
+   `health_check_interval`). Verified live: message round-trip and cross-user delivery both confirmed
+   working after 60+ seconds of connection idle time. +4 backend tests.
+
+**Final verification:** backend **304 passed**; mobile **355 passed / 42 suites**, tsc + lint (0 errors)
++ all 4 native verifiers; real Android debug build (`gradlew assembleDebug`) succeeded; live two-account
+device test (own-message/other-message styling, real-time cross-user delivery, report/block action
+sheets) all confirmed on-screen.
+
+---
+
+## Task 40 update (2026-07-25): closing every open parity row
+
+Task 40 Step 1 requires no row to say "similar," "later," or "not tested." A full re-scan of this
+matrix found exactly two open items — both product-level, both now decided (not left pending):
+
+1. **`/social-verify` — excluded, not ported.** Row updated above. The design spec's own top-level
+   exclusion list already names "social-account verification" explicitly (see the Conventions section
+   at the top of this file); the row's prior "deferred/reviewed, needs owner confirmation" note pre-dated
+   reconciling it against that list. Native's onboarding order (`QUIZ_STEPS`, confirmed in the Task 31
+   update above) goes straight from `age` to `ready` — there never was a gap to fill. Route count stays
+   52 (51 ported/retained + 1 excluded-by-decision).
+
+2. **`/vibe-box`'s WhatsApp launch-notice (`POST /whatsapp/notify/{sid}`) — decided not to port.**
+   Flagged as an open question in the Task 34 update above. Resolved: that call exists to nudge a
+   just-finished-web-quiz user to go open WhatsApp — it's a re-engagement mechanism for someone who is
+   about to leave the browser tab. A native user finishing their quiz is already inside the app that
+   would deliver any follow-up engagement; **Task 39's push notifications are the native equivalent
+   engagement channel**, not a gap needing a parallel WhatsApp message. Confirmed nothing else in the
+   backend or plan fires this notice for native today, and no native code calls it — this is the
+   permanent state, not a temporary gap. `E` section's `/vibe-box` row is otherwise already fully ported
+   (report/submit/poll/reveal) and needed no other change.
+
+No other row in sections A-F contains placeholder language — every remaining row names a real native
+destination or an explicit `PublicWeb`-retained page, each backed by a shipped task (30-38) above.

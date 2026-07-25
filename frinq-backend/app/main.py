@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+import time
+import uuid
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.v1 import admin as admin_routes
 from app.api.v1 import auth as auth_routes
 from app.api.v1 import communities as communities_routes
+from app.api.v1 import health as health_routes
 from app.api.v1 import legal as legal_routes
 from app.api.v1 import moderation as moderation_routes
 from app.api.v1 import otp as otp_routes
 from app.api.v1 import profile as profile_routes
+from app.api.v1 import push as push_routes
 from app.api.v1 import questionnaire as questionnaire_routes
 from app.api.v1 import quiz as quiz_routes
 from app.api.v1 import realtime as realtime_routes
@@ -21,7 +27,10 @@ from app.api.v1 import users as users_routes
 from app.api.v1 import voice as voice_routes
 from app.api.v1 import whatsapp as whatsapp_routes
 from app.config import settings
+from app.core import metrics
+from app.core.production_guard import validate_production_settings
 from app.core.redis_client import close_redis
+from app.core.security_headers import SecurityHeadersMiddleware
 from app.database import close_pool, init_pool
 from app.utils.logger import logger
 from app.workers.queue import close_queue
@@ -29,26 +38,25 @@ from app.workers.queue import close_queue
 API_V1_PREFIX = "/api/v1"
 
 
+def _docs_urls(app_env: str) -> tuple[str | None, str | None, str | None]:
+    """Interactive docs leak the full route/schema surface and aren't behind
+    any auth of their own — real in dev/staging, never in production. A pure
+    function (not inlined into the FastAPI() call below) so tests can check
+    the decision itself without needing to reconstruct the whole app with a
+    different APP_ENV — the real `app` singleton is already built with
+    whatever env this process actually booted with by the time any test
+    runs."""
+    if app_env == "production":
+        return None, None, None
+    return "/docs", "/redoc", "/openapi.json"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if settings.APP_ENV == "production":
-        if settings.SECRET_KEY == "dev-secret-change-me":
-            raise RuntimeError("SECRET_KEY must be set in production")
-        if settings.SESSION_HASH_PEPPER == "dev-pepper-change-me":
-            raise RuntimeError("SESSION_HASH_PEPPER must be set in production")
-        if settings.RATE_LIMIT_PEPPER == "dev-rate-limit-pepper-change-me":
-            raise RuntimeError("RATE_LIMIT_PEPPER must be set in production")
-        if settings.ADMIN_KEY == "frinq-admin":
-            raise RuntimeError("ADMIN_KEY must be set in production")
-        if not settings.ADMIN_ACTION_PASSWORD:
-            raise RuntimeError("ADMIN_ACTION_PASSWORD must be set in production")
-        if not settings.CORS_ORIGINS:
-            raise RuntimeError("CORS_ORIGINS must be set in production")
-        if (settings.REVIEW_PHONE or settings.REVIEW_OTP) and not settings.REVIEW_OTP_EXPIRES_AT:
-            raise RuntimeError(
-                "REVIEW_OTP_EXPIRES_AT must be set when REVIEW_PHONE/REVIEW_OTP "
-                "are configured in production"
-            )
+        errors = validate_production_settings(settings)
+        if errors:
+            raise RuntimeError("; ".join(errors))
     logger.info("app.startup", env=settings.APP_ENV)
     try:
         await init_pool()
@@ -62,11 +70,18 @@ async def lifespan(app: FastAPI):
     logger.info("app.shutdown")
 
 
+_docs_url, _redoc_url, _openapi_url = _docs_urls(settings.APP_ENV)
+
 app = FastAPI(
     title="Frinq Backend",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url=_docs_url,
+    redoc_url=_redoc_url,
+    openapi_url=_openapi_url,
 )
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 # Request body size limit — voice routes have their own 10MB cap inside
@@ -78,6 +93,40 @@ _VOICE_UPLOAD_LIMIT = 11_000_000  # 11MB: 10MB audio cap + multipart encoding he
 
 
 @app.middleware("http")
+async def _observe_request(request, call_next):
+    """Task 46 Step 2/3: one structured, redacted log line per request plus
+    the matching HTTP metrics — request ID, route TEMPLATE (never the raw
+    path with its interpolated IDs, which would blow up metric cardinality),
+    status, and latency. The request ID is also echoed back as a response
+    header so client-side error reports can be correlated to this exact
+    server-side log line."""
+    request_id = uuid.uuid4().hex[:16]
+    start = time.monotonic()
+    structlog.contextvars.bind_contextvars(request_id=request_id)
+    try:
+        response = await call_next(request)
+    finally:
+        structlog.contextvars.unbind_contextvars("request_id")
+    latency_ms = (time.monotonic() - start) * 1000
+
+    route = request.scope.get("route")
+    route_template = route.path if route is not None else "unmatched"
+
+    response.headers["X-Request-Id"] = request_id
+    metrics.http_requests_total.labels(method=request.method, route=route_template, status=str(response.status_code)).inc()
+    metrics.http_request_duration_seconds.labels(route=route_template).observe(latency_ms / 1000)
+    logger.info(
+        "http.request",
+        method=request.method,
+        route=route_template,
+        status=response.status_code,
+        latency_ms=round(latency_ms, 2),
+        request_id=request_id,
+    )
+    return response
+
+
+@app.middleware("http")
 async def _enforce_body_size(request, call_next):
     cl = request.headers.get("content-length")
     if cl and cl.isdigit():
@@ -86,7 +135,6 @@ async def _enforce_body_size(request, call_next):
         # uses the strict cap.
         limit = _VOICE_UPLOAD_LIMIT if "/api/v1/voice" in request.url.path else _MAX_REQUEST_BYTES
         if size > limit:
-            from fastapi.responses import JSONResponse
             return JSONResponse(status_code=413, content={"detail": "request body too large"})
     return await call_next(request)
 
@@ -112,6 +160,7 @@ app.include_router(otp_routes.router, prefix=API_V1_PREFIX)
 app.include_router(users_routes.router, prefix=API_V1_PREFIX)
 app.include_router(questionnaire_routes.router, prefix=API_V1_PREFIX)
 app.include_router(profile_routes.router, prefix=API_V1_PREFIX)
+app.include_router(push_routes.router, prefix=API_V1_PREFIX)
 app.include_router(quiz_routes.router, prefix=API_V1_PREFIX)
 app.include_router(realtime_routes.router, prefix=API_V1_PREFIX)
 app.include_router(sessions_routes.router, prefix=API_V1_PREFIX)
@@ -119,8 +168,4 @@ app.include_router(tracking_routes.router, prefix=API_V1_PREFIX)
 app.include_router(voice_routes.router, prefix=API_V1_PREFIX)
 app.include_router(whatsapp_routes.router, prefix=API_V1_PREFIX)
 app.include_router(admin_routes.router, prefix=API_V1_PREFIX)
-
-
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "env": settings.APP_ENV}
+app.include_router(health_routes.router)

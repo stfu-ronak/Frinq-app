@@ -16,6 +16,7 @@ from app.core.realtime import (
     persist_before_publish,
 )
 from app.api.deps import CurrentAccount
+from app.config import settings
 from app.main import app as fastapi_app
 from tests.conftest import FakeClock, FakePool, FakeRedis
 
@@ -145,6 +146,39 @@ async def test_ws_ticket_404_without_community(
     assert resp.status_code == 404
 
 
+async def test_connection_manager_uses_the_pubsub_client_not_the_fast_command_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: ConnectionManager's long-lived listen() subscription must
+    never share get_redis()'s short socket_timeout — that exact sharing
+    silently killed real-time delivery on a live device (see
+    test_core/test_redis_client.py for the full story)."""
+    import app.api.v1.realtime as realtime_module
+
+    realtime_module._manager = None
+    marker = object()
+
+    async def _fake_pubsub_redis():
+        return marker
+
+    async def _fail_if_called():
+        raise AssertionError("get_connection_manager must not call get_redis()")
+
+    monkeypatch.setattr(realtime_module, "get_pubsub_redis", _fake_pubsub_redis)
+    monkeypatch.setattr(realtime_module, "get_redis", _fail_if_called)
+    monkeypatch.setattr(realtime_module.ConnectionManager, "start", lambda self: _noop())
+
+    manager = await realtime_module.get_connection_manager()
+
+    assert manager is not None
+    assert manager._redis is marker
+    realtime_module._manager = None
+
+
+async def _noop():
+    return None
+
+
 # ─── persist_before_publish (core send logic, no WebSocket needed) ──────
 
 async def test_persist_before_publish_accepts_and_publishes(
@@ -174,6 +208,23 @@ async def test_persist_before_publish_accepts_and_publishes(
     channel, envelope = published[0][1]
     assert channel == "community:quiet-storm"
     assert json.loads(envelope)["type"] == "message.created"
+
+
+async def test_persist_before_publish_rejects_everything_when_chat_disabled(
+    fake_pool: FakePool, fake_redis: FakeRedis, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Task 46 Step 5's emergency kill switch — checked before rate-limit and
+    moderation, so it works even if Redis (rate limiting) is also down."""
+    monkeypatch.setattr(settings, "CHAT_DISABLED", True)
+    result = await persist_before_publish(
+        fake_pool, fake_redis,
+        community_slug="quiet-storm", author_id=uuid4(),
+        client_message_id=uuid4(), body="hello",
+    )
+    assert result.accepted is False
+    assert result.code == "chat_disabled"
+    assert not any(c[0] == "publish" for c in fake_redis.calls)
+    assert not fake_pool.store.queries  # never even reached rate-limit/DB
 
 
 async def test_persist_before_publish_rejects_moderation_failure_without_publishing(

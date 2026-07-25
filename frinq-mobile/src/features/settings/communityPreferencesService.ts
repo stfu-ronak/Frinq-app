@@ -1,11 +1,7 @@
 import { ApiClient } from '../../services/api/apiClient';
+import { CommunityMe } from '../../services/api/contracts';
 
-export interface CommunityMe {
-  archetype_slug: string;
-  name: string;
-  description: string;
-  muted: boolean;
-}
+export type { CommunityMe };
 
 export async function fetchCommunityMe(apiClient: ApiClient): Promise<CommunityMe> {
   return apiClient.request<CommunityMe>({ path: '/api/v1/community/me' });

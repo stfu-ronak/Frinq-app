@@ -26,6 +26,7 @@ import hmac
 from dataclasses import dataclass
 
 from app.config import settings
+from app.core import metrics
 
 _INCR_EXPIRE_SCRIPT = """
 local current = redis.call("INCR", KEYS[1])
@@ -54,6 +55,10 @@ LIMITERS: dict[str, LimiterConfig] = {
     "chat_send_minute": LimiterConfig("chat_send_minute", limit=60, window_seconds=60, fail_closed=False),
     "report": LimiterConfig("report", limit=10, window_seconds=24 * 60 * 60, fail_closed=False),
     "ws_ticket": LimiterConfig("ws_ticket", limit=10, window_seconds=60, fail_closed=True),
+    # At most one push per (user, community) per 15 minutes — fail-open:
+    # if Redis is briefly unreachable, sending an extra push is far cheaper
+    # than silently dropping real-time notifications app-wide.
+    "push_community": LimiterConfig("push_community", limit=1, window_seconds=15 * 60, fail_closed=False),
 }
 
 
@@ -76,6 +81,7 @@ def hash_identifier(value: str) -> str:
 
 
 def _unavailable_result(config: LimiterConfig) -> RateLimitResult:
+    metrics.redis_failures_total.labels(source=f"rate_limit.{config.name}").inc()
     if config.fail_closed:
         raise RateLimitUnavailable(config.name)
     return RateLimitResult(allowed=True, limit=config.limit, remaining=config.limit, retry_after=0)

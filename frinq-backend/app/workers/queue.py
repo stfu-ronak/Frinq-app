@@ -7,9 +7,11 @@ from arq import create_pool
 from arq.connections import ArqRedis, RedisSettings
 
 from app.config import settings
+from app.core import metrics
 from app.database import close_pool, init_pool
 from app.utils.logger import logger
 from app.workers.tasks.build_profile import build_profile
+from app.workers.tasks.push import send_community_push
 from app.workers.tasks.quiz_insights import generate_quiz_insights
 
 _pool: ArqRedis | None = None
@@ -34,6 +36,7 @@ async def get_queue() -> ArqRedis | None:
         logger.info("queue.connected", url=settings.REDIS_URL)
         return _pool
     except Exception as exc:  # noqa: BLE001 — Redis may be absent in dev
+        metrics.redis_failures_total.labels(source="queue.connect").inc()
         logger.warning("queue.connect_failed", error=str(exc))
         return None
 
@@ -67,6 +70,21 @@ async def enqueue_quiz_insights(submission_id: UUID) -> str | None:
     return str(job.job_id)
 
 
+async def enqueue_community_push(community_slug: str, author_id: UUID, active_user_ids: set[UUID]) -> str | None:
+    """Fire-and-forget after a chat message is persisted+published. Returns
+    None if Redis is unreachable — the caller must never let that affect
+    the sender's WS response, push is best-effort by design."""
+    queue = await get_queue()
+    if queue is None:
+        return None
+    job: Any = await queue.enqueue_job(
+        "send_community_push", community_slug, str(author_id), [str(u) for u in active_user_ids],
+    )
+    if job is None:
+        return None
+    return str(job.job_id)
+
+
 async def _on_startup(ctx: dict[str, Any]) -> None:
     await init_pool()
 
@@ -76,7 +94,7 @@ async def _on_shutdown(ctx: dict[str, Any]) -> None:
 
 
 class WorkerSettings:
-    functions = [build_profile, generate_quiz_insights]
+    functions = [build_profile, generate_quiz_insights, send_community_push]
     redis_settings = _redis_settings()
     on_startup = _on_startup
     on_shutdown = _on_shutdown

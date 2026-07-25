@@ -76,6 +76,26 @@ const MANIFEST = {
     required: ['id', 'deleted_at'],
     optional: [],
   },
+  CommunityMeResponse: {
+    required: ['archetype_slug', 'name', 'description', 'muted', 'joined_at'],
+    optional: [],
+  },
+  PublicAuthor: {
+    required: ['id'],
+    optional: ['display_name', 'avatar_key', 'archetype_slug'],
+  },
+  MessageOut: {
+    required: ['id', 'client_message_id', 'body', 'created_at', 'author'],
+    optional: [],
+  },
+  MessageHistoryResponse: {
+    required: ['messages'],
+    optional: ['next_cursor'],
+  },
+  WsTicketResponse: {
+    required: ['ticket'],
+    optional: ['expires_in'],
+  },
 };
 
 export function verifyContracts(root) {

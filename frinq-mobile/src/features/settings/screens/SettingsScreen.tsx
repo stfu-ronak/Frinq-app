@@ -30,13 +30,14 @@ export function SettingsScreen() {
   }
 
   return (
-    <Screen>
+    <Screen scroll>
       <BrandHeading variant="title" style={styles.title}>
         settings
       </BrandHeading>
 
       <View style={styles.list}>
         <NavRow label="community notifications" onPress={() => navigation.navigate('CommunitySettings')} />
+        <NavRow label="notifications" onPress={() => navigation.navigate('Notifications')} />
         <NavRow label="privacy & analytics" onPress={() => navigation.navigate('PrivacySettings')} />
         <NavRow label="legal" onPress={() => navigation.navigate('Legal')} />
         <NavRow label="support" onPress={() => navigation.navigate('Support')} />

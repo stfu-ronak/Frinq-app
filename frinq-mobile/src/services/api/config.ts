@@ -20,3 +20,9 @@ export const API_BASE_URL = __DEV__ ? DEV_BASE_URL : 'https://api.frinq.in';
  *  Placeholder until Task 41 finalizes per-environment identity, same as
  *  API_BASE_URL's prod value above. */
 export const WEB_BASE_URL = 'https://frinq.in';
+
+/** Sent as push_tokens.app_version (debugging/targeting only, never parsed
+ *  by the client). Hand-kept in sync with package.json's version until a
+ *  build-time injection exists — same "placeholder pending real tooling"
+ *  status as the URLs above. */
+export const APP_VERSION = '0.0.1';

@@ -5,7 +5,9 @@ WS   /ws/community?ticket=<ticket> — the ticket is the only credential;
 access/refresh tokens never appear in the URL.
 
 CORS middleware does not protect WebSocket handshakes, so Origin is
-validated manually here before the ticket is even consumed.
+validated manually here before the ticket is even consumed — allowing a
+same-host or explicitly-allowlisted Origin (never a raw "browser-only"
+assumption; see community_websocket's own comment for why).
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import asyncio
 import json
 import time
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 from uuid import UUID
 
 import asyncpg
@@ -21,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSock
 
 from app.api.deps import CurrentAccount, get_pool, require_current_legal
 from app.config import settings
+from app.core import metrics
 from app.core.communities import get_user_community
 from app.core.moderation import blocked_terms_from_settings
 from app.core.rate_limit import RateLimitUnavailable, check_rate_limit
@@ -38,10 +42,11 @@ from app.core.realtime import (
     persist_before_publish,
     server_ready_frame,
 )
-from app.core.redis_client import get_redis
+from app.core.redis_client import get_pubsub_redis, get_redis
 from app.database import get_pool as get_db_pool
 from app.schemas.realtime import WsTicketResponse
 from app.utils.logger import logger
+from app.workers.queue import enqueue_community_push
 
 router = APIRouter(tags=["realtime"])
 
@@ -50,13 +55,18 @@ _manager_lock = asyncio.Lock()
 
 
 async def get_connection_manager() -> ConnectionManager | None:
-    """Lazily-created per-process singleton — None if Redis is unreachable."""
+    """Lazily-created per-process singleton — None if Redis is unreachable.
+
+    Uses get_pubsub_redis() (no socket read-timeout), not get_redis() — the
+    manager's whole job is long-lived `listen()` subscriptions that block
+    waiting for the next message, which the regular fast-command client's
+    short socket_timeout would kill the moment traffic goes quiet."""
     global _manager
     if _manager is not None:
         return _manager
     async with _manager_lock:
         if _manager is None:
-            redis = await get_redis()
+            redis = await get_pubsub_redis()
             if redis is None:
                 return None
             manager = ConnectionManager(redis, get_db_pool)
@@ -106,10 +116,26 @@ async def issue_ws_ticket(
 
 @router.websocket("/ws/community")
 async def community_websocket(websocket: WebSocket, ticket: str = Query(...)) -> None:
+    # Origin's real purpose here is catching a malicious THIRD-PARTY web page
+    # embedding JS that opens a cross-origin WS to us with a stolen ticket —
+    # that page's Origin would differ from both our host and the allowlist.
+    # It does NOT reliably signal "browser vs native": confirmed via a real
+    # Android device test that React Native's OkHttp-based WebSocket client
+    # sends an Origin header too, defaulted to the target's own scheme+host
+    # (e.g. "http://10.0.2.2:8000" when connecting to that same host) — not
+    # "no origin" as a naive browser-only assumption would expect, and not
+    # any web frontend's real origin either. So: allow when Origin is same-
+    # host as this request (covers both that native-client quirk AND a
+    # legitimate same-origin browser page) or explicitly allowlisted (a
+    # legitimate cross-origin web frontend on a different host); reject only
+    # a genuine cross-origin mismatch.
     origin = websocket.headers.get("origin")
-    if origin is None or origin not in _allowed_origins():
-        await websocket.close(code=CLOSE_FORBIDDEN)
-        return
+    if origin is not None:
+        origin_host = urlparse(origin).netloc
+        request_host = websocket.headers.get("host", "")
+        if origin_host != request_host and origin not in _allowed_origins():
+            await websocket.close(code=CLOSE_FORBIDDEN)
+            return
 
     # Best-effort — behind a reverse proxy terminating TLS, uvicorn only
     # sees "wss" here if --proxy-headers/X-Forwarded-Proto is configured to
@@ -190,11 +216,12 @@ async def community_websocket(websocket: WebSocket, ticket: str = Query(...)) ->
     await websocket.accept()
     conn_state = LocalConnection(user_id=payload.user_id, community_slug=payload.community_slug)
     manager.register(conn_state)
+    metrics.active_websockets.inc()
     logger.info("realtime.connected", user_id=str(payload.user_id), community_slug=payload.community_slug)
 
     try:
         await websocket.send_json(server_ready_frame(payload.community_slug))
-        reader = asyncio.create_task(_reader_loop(websocket, conn_state, pool, redis))
+        reader = asyncio.create_task(_reader_loop(websocket, conn_state, pool, redis, manager))
         sender = asyncio.create_task(_sender_loop(websocket, conn_state))
         _done, pending = await asyncio.wait({reader, sender}, return_when=asyncio.FIRST_COMPLETED)
         for t in pending:
@@ -203,11 +230,13 @@ async def community_websocket(websocket: WebSocket, ticket: str = Query(...)) ->
         pass
     finally:
         manager.unregister(conn_state)
+        metrics.active_websockets.dec()
         logger.info("realtime.disconnected", user_id=str(payload.user_id))
 
 
 async def _reader_loop(
-    websocket: WebSocket, conn_state: LocalConnection, pool: asyncpg.Pool, redis: object
+    websocket: WebSocket, conn_state: LocalConnection, pool: asyncpg.Pool, redis: object,
+    manager: ConnectionManager,
 ) -> None:
     last_activity = time.monotonic()
     try:
@@ -265,6 +294,15 @@ async def _reader_loop(
                         "code": result.code,
                         "retry_after": result.retry_after,
                     })
+                else:
+                    # Best-effort, never awaited for its result — a push
+                    # provider hiccup must never affect this WS response.
+                    # exclude_user_ids is a snapshot at send time; a
+                    # recipient connecting a moment later just gets a push
+                    # too, an accepted race given push is inherently
+                    # best-effort.
+                    active = manager.connected_user_ids(conn_state.community_slug)
+                    await enqueue_community_push(conn_state.community_slug, conn_state.user_id, active)
             else:
                 logger.warning("realtime.unknown_frame_type", user_id=str(conn_state.user_id), frame_type=frame_type)
                 await websocket.close(code=CLOSE_MALFORMED_FRAME)

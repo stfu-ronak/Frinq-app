@@ -12,16 +12,18 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 import asyncio
 
 from app.api.deps import get_pool
+from app.api.deps import require_admin as _require_admin
 from app.config import settings
 from app.core.export.raw_responses import to_csv as raw_to_csv
 from app.core.export.raw_responses import to_xlsx as raw_to_xlsx
+from app.core.push import remove_all_for_user as remove_all_push_tokens_for_user
 from app.core.realtime import publish_ban_event
 from app.core.redis_client import get_redis
 from app.core.session import revoke_all_sessions
@@ -33,27 +35,6 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 _analytics_cache: dict[str, Any] = {}
 _analytics_cache_ts: float = 0.0
 _ANALYTICS_TTL = 60.0
-
-
-from fastapi import Header
-
-
-def _require_admin(
-    authorization: str | None = Header(default=None),
-) -> None:
-    """Verify admin auth via Authorization: Bearer <key>.
-
-    Header-only — the frinq-admin app (a real Next.js app, not an <audio
-    src=...> tag) can always set headers, so the legacy ?key= query-param
-    fallback is gone. Query auth would otherwise leak the key via browser
-    history, server access logs, and the Referer header.
-    """
-    provided = ""
-    if authorization and authorization.lower().startswith("bearer "):
-        provided = authorization[7:].strip()
-    admin_key = settings.ADMIN_KEY
-    if not admin_key or not hmac.compare_digest(provided, admin_key):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid admin key")
 
 
 def _require_action_password(
@@ -1793,6 +1774,7 @@ async def ban_user_moderation(
             if result == "UPDATE 0":
                 raise HTTPException(status_code=404, detail="user not found")
             await revoke_all_sessions(conn, uid)
+            await remove_all_push_tokens_for_user(conn, uid)
             await _record_moderation_action(
                 conn, report_id=UUID(body.report_id) if body.report_id else None,
                 target_user_id=uid, message_id=None, action="ban_user", reason=body.reason,

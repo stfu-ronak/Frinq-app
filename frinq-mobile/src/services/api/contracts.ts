@@ -157,3 +157,42 @@ export interface VibeReport {
   share_card?: ShareCard | null;
   deep_summary?: DeepSummary | null;
 }
+
+/** GET /api/v1/community/me (CommunityMeResponse). */
+export interface CommunityMe {
+  archetype_slug: string;
+  name: string;
+  description: string;
+  muted: boolean;
+  joined_at: string;
+}
+
+/** Public author fields only — never phone/internal ids beyond the user's
+ *  own id (PublicAuthor, app/schemas/message.py). */
+export interface PublicAuthor {
+  id: string;
+  display_name?: string | null;
+  avatar_key?: string | null;
+  archetype_slug?: string | null;
+}
+
+/** GET /api/v1/community/messages item (MessageOut). */
+export interface MessageOut {
+  id: number;
+  client_message_id: string;
+  body: string;
+  created_at: string;
+  author: PublicAuthor;
+}
+
+/** GET /api/v1/community/messages (MessageHistoryResponse). Cursor pagination. */
+export interface MessageHistoryResponse {
+  messages: MessageOut[];
+  next_cursor?: string | null;
+}
+
+/** POST /api/v1/community/ws-ticket (WsTicketResponse). Single-use, short-lived. */
+export interface WsTicketResponse {
+  ticket: string;
+  expires_in?: number;
+}

@@ -13,14 +13,18 @@
     "verify:no-webview": "node scripts/verify-no-webview.mjs",
     "verify:assets": "node scripts/verify-assets.mjs",
     "verify:contracts": "node scripts/verify-contracts.mjs",
+    "verify:release-artifact": "node scripts/verify-release-artifact.mjs",
+    "verify:store-assets": "node scripts/verify-store-assets.mjs",
     "contracts:refresh": "node scripts/refresh-contracts-snapshot.mjs",
-    "verify": "npm run typecheck && npm run lint && npm test -- --runInBand && npm run verify:config && npm run verify:no-webview && npm run verify:assets && npm run verify:contracts",
+    "verify": "npm run typecheck && npm run lint && npm test -- --runInBand && npm run verify:config && npm run verify:no-webview && npm run verify:assets && npm run verify:contracts && npm run verify:store-assets",
     "android:debug": "react-native run-android",
     "android:release-check": "cd android && gradlew.bat lintRelease testReleaseUnitTest assembleRelease"
   },
   "dependencies": {
     "@dr.pogodin/react-native-fs": "^2.39.2",
     "@react-native-community/netinfo": "^12.0.1",
+    "@react-native-firebase/app": "^25.1.0",
+    "@react-native-firebase/messaging": "^25.1.0",
     "@react-native/new-app-screen": "0.86.0",
     "@react-navigation/bottom-tabs": "^7.18.13",
     "@react-navigation/native": "^7.3.13",
@@ -63,6 +67,7 @@
     "jest": "^29.6.3",
     "prettier": "2.8.8",
     "react-test-renderer": "19.2.3",
+    "sharp": "^0.35.3",
     "typescript": "^5.8.3"
   },
   "engines": {
