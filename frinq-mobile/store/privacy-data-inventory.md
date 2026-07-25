@@ -58,3 +58,14 @@ filling out Apple/Play's actual forms:
    (device identifiers, diagnostic data per Firebase's own privacy manifest) needs to be added to
    Play's Data Safety form and Apple's App Privacy questionnaire — those are Google's/Apple's
    disclosures for their own SDKs, not this app's, but the store listing must still declare them.
+3. **Once a real crash-reporting backend is wired** (currently a no-op — see the Crash/error reports
+   row above), the SAME Firebase-disclosure caveat applies if Crashlytics is the chosen backend: its
+   own SDK-level data collection needs declaring independently of this app's own allowlisted fields.
+
+## Reconciled against code as of Task 48 (post Tasks 42-47)
+
+Re-checked against everything shipped since this inventory was first written (Task 41): Task 43 removed
+the `frinq-frontend` consumer/quiz/chat surface entirely (no data-type change, only fewer places the
+same backend data flows through); Tasks 44/45/46/47 added hardening, tests, observability, and release
+tooling — none of it introduces a new USER-facing data type except the crash-reporting row added above.
+No row in this table needed to change; only the one addition.

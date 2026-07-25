@@ -41,6 +41,14 @@ preferences, privacy/analytics opt-in — off by default, legal documents, suppo
   the user is already signed in — this is intentional (a stolen/left-open session alone can't delete
   the account), not a bug in the flow.
 
+## Operational note added Task 47 — do not flip this during a review window
+
+`OTP_REQUESTS_DISABLED` (a Task 47 emergency kill switch, `app/config.py`) is checked BEFORE the
+review-bypass logic in `POST /api/v1/otp/send` — if it's ever flipped on during an active incident, the
+reviewer's `REVIEW_PHONE`/`REVIEW_OTP` bypass is blocked along with every real sign-in. If an incident
+requires disabling new OTP requests while an App Store/Play Console review is in progress, coordinate
+with whoever's tracking the review window first — don't flip it blind.
+
 ## Known, deliberate scope gaps (not defects)
 
 - iOS is built and code-complete but has not yet had its consolidated device/Xcode-archive gate (Task

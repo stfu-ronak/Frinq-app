@@ -2210,3 +2210,78 @@ gaps, matching Task 42's precedent — not this task's shortcoming):**
 
 **Task 47: complete (everything achievable without a dedicated staging
 tier or the owner's Supabase dashboard access).**
+
+## Task 48: Freeze the release candidate and complete disclosure evidence
+
+**Step 1 blocked on a real decision, asked rather than assumed.** Freezing a
+release candidate's exact revision requires a real commit to point at —
+this repo had ~250 changed/new files uncommitted (everything since Tasks
+39-47; nothing had been committed since the old "Phases_9" commit). Given
+the standing "never commit without a fresh explicit ask" rule, asked the
+owner directly how to handle it (commit now / freeze against the working
+tree as-is / owner commits themselves) rather than guessing. **Owner chose
+to commit it themselves.** Proceeded with everything else Task 48 needs
+that doesn't require a real SHA yet, leaving the git-revision row in the
+new release checklist explicitly marked PENDING for the owner to fill in
+once they've committed.
+
+**Version freeze, the part that WAS a real decision made here.** Found a
+real mismatch: `frinq-mobile/package.json` still said `0.0.1` (an untouched
+create-react-native-app default) while Android (`versionCode 1`/
+`versionName "1.0"`) and iOS (`CURRENT_PROJECT_VERSION 1`/
+`MARKETING_VERSION 1.0`) already agreed on `1.0`. Bumped `package.json` to
+`1.0.0` to match, and bumped `frinq-backend`'s `FastAPI(version=...)`,
+`frinq-frontend/package.json`, and `frinq-admin/package.json` (all three
+still at their own untouched `0.1.0` scaffold defaults) to `1.0.0` too —
+"one traceable build" needs one consistent version story across all four
+apps, not four different stale defaults. All four re-verified after the
+bump: backend 406 tests, frontend 7 tests + build, admin build, mobile
+469 tests — all still green, this was a pure version-string change.
+
+**Step 2 — data inventory reconciled, one real addition found.**
+`store/privacy-data-inventory.md` (written at Task 41) was checked against
+everything shipped since — Tasks 43-45/47 changed nothing about what user
+data is collected; Task 46 added one genuinely new category: crash/error
+reports (`crashReporter.ts`'s allowlisted app/build/OS/device-class/screen-
+identifier/lifecycle-state/network-class/error-code, no backend wired yet).
+Added that row, plus a reconciliation note recording exactly what was and
+wasn't affected since Task 41, so a future pass doesn't have to re-derive
+the same reasoning.
+
+**Step 3 — UGC safety evidence, one real operational interaction found.**
+`store/reviewer-notes.md` (Task 41) still accurate on the reviewer sign-in
+bypass/screen-walkthrough/known-gaps front. Found one real landmine while
+reconciling: Task 47's `OTP_REQUESTS_DISABLED` kill switch is checked
+BEFORE the review-bypass logic in `POST /api/v1/otp/send` — flipping it
+during an active incident would ALSO block a store reviewer's bypass
+sign-in mid-review. Documented as an explicit operational caveat rather
+than left as an undocumented interaction between two features built in
+different tasks.
+
+**Step 4 — territory approval, unchanged.** `store/territory-review.md`
+(Task 41) re-checked: nothing shipped since affects phone-number format,
+locale, or the encryption-exemption story. Still India-only recommended,
+still the owner's business call to confirm.
+
+**New files:** `frinq-mobile/CHANGELOG.md` (Keep-a-Changelog style,
+grounded in what was actually built across every phase — not generic
+boilerplate — with an explicit "known gaps at this release candidate"
+section mirroring the same 5 open items every recent task has honestly
+carried forward) and `frinq-mobile/store/release-checklist.md` (the single
+document tying frozen versions, the pending git-revision row, and all four
+disclosure-evidence files together, plus a cross-reference to every real
+verification already on record for this candidate).
+
+**Left explicitly open, not silently resolved:**
+- The git revision for this candidate — owner is committing directly;
+  update `release-checklist.md`'s PENDING row once that's done, and
+  re-verify nothing changes between now and that commit (per the plan's own
+  "any change after freeze invalidates the candidate" rule).
+- No tag, no push — never done without a fresh, separate, explicit ask.
+- Every gap already carried forward from Tasks 24/39/42/45/47 (legal copy,
+  Firebase push, iOS device gate, real device matrix, staging rehearsals)
+  — restated in the new CHANGELOG/checklist, not re-litigated here.
+
+**Task 48: code/docs complete. Git-revision recording is the one remaining
+line item, deliberately left for the owner's own commit rather than acted
+on unilaterally.**

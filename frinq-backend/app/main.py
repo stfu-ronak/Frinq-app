@@ -74,7 +74,7 @@ _docs_url, _redoc_url, _openapi_url = _docs_urls(settings.APP_ENV)
 
 app = FastAPI(
     title="Frinq Backend",
-    version="0.1.0",
+    version="1.0.0",
     lifespan=lifespan,
     docs_url=_docs_url,
     redoc_url=_redoc_url,
