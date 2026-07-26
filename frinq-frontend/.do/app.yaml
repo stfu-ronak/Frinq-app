@@ -1,6 +1,16 @@
 name: frinq-frontend
 region: blr
 
+# SECURITY HEADERS (manual deploy-layer step — cannot be set from code here):
+# this is a Next static export (output: "export"), which cannot emit HTTP
+# response headers. Set CSP, Strict-Transport-Security, X-Frame-Options: DENY,
+# and Referrer-Policy: no-referrer at the DigitalOcean App Platform static-site
+# header config (App > Settings > Components > web > HTTP headers) or a fronting
+# CDN. The admin app sets these via Next SSR (frinq-admin/next.config.ts); the
+# consumer site is static so the same headers must be applied at the edge.
+# Frame protection (X-Frame-Options / CSP frame-ancestors) in particular
+# requires a real header — a <meta> CSP cannot deliver frame-ancestors.
+
 static_sites:
   - name: web
     github:

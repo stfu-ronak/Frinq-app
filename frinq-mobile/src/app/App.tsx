@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import NetInfo from '@react-native-community/netinfo';
 import { AppProviders } from './AppProviders';
 import { RootNavigator } from '../navigation/RootNavigator';
@@ -39,30 +39,39 @@ export function BootController({ resolveBoot }: { resolveBoot?: BootResolver }) 
     };
   }, [resolveBoot, coordinator, apiClient]);
 
-  function runResolve() {
+  // Every resolve trigger (mount, auth flip, NetInfo auto-resume, nav
+  // callbacks) routes through here. A monotonic id + mounted flag ensure only
+  // the LATEST resolve wins: without this, two concurrent resolvers (e.g. a
+  // nav callback fired near an auth flip) race to setState and the
+  // later-settling, possibly stale one clobbers the correct route — and a
+  // resolve completing after unmount writes into a dead component.
+  const resolveIdRef = useRef(0);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const runResolve = useCallback(() => {
+    const id = ++resolveIdRef.current;
     setState('checking');
     resolver()
-      .then(setState)
-      .catch(() => setState('error'));
-  }
+      .then((next) => {
+        if (mountedRef.current && resolveIdRef.current === id) setState(next);
+      })
+      .catch(() => {
+        if (mountedRef.current && resolveIdRef.current === id) setState('error');
+      });
+  }, [resolver]);
 
   // Re-runs on mount AND whenever auth state flips (OTP verify success,
   // logout) — server state stays the single source of truth for routing,
   // never a client-side "onboarding complete" flag.
   useEffect(() => {
-    let cancelled = false;
-    setState('checking');
-    resolver()
-      .then((next) => {
-        if (!cancelled) setState(next);
-      })
-      .catch(() => {
-        if (!cancelled) setState('error');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [resolver, authenticated]);
+    runResolve();
+  }, [runResolve, authenticated]);
 
   // Auto-resume when connectivity returns while parked on the offline boot
   // screen — the "resilient online / automatic resume" the design spec calls

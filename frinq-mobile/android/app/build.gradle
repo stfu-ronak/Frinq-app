@@ -122,6 +122,19 @@ android {
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }
+
+    // checkDependencies=false: without this, `:app:lintRelease` also runs
+    // `lintAnalyzeRelease` inside every autolinked native module (worklets,
+    // reanimated, etc) to aggregate their findings into this app's report.
+    // react-native-worklets' android/*.gradle.kts (Kotlin DSL) build scripts
+    // crash AGP's Lint with "Cannot find a KaModule for the VirtualFile" — a
+    // known Lint/Kotlin-Analysis-API bug analyzing standalone .gradle.kts
+    // files, not a real finding in that library's code, and definitely not
+    // in ours. This app's own source is still fully linted either way —
+    // only the *dependencies'* own internal lint passes are skipped.
+    lint {
+        checkDependencies = false
+    }
 }
 
 dependencies {
@@ -134,3 +147,9 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+// Task 39 resume — must be applied at the bottom (Google's own documented
+// convention: it reads this module's already-configured applicationId to
+// match against google-services.json's package_name). Reads
+// android/app/google-services.json (real file, gitignored, never committed).
+apply plugin: "com.google.gms.google-services"

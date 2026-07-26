@@ -78,6 +78,41 @@ async def test_otp_verify_creates_user_and_session(
     assert body["prior_session"] is None
 
 
+async def test_verify_maps_twilio_outage_to_503_not_wrong_code(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A Twilio 5xx/429/auth failure must NOT be reported to the user as an
+    # incorrect code (400) — it's a 503 so the client says "try again" and it
+    # shows up as an outage in monitoring, not a spike of "wrong code".
+    async def _boom(phone: str, code: str) -> None:
+        raise RuntimeError("twilio_unavailable")
+
+    monkeypatch.setattr("app.api.v1.otp.verify_otp", _boom)
+
+    response = await client.post(
+        "/api/v1/otp/verify",
+        json={"phone": "9990000001", "code": "123456", "platform": "android"},
+    )
+    assert response.status_code == 503, response.text
+
+
+async def test_verify_wrong_code_still_400(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _wrong(phone: str, code: str) -> None:
+        raise ValueError("invalid_code")
+
+    monkeypatch.setattr("app.api.v1.otp.verify_otp", _wrong)
+
+    response = await client.post(
+        "/api/v1/otp/verify",
+        json={"phone": "9990000001", "code": "000000", "platform": "android"},
+    )
+    assert response.status_code == 400, response.text
+
+
 async def test_verify_same_phone_reuses_user_but_creates_new_session(
     client: AsyncClient,
     fake_pool: FakePool,

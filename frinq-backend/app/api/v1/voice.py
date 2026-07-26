@@ -72,7 +72,13 @@ async def upload_voice(
     if not _SAFE_KEY_RE.match(question_key):
         raise HTTPException(status_code=400, detail="invalid question_key")
 
-    content = await audio.read()
+    # Read only up to the cap (+1 to detect overflow), never the whole body:
+    # a chunked upload with no Content-Length slips past the request-size
+    # middleware, and an unbounded audio.read() would then pull the entire
+    # parser-spooled payload into RAM (OOM). ponytail: the multipart parser can
+    # still spool an oversized part to a temp file first — that's per-request
+    # and auto-cleaned; tighten at the parser only if disk-fill ever bites.
+    content = await audio.read(_MAX_AUDIO_BYTES + 1)
     if not content:
         raise HTTPException(status_code=400, detail="empty audio")
     if len(content) > _MAX_AUDIO_BYTES:

@@ -60,30 +60,46 @@ export function OtpScreen() {
     // pre-auth pending state (legal acceptance + quiz draft) before boot
     // re-resolution mounts the quiz navigator and reads that draft. Flipping
     // now would race the flush and could resume the quiz from the wrong step.
-    await coordinator.setTokens(
-      { access_token: result.data.access_token, refresh_token: result.data.refresh_token },
-      { signalAuthChange: false },
-    );
+    let tokensSet = false;
+    try {
+      await coordinator.setTokens(
+        { access_token: result.data.access_token, refresh_token: result.data.refresh_token },
+        { signalAuthChange: false },
+      );
+      tokensSet = true;
 
-    const pending = await loadPendingAcceptance();
-    if (pending) {
-      const accepted = await acceptLegal(apiClient, {
-        terms_version: pending.termsVersion,
-        privacy_version: pending.privacyVersion,
-        locale: pending.locale,
-        source: 'android',
-      });
-      if (accepted) await clearPendingAcceptance();
-      // If it failed, boot resolution will see the account's stale legal
-      // version server-side and route back to Legal — never silently proceed.
+      const pending = await loadPendingAcceptance();
+      if (pending) {
+        const accepted = await acceptLegal(apiClient, {
+          terms_version: pending.termsVersion,
+          privacy_version: pending.privacyVersion,
+          locale: pending.locale,
+          source: 'android',
+        });
+        if (accepted) await clearPendingAcceptance();
+        // If it failed, boot resolution will see the account's stale legal
+        // version server-side and route back to Legal — never silently proceed.
+      }
+
+      await flushPendingQuizState(apiClient, result.data.user.id, phone, result.data.prior_session);
+    } catch {
+      // The pending-state flush is best-effort. If connectivity drops after
+      // the tokens are set, we must NOT strand the user on the "verifying…"
+      // spinner (and must not leak an unhandled rejection — handleVerify is
+      // called un-awaited). Boot resolution is server-authoritative; a failed
+      // quiz-draft flush at worst resumes the quiz without the typed name.
     }
 
-    await flushPendingQuizState(apiClient, result.data.user.id, phone, result.data.prior_session);
-
     setLoading(false);
-    // Pending state is now persisted — flip auth so boot resolution takes over
-    // routing (server-authoritative, never a client guess).
-    coordinator.signalAuthenticated();
+    if (tokensSet) {
+      // Flip auth so boot resolution takes over routing (server-authoritative).
+      coordinator.signalAuthenticated();
+    } else {
+      // Couldn't even persist the credential — surface a retry rather than
+      // silently proceeding unauthenticated.
+      setCode('');
+      setError(ERROR_COPY.network_error ?? "Couldn't verify, try again.");
+    }
   }
 
   async function handleResend() {

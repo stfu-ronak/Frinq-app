@@ -127,7 +127,7 @@ export function VibeReportScreen() {
         </ReportSection>
       )}
 
-      {report.insights.length > 0 && (
+      {!!report.insights?.length && (
         <ReportSection title="what stood out">
           {report.insights.map((item, idx) => (
             <View key={idx} style={styles.pairRow}>
@@ -193,7 +193,7 @@ export function VibeReportScreen() {
         </ReportSection>
       )}
 
-      {report.tags.length > 0 && (
+      {!!report.tags?.length && (
         <ReportSection title="tags">
           <View style={styles.tagsRow}>
             {report.tags.map((tag) => (

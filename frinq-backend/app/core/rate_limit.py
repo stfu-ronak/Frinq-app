@@ -59,6 +59,17 @@ LIMITERS: dict[str, LimiterConfig] = {
     # if Redis is briefly unreachable, sending an extra push is far cheaper
     # than silently dropping real-time notifications app-wide.
     "push_community": LimiterConfig("push_community", limit=1, window_seconds=15 * 60, fail_closed=False),
+    # Anonymous quiz creation — IP-keyed. Generous (India CGNAT shares one IP
+    # across many real users, so a tight cap would lock them out) but low
+    # enough to stop bulk phone-enumeration against the pre-auth /quiz/start.
+    # Fail-open: blocking the top of the signup funnel on a brief Redis outage
+    # is worse than the short enumeration window it prevents.
+    "quiz_start_ip": LimiterConfig("quiz_start_ip", limit=100, window_seconds=60 * 60, fail_closed=False),
+    # Authenticated quiz submission enqueues a paid AI job and (unlike
+    # complete/retry) inserts a fresh submission every call — the one unbounded
+    # AI-cost path. Far above any real user's need (they submit once); tight
+    # enough to cap a scripted cost attack. Fail-open.
+    "quiz_submit": LimiterConfig("quiz_submit", limit=30, window_seconds=60 * 60, fail_closed=False),
 }
 
 

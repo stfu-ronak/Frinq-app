@@ -226,6 +226,19 @@ async def community_websocket(websocket: WebSocket, ticket: str = Query(...)) ->
         _done, pending = await asyncio.wait({reader, sender}, return_when=asyncio.FIRST_COMPLETED)
         for t in pending:
             t.cancel()
+        # Await the cancelled peer so it isn't "destroyed while pending", and
+        # retrieve the finished task's exception so a non-disconnect error
+        # (e.g. send_json on a half-closed socket) is logged here instead of
+        # surfacing as an untracked "task exception was never retrieved".
+        await asyncio.gather(*pending, return_exceptions=True)
+        for t in _done:
+            exc = t.exception()
+            if exc is not None and not isinstance(exc, WebSocketDisconnect):
+                logger.warning(
+                    "realtime.task_error",
+                    user_id=str(payload.user_id),
+                    error_type=type(exc).__name__,
+                )
     except WebSocketDisconnect:
         pass
     finally:

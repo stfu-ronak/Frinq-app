@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { ApiClient } from '../../services/api/apiClient';
 import { OtpVerifyResponse, LegalCurrent } from '../../services/api/contracts';
 
@@ -31,7 +32,7 @@ export async function verifyOtp(apiClient: ApiClient, phone: string, code: strin
     const data = await apiClient.request<OtpVerifyResponse>({
       path: '/api/v1/otp/verify',
       method: 'POST',
-      body: { phone, code },
+      body: { phone, code, platform: Platform.OS === 'ios' ? 'ios' : 'android' },
       auth: false,
     });
     return { ok: true, data };

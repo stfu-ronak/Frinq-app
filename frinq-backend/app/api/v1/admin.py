@@ -1784,3 +1784,252 @@ async def ban_user_moderation(
     await _publish_ban_event_best_effort(uid, reason_for_log="ban")
     logger.info("admin.moderation.ban", user_id=user_id)
     return {"ok": True}
+
+
+# ─── User management + audit trail (full-control console) ───────────────────────
+# Additive endpoints on the EXISTING schema (users, user_sessions via
+# revoke_all_sessions, moderation_actions). Closes the audited gaps: users were
+# only reachable through a report; ban/suspend were one-way (a wrong ban was
+# unrecoverable from the console); moderation_actions was written but only ever
+# surfaced as a COUNT. The new action types need migration 016 (widens the
+# moderation_actions.action CHECK added in 014).
+
+
+class ReasonRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+    report_id: str | None = None
+
+
+def _mask_phone(phone: str | None) -> str | None:
+    """List views can return many rows — full numbers don't need to sit on
+    screen in bulk. The single-user detail endpoint returns the full number."""
+    if not phone:
+        return phone
+    return f"****{phone[-4:]}" if len(phone) >= 4 else "****"
+
+
+@router.get("/users", dependencies=[Depends(_require_admin)])
+async def list_users(
+    pool: asyncpg.Pool = Depends(get_pool),
+    q: str | None = Query(default=None, description="phone/display_name substring, or an exact user id"),
+    status_filter: str | None = Query(default=None, alias="status", description="active|banned|suspended"),
+    limit: int = Query(default=50, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
+    conditions = ["deleted_at IS NULL"]
+    params: list[Any] = []
+    if q and q.strip():
+        q = q.strip()
+        try:
+            params.append(UUID(q))
+            conditions.append(f"id = ${len(params)}")
+        except ValueError:
+            params.append(f"%{q}%")
+            conditions.append(f"(phone ILIKE ${len(params)} OR display_name ILIKE ${len(params)})")
+    if status_filter == "banned":
+        conditions.append("banned = TRUE")
+    elif status_filter == "suspended":
+        conditions.append("suspended_until IS NOT NULL AND suspended_until > now()")
+    elif status_filter == "active":
+        conditions.append("banned = FALSE AND (suspended_until IS NULL OR suspended_until <= now())")
+
+    where = "WHERE " + " AND ".join(conditions)
+    limit_p, offset_p = len(params) + 1, len(params) + 2
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""SELECT id, phone, display_name, onboarding_state, banned, banned_reason,
+                       suspended_until, created_at, last_seen_at
+                FROM users {where}
+                ORDER BY created_at DESC
+                LIMIT ${limit_p} OFFSET ${offset_p}""",
+            *params, limit, offset,
+        )
+        total = await conn.fetchval(f"SELECT COUNT(*) FROM users {where}", *params)
+    return {
+        "total": total,
+        "users": [
+            {
+                "id": str(r["id"]),
+                "phone": _mask_phone(r["phone"]),
+                "display_name": r["display_name"],
+                "onboarding_state": r["onboarding_state"],
+                "banned": r["banned"],
+                "banned_reason": r["banned_reason"],
+                "suspended_until": r["suspended_until"].isoformat() if r["suspended_until"] else None,
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "last_seen_at": r["last_seen_at"].isoformat() if r["last_seen_at"] else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/users/{user_id}", dependencies=[Depends(_require_admin)])
+async def get_user_detail(user_id: str, pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any]:
+    try:
+        uid = UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid id")
+    async with pool.acquire() as conn:
+        u = await conn.fetchrow(
+            """SELECT id, phone, display_name, gender, age, onboarding_state, banned,
+                      banned_reason, banned_at, suspended_until, created_at, updated_at, last_seen_at
+               FROM users WHERE id = $1 AND deleted_at IS NULL""",
+            uid,
+        )
+        if u is None:
+            raise HTTPException(status_code=404, detail="user not found")
+        active_sessions = await conn.fetchval(
+            "SELECT COUNT(*) FROM user_sessions WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()",
+            uid,
+        )
+        submission_count = await conn.fetchval("SELECT COUNT(*) FROM quiz_submissions WHERE user_id = $1", uid)
+        action_count = await conn.fetchval("SELECT COUNT(*) FROM moderation_actions WHERE target_user_id = $1", uid)
+    return {
+        "id": str(u["id"]),
+        "phone": u["phone"],  # full number on the single-user view (admin needs it)
+        "display_name": u["display_name"],
+        "gender": u["gender"],
+        "age": u["age"],
+        "onboarding_state": u["onboarding_state"],
+        "banned": u["banned"],
+        "banned_reason": u["banned_reason"],
+        "banned_at": u["banned_at"].isoformat() if u["banned_at"] else None,
+        "suspended_until": u["suspended_until"].isoformat() if u["suspended_until"] else None,
+        "created_at": u["created_at"].isoformat() if u["created_at"] else None,
+        "updated_at": u["updated_at"].isoformat() if u["updated_at"] else None,
+        "last_seen_at": u["last_seen_at"].isoformat() if u["last_seen_at"] else None,
+        "active_sessions": active_sessions,
+        "submission_count": submission_count,
+        "moderation_action_count": action_count,
+    }
+
+
+@router.post("/users/{user_id}/unban",
+             dependencies=[Depends(_require_admin), Depends(_require_action_password)])
+async def unban_user(user_id: str, body: ReasonRequest, pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any]:
+    """Reverse a ban — the mirror of ban_user_moderation, which was one-way, so
+    a wrong ban was previously unrecoverable from the console."""
+    try:
+        uid = UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid id")
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            result = await conn.execute(
+                "UPDATE users SET banned = FALSE, banned_reason = NULL, banned_at = NULL, updated_at = now() "
+                "WHERE id = $1 AND deleted_at IS NULL AND banned = TRUE",
+                uid,
+            )
+            if result == "UPDATE 0":
+                raise HTTPException(status_code=404, detail="user not found or not banned")
+            await _record_moderation_action(
+                conn, report_id=UUID(body.report_id) if body.report_id else None,
+                target_user_id=uid, message_id=None, action="unban_user", reason=body.reason,
+            )
+    logger.info("admin.moderation.unban", user_id=user_id)
+    return {"ok": True}
+
+
+@router.post("/users/{user_id}/unsuspend",
+             dependencies=[Depends(_require_admin), Depends(_require_action_password)])
+async def unsuspend_user(user_id: str, body: ReasonRequest, pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any]:
+    """Lift a suspension early (clear suspended_until)."""
+    try:
+        uid = UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid id")
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            result = await conn.execute(
+                "UPDATE users SET suspended_until = NULL, updated_at = now() "
+                "WHERE id = $1 AND deleted_at IS NULL AND suspended_until IS NOT NULL",
+                uid,
+            )
+            if result == "UPDATE 0":
+                raise HTTPException(status_code=404, detail="user not found or not suspended")
+            await _record_moderation_action(
+                conn, report_id=UUID(body.report_id) if body.report_id else None,
+                target_user_id=uid, message_id=None, action="unsuspend_user", reason=body.reason,
+            )
+    logger.info("admin.moderation.unsuspend", user_id=user_id)
+    return {"ok": True}
+
+
+@router.post("/users/{user_id}/force-logout",
+             dependencies=[Depends(_require_admin), Depends(_require_action_password)])
+async def force_logout_user(user_id: str, body: ReasonRequest, pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any]:
+    """Revoke every session (without banning) and disconnect any live socket —
+    for a lost/compromised device or a support request."""
+    try:
+        uid = UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid id")
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            exists = await conn.fetchval("SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NULL", uid)
+            if not exists:
+                raise HTTPException(status_code=404, detail="user not found")
+            await revoke_all_sessions(conn, uid)
+            await _record_moderation_action(
+                conn, report_id=None, target_user_id=uid, message_id=None,
+                action="force_logout", reason=body.reason,
+            )
+    await _publish_ban_event_best_effort(uid, reason_for_log="force_logout")
+    logger.info("admin.moderation.force_logout", user_id=user_id)
+    return {"ok": True}
+
+
+@router.get("/audit-log", dependencies=[Depends(_require_admin)])
+async def list_audit_log(
+    pool: asyncpg.Pool = Depends(get_pool),
+    action: str | None = Query(default=None),
+    target_user_id: str | None = Query(default=None),
+    limit: int = Query(default=50, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
+    """The moderation_actions trail, finally viewable (was only ever a COUNT).
+    Every resolve/delete-message/ban/suspend/unban/unsuspend/force-logout is
+    here with actor, target, reason and time."""
+    conditions: list[str] = []
+    params: list[Any] = []
+    if action:
+        params.append(action)
+        conditions.append(f"ma.action = ${len(params)}")
+    if target_user_id:
+        try:
+            params.append(UUID(target_user_id))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid target_user_id")
+        conditions.append(f"ma.target_user_id = ${len(params)}")
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    limit_p, offset_p = len(params) + 1, len(params) + 2
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""SELECT ma.id, ma.action, ma.reason, ma.actor_id, ma.target_user_id,
+                       ma.message_id, ma.report_id, ma.created_at, u.display_name AS target_display_name
+                FROM moderation_actions ma
+                LEFT JOIN users u ON u.id = ma.target_user_id
+                {where}
+                ORDER BY ma.created_at DESC
+                LIMIT ${limit_p} OFFSET ${offset_p}""",
+            *params, limit, offset,
+        )
+        total = await conn.fetchval(f"SELECT COUNT(*) FROM moderation_actions ma {where}", *params)
+    return {
+        "total": total,
+        "actions": [
+            {
+                "id": str(r["id"]),
+                "action": r["action"],
+                "reason": r["reason"],
+                "actor_id": r["actor_id"],
+                "target_user_id": str(r["target_user_id"]) if r["target_user_id"] else None,
+                "target_display_name": r["target_display_name"],
+                "message_id": r["message_id"],
+                "report_id": str(r["report_id"]) if r["report_id"] else None,
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            }
+            for r in rows
+        ],
+    }

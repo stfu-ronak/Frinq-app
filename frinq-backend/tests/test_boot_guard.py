@@ -46,6 +46,7 @@ async def test_production_allows_review_bypass_with_expiry_set(
     monkeypatch.setattr(settings, "REDIS_URL", "redis://realhost:6379/0")
     monkeypatch.setattr(settings, "SKIP_OTP_VERIFICATION", False)
     monkeypatch.setattr(settings, "TEST_PHONES", "")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-a-real-openai-key")
     monkeypatch.setattr(settings, "REVIEW_PHONE", "9999999999")
     monkeypatch.setattr(settings, "REVIEW_OTP", "some-high-entropy-code")
     monkeypatch.setattr(settings, "REVIEW_OTP_EXPIRES_AT", "2099-01-01T00:00:00+00:00")
@@ -101,11 +102,23 @@ def _set_all_valid(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "REVIEW_OTP_EXPIRES_AT", "")
     monkeypatch.setattr(settings, "SKIP_OTP_VERIFICATION", False)
     monkeypatch.setattr(settings, "TEST_PHONES", "")
+    monkeypatch.setattr(settings, "INSIGHTS_PROVIDER", "openai")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-a-real-openai-key")
 
 
 async def test_production_passes_with_every_field_valid(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_all_valid(monkeypatch)
     await _enter_and_exit_lifespan()
+
+
+async def test_production_rejects_missing_ai_key_for_active_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # INSIGHTS_PROVIDER=openai but no OPENAI_API_KEY would 500 every quiz reveal.
+    _set_all_valid(monkeypatch)
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "")
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+        await _enter_and_exit_lifespan()
 
 
 async def test_production_rejects_default_admin_actor_id(monkeypatch: pytest.MonkeyPatch) -> None:

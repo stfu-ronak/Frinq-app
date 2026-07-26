@@ -87,8 +87,14 @@ async def dependencies() -> dict[str, Any]:
     against Twilio/Anthropic/Firebase). A real connectivity probe belongs in
     a manual/on-demand runbook step (docs/runbooks/provider-outage.md), not a
     routinely-scraped endpoint."""
+    # The ACTIVE insight provider decides which key actually matters. Reporting
+    # ANTHROPIC's presence while INSIGHTS_PROVIDER=openai made this endpoint say
+    # "ai configured" while every quiz reveal was failing on a missing/blank
+    # OPENAI_API_KEY — the health page has to reflect the provider in use.
+    ai_provider = (settings.INSIGHTS_PROVIDER or "openai").strip().lower()
+    ai_key = settings.OPENAI_API_KEY if ai_provider == "openai" else settings.ANTHROPIC_API_KEY
     return {
-        "ai": {"configured": _configured(settings.ANTHROPIC_API_KEY)},
+        "ai": {"provider": ai_provider, "configured": _configured(ai_key)},
         "otp_whatsapp": {"configured": _configured(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)},
         "push": {"configured": _configured(settings.FCM_SERVICE_ACCOUNT_JSON)},
     }

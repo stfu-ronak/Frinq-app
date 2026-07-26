@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# A real completed quiz serialises to a few KB. Cap well above that but far
+# below the global 1MB body limit: `answers` is interpolated verbatim into the
+# paid OpenAI/Claude prompts, so an unbounded payload is a direct per-token
+# cost-inflation lever on an authenticated-but-repeatable path.
+_MAX_ANSWERS_BYTES = 50_000
+_MAX_ANSWER_KEYS = 100
 
 
 class QuizSubmitRequest(BaseModel):
@@ -10,6 +18,15 @@ class QuizSubmitRequest(BaseModel):
     answers: dict[str, Any] = Field(default_factory=dict)
     is_complete: bool = False
     last_page: str | None = Field(default=None)
+
+    @field_validator("answers")
+    @classmethod
+    def _bound_answers(cls, v: dict[str, Any]) -> dict[str, Any]:
+        if len(v) > _MAX_ANSWER_KEYS:
+            raise ValueError("too many answer fields")
+        if len(json.dumps(v, default=str)) > _MAX_ANSWERS_BYTES:
+            raise ValueError("answers payload too large")
+        return v
 
 
 class QuizSubmitResponse(BaseModel):

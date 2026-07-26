@@ -39,7 +39,12 @@ function toPermissionStatus(status: number): PushPermissionStatus {
 
 /** Requests the OS notification permission. Must only be called after the
  *  user taps "Enable notifications" in the community opt-in prompt — never
- *  on app launch (Task 39's "ask only after community value" requirement). */
+ *  on app launch (Task 39's "ask only after community value" requirement).
+ *
+ *  On Android 13+ (API 33+) this runtime request needs
+ *  `android.permission.POST_NOTIFICATIONS` declared in AndroidManifest.xml —
+ *  added when Firebase was wired in (Task 39 resume), matching this exact
+ *  pass so it never shipped untested. */
 export async function requestPushPermission(): Promise<PermissionOutcome> {
   const status = toPermissionStatus(await messaging().requestPermission());
   return status === 'authorized' || status === 'provisional' ? 'granted' : 'denied';
@@ -139,6 +144,10 @@ export function onNotificationTapped(cb: () => void): () => void {
     .getInitialNotification()
     .then((remoteMessage: FirebaseMessagingTypes.RemoteMessage | null) => {
       if (remoteMessage) cb();
+    })
+    .catch(() => {
+      // Best-effort cold-start tap detection — a rejection here must never
+      // surface as an unhandled promise rejection.
     });
   return () => unsubOpened();
 }

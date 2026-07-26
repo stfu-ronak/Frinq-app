@@ -210,6 +210,14 @@ async def verify_otp_route(
             status_code=504,
             detail="Verification took too long. Try again in a moment.",
         )
+    except RuntimeError:
+        # Twilio outage / rate-limit / auth failure — not the user's fault.
+        # 503 (not 400) so the client shows "try again" and monitoring sees it.
+        metrics.otp_requests_total.labels(outcome="verify_unavailable").inc()
+        raise HTTPException(
+            status_code=503,
+            detail="Couldn't verify the code right now. Try again in a moment.",
+        )
     except ValueError as exc:
         reason = str(exc) if exc.args else ""
         if reason == "expired":
@@ -268,13 +276,18 @@ async def verify_otp_route(
                 data["id"], digits,
             )
 
-            prior: PriorSession | None = None
-            try:
-                prior = await _fetch_prior_session(conn, data["id"])
-            except Exception as exc:
-                logger.warning("otp.prior_lookup_failed", error=str(exc))
-
             pair: TokenPair = await create_session(conn, data["id"], body.platform)
+
+        # Prior-session lookup is response enrichment only. Run it AFTER the
+        # txn commits (same connection) so a hiccup here can neither abort the
+        # account/session creation nor be aborted by it — inside the txn a real
+        # DB error would poison the transaction and 500 the whole login despite
+        # this except. Failure now degrades cleanly to prior=None.
+        prior: PriorSession | None = None
+        try:
+            prior = await _fetch_prior_session(conn, data["id"])
+        except Exception as exc:
+            logger.warning("otp.prior_lookup_failed", error=str(exc))
 
     metrics.otp_requests_total.labels(outcome="verified").inc()
     logger.info("otp.verified", phone=digits[:4] + "****", has_prior=prior is not None)

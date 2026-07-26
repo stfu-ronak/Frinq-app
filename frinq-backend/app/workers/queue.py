@@ -99,5 +99,11 @@ class WorkerSettings:
     on_startup = _on_startup
     on_shutdown = _on_shutdown
     max_jobs = 4
-    job_timeout = 300
+    # Must exceed the real worst-case latency of generate_quiz_insights, else
+    # ARQ cancels a healthy job mid-AI-call and re-delivers it (max_tries), and
+    # the retry re-runs the paid OpenAI/Claude calls. Worst case ≈ insights'
+    # two 180s attempts (sequential) running concurrently with the 180s deep
+    # report ≈ 360s, plus DB/community work. 420s leaves headroom without
+    # letting a genuinely stuck job hold a worker slot indefinitely.
+    job_timeout = 420
     max_tries = 3

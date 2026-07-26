@@ -58,6 +58,11 @@ export function ProcessingScreen({ onComplete }: Props) {
     enabled: !!submissionId,
     retry: false,
     refetchInterval: (q) => {
+      // On error `data` is undefined, so without this the poll falls through to
+      // POLL_STEPS_MS[0] and hammers a failing endpoint every 2s forever. The
+      // ErrorState below already offers a manual retry — stop auto-polling and
+      // let the user drive it.
+      if (q.state.status === 'error') return false;
       const status = q.state.data?.status;
       if (status && status !== 'pending' && status !== 'processing') return false;
       const step = Math.min(q.state.dataUpdateCount, POLL_STEPS_MS.length - 1);

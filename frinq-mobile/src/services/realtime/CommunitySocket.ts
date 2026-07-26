@@ -70,6 +70,12 @@ export class CommunitySocket {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private stableTimer: ReturnType<typeof setTimeout> | null = null;
   private backgroundTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Set right before a deliberate background-grace close so the resulting
+   *  onclose->handleClose does NOT auto-retry. Reconnection after backgrounding
+   *  is driven only by foreground resume (handlePhase). Without this the grace
+   *  close reconnects within ~1s in the background (battery/data drain) and can
+   *  race a second socket on resume. */
+  private suppressRetryOnClose = false;
   /** Incremented by disconnect(), the background-grace-period close, and the
    *  offline transition — every place that forces the connection closed
    *  outside doConnect() itself. A doConnect() awaiting the ws-ticket fetch
@@ -202,6 +208,7 @@ export class CommunitySocket {
         this.backgroundTimer = null;
         this.generation += 1;
         this.clearTimers();
+        this.suppressRetryOnClose = true;
         this.ws?.close(1000);
         this.ws = null;
         this.setState('disconnected');
@@ -286,7 +293,10 @@ export class CommunitySocket {
         this.resendPending();
         break;
       case 'message.created': {
-        const m = data.message as Record<string, unknown>;
+        const m = data.message as Record<string, unknown> | null;
+        // A malformed frame (missing/null `message`) must not throw inside the
+        // ws.onmessage handler — ignore it rather than crash the socket.
+        if (!m || typeof m !== 'object') break;
         const clientMessageId = String(m.client_message_id);
         this.pendingSends.delete(clientMessageId);
         const author = m.author as Record<string, unknown> | null;
@@ -367,6 +377,13 @@ export class CommunitySocket {
       this.stableTimer = null;
     }
     this.ws = null;
+    if (this.suppressRetryOnClose) {
+      // Deliberate background-grace close — reconnect happens on foreground
+      // resume (handlePhase), not here. Auto-retrying would defeat the grace
+      // period and can open a second socket racing the resume.
+      this.suppressRetryOnClose = false;
+      return;
+    }
     if (this.stopped) return;
 
     if (closeCodeOutcome(code) === 'banned') {

@@ -70,8 +70,9 @@ NEVER invent a new archetype. NEVER use MBTI letters, zodiac signs, generic
     + own-cultures + home-late + hobbies that are specific/unusual.
   - Open Hand — gives first, easily, without keeping score. Anchors: extrovert/
     ambivert + word-is-bond + show-up-by-being-there + need-regular-catch-ups.
-  - Glass House — transparent about who they are, particular about who comes in.
-    Anchors: ambivert + counter + parallel + selective social-type.
+  - Quiet Anchor — holds the group together without asking for credit, remembers
+    the small things. Anchors: selective/ambivert + reliable + show-up-by-remembering
+    + word-is-bond.
   - Hidden Door — you have to know how to find them, then everything opens. Anchors:
     introvert + selective + weird + counter + pick-up-where-left-off.
 

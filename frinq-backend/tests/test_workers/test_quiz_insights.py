@@ -213,6 +213,39 @@ async def test_rerun_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(conn.communities) == 1
 
 
+async def test_processing_status_skips_to_avoid_double_charge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A duplicate job (e.g. a double-tapped /quiz/complete enqueuing twice)
+    # that runs while the first job is still mid-flight must NOT re-run the
+    # paid AI calls — the FOR UPDATE lock serialises it behind the first job's
+    # status='processing' write, and it should bail out there.
+    user_id = uuid4()
+    submission = _submission_row(user_id, status="processing")
+    conn = _FakeQuizInsightsConnection(submission, {})
+    pool = _FakeQuizInsightsPool(conn)
+    monkeypatch.setattr(quiz_insights_module, "get_pool", lambda: pool)
+
+    call_count = {"n": 0}
+
+    async def _fake_insights(answers: dict[str, Any]) -> dict[str, Any]:
+        call_count["n"] += 1
+        return _ai_result("quiet-storm")
+
+    async def _fake_deep_report(answers: dict[str, Any]) -> dict[str, Any]:
+        call_count["n"] += 1
+        return {}
+
+    monkeypatch.setattr(quiz_insights_module, "generate_insights", _fake_insights)
+    monkeypatch.setattr(quiz_insights_module, "generate_deep_report", _fake_deep_report)
+
+    await generate_quiz_insights({}, str(submission["id"]))
+
+    assert call_count["n"] == 0
+    assert conn.submission["status"] == "processing"  # left untouched for the live job
+    assert user_id not in conn.communities
+
+
 class _FakeConnectionThatFailsFinalCommit(_FakeQuizInsightsConnection):
     """Simulates an unexpected DB-layer failure (not UnknownArchetypeError/
     CommunityAssignmentError) during the final commit — e.g. a dropped

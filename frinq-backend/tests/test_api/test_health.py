@@ -99,7 +99,8 @@ async def test_dependencies_endpoint_requires_admin_auth(client) -> None:
 async def test_dependencies_endpoint_reports_configuration_presence_never_secrets(
     monkeypatch: pytest.MonkeyPatch, client,
 ) -> None:
-    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "sk-real-key")
+    monkeypatch.setattr(settings, "INSIGHTS_PROVIDER", "openai")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-real-key")
     monkeypatch.setattr(settings, "TWILIO_ACCOUNT_SID", "")
     monkeypatch.setattr(settings, "ADMIN_KEY", "test-admin-key")
 
@@ -107,6 +108,7 @@ async def test_dependencies_endpoint_reports_configuration_presence_never_secret
     assert res.status_code == 200
     body = res.json()
     assert body["ai"]["configured"] is True
+    assert body["ai"]["provider"] == "openai"  # reflects the ACTIVE provider, not a fixed key
     assert body["otp_whatsapp"]["configured"] is False
     assert "sk-real-key" not in res.text  # only a boolean, never the actual key
 

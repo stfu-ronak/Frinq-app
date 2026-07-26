@@ -5,6 +5,13 @@
          service/entitlement — recording only runs while the app is active
          and the Story/Opinions-Why screens are visible. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Task 39 resume: required on Android 13+ (API 33+) for the runtime
+         notification-permission request (pushService.ts's
+         requestPushPermission) to do anything at all — without this
+         declaration the OS silently refuses to show the permission dialog.
+         Not requested at install time; the app still only prompts after the
+         user taps "enable notifications" in the community opt-in prompt. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
       android:name=".MainApplication"

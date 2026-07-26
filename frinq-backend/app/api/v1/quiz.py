@@ -23,12 +23,14 @@ import json
 from uuid import UUID
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.api.deps import CurrentAccount, get_current_account, get_pool
 from app.config import settings
 from app.core import metrics
 from app.core.age_gate import AgeGateError, validate_frinq_dob
+from app.core.rate_limit import check_rate_limit, hash_identifier
+from app.core.redis_client import get_redis
 from app.schemas.quiz import (
     InsightItem,
     QuizStartRequest,
@@ -40,6 +42,17 @@ from app.utils.logger import logger
 from app.workers.queue import enqueue_quiz_insights
 
 router = APIRouter(prefix="/quiz", tags=["quiz"])
+
+
+def _client_ip(request: Request) -> str:
+    """First hop of X-Forwarded-For behind the LB, else the direct peer. Only
+    ever hashed rate-limit key material, never trusted for auth. (Same XFF
+    caveat as otp._client_ip — a shared trusted-proxy allowlist is the proper
+    systemic fix.)"""
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 def _check_age_gate(answers: dict) -> None:
@@ -94,6 +107,14 @@ async def submit_quiz(
     """Owner-only, same as complete_quiz — this is the vibe-box fallback path
     when a PATCH /quiz/complete/{id} attempt fails, so it needs the identical
     auth/age-gate/durability treatment or it becomes a bypass for all three."""
+    redis = await get_redis()
+    limit = await check_rate_limit("quiz_submit", str(account.id), redis)
+    if not limit.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many submissions. Please wait and try again.",
+            headers={"Retry-After": str(limit.retry_after)},
+        )
     _check_age_gate(body.answers)
 
     async with pool.acquire() as conn:
@@ -207,6 +228,7 @@ async def save_partial(
 
 @router.post("/start", status_code=status.HTTP_201_CREATED)
 async def start_quiz(
+    request: Request,
     body: QuizStartRequest,
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict:
@@ -220,6 +242,18 @@ async def start_quiz(
         metrics.feature_disabled_rejections_total.labels(feature="quiz_start").inc()
         logger.warning("quiz.starts_disabled")
         raise HTTPException(status_code=503, detail="New quizzes are temporarily paused. Try again shortly.")
+
+    # Pre-auth, accepts an arbitrary phone, and reuses an existing submission
+    # per phone/24h — without a cap that's a bulk phone-enumeration oracle.
+    # IP-keyed (no session exists yet here).
+    redis = await get_redis()
+    ip_limit = await check_rate_limit("quiz_start_ip", hash_identifier(_client_ip(request)), redis)
+    if not ip_limit.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many attempts. Please wait and try again.",
+            headers={"Retry-After": str(ip_limit.retry_after)},
+        )
 
     async with pool.acquire() as conn:
         if body.phone:

@@ -502,6 +502,36 @@ describe('CommunitySocket background/foreground lifecycle', () => {
     expect(socket.getState()).toBe('connecting');
   });
 
+  it('stays disconnected in the background after the grace close — does NOT auto-reconnect until foreground resume', async () => {
+    jest.useFakeTimers();
+    const request = jest.fn(okTicket);
+    const socket = makeSocket(request);
+    await socket.connect();
+    goOnline();
+    await jest.advanceTimersByTimeAsync(0);
+    latestSocket().simulateReady();
+    expect(MockWebSocket.instances.length).toBe(1);
+
+    goBackground();
+    await jest.advanceTimersByTimeAsync(30_000 + 1);
+    expect(socket.getState()).toBe('disconnected');
+    const socketsAfterClose = MockWebSocket.instances.length;
+    const callsAfterClose = request.mock.calls.length;
+
+    // Advance well past the attempt-0 retry delay: pre-fix, handleClose fired
+    // scheduleRetry after the grace close and re-opened the socket in the
+    // background (battery/data drain). It must stay put until foreground.
+    await jest.advanceTimersByTimeAsync(BASE_DELAYS_MS[0] + 1_000);
+    await flush();
+    expect(socket.getState()).toBe('disconnected');
+    expect(MockWebSocket.instances.length).toBe(socketsAfterClose);
+    expect(request.mock.calls.length).toBe(callsAfterClose);
+
+    // ...and a foreground resume DOES reconnect.
+    goForeground();
+    expect(socket.getState()).toBe('connecting');
+  });
+
   it('does not resurrect a connection: a ws-ticket fetch still in flight when the background grace period fires must not open a socket once it resolves', async () => {
     jest.useFakeTimers();
     let resolveTicket!: (v: { ticket: string; expires_in: number }) => void;

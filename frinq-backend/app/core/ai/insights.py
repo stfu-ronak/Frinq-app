@@ -25,6 +25,7 @@ from app.core.ai.answer_maps import (
     TRIP_MAP,
     slider_label as _slider_label,
 )
+from app.core.ai.archetypes import ARCHETYPES as _CANONICAL_ARCHETYPES
 from app.core.ai.claude_client import CLAUDE_SONNET, call_with_cache
 from app.core.ai.openai_client import call_openai_json
 from app.core.ai.pii import PIIContext, scrub_list, scrub_text
@@ -221,14 +222,14 @@ def _strip_fences(text: str) -> str:
     return t.strip()
 
 
-ARCHETYPES: Final[frozenset[str]] = frozenset({
-    "Quiet Storm", "Soft Anchor", "Velvet Rebel", "Curious Outsider",
-    "Late-Night Mind", "Slow Burn", "Backup Plan", "Open Window",
-    "Steady Flame", "Wild Card", "Soft Skeptic", "Bridge Person",
-    "Inside Voice", "Sharp Empath", "Patient Witness", "Quiet Rioter",
-    "Wandering Compass", "Tender Realist", "Long Fuse", "Salt Air",
-    "Pocket Universe", "Open Hand", "Glass House", "Hidden Door",
-})
+# Derived from the canonical taxonomy (archetypes.py) — NOT re-declared —
+# so the names we validate here can never drift from the slugs
+# assign_user_to_community expects. A name that isn't canonical would pass
+# _validate (paid AI calls already spent) and then dead-end the user in
+# 'error' at get_archetype(). test_archetype_taxonomy.py guards the invariant.
+ARCHETYPES: Final[frozenset[str]] = frozenset(
+    a["name"] for a in _CANONICAL_ARCHETYPES.values()
+)
 
 
 GROUP_ROLES: Final[frozenset[str]] = frozenset({

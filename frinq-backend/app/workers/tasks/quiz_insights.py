@@ -101,6 +101,18 @@ async def generate_quiz_insights(ctx: dict[str, Any], submission_id: str) -> Non
                 if membership is not None:
                     return  # already fully processed — idempotent replay
 
+            if row["status"] == "processing":
+                # Another job for this submission is already mid-flight (e.g. a
+                # double-tapped /quiz/complete enqueued two jobs). The FOR UPDATE
+                # lock serialises us behind that job's first txn, so seeing
+                # 'processing' means "in flight, skip" — running the paid AI
+                # calls again would double-charge and can reclassify the user.
+                # ponytail: a hard-killed worker (no except runs) can strand a
+                # row in 'processing'; the user's own /quiz/retry resets to
+                # 'error' first, so it stays recoverable.
+                logger.info("quiz_insights.already_processing", submission_id=submission_id)
+                return
+
             share_card = _parse_jsonb(row["share_card"])
             usable_result = row["status"] == "done" and bool(share_card and share_card.get("archetype_slug"))
 

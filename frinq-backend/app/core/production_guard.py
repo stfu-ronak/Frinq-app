@@ -75,4 +75,13 @@ def validate_production_settings(settings: object) -> list[str]:
     if settings.TEST_PHONES:
         errors.append("TEST_PHONES must be empty in production")
 
+    # The ACTIVE AI insight provider must actually be configured, or every quiz
+    # reveal 500s in production. Which key matters depends on INSIGHTS_PROVIDER,
+    # so a blanket "both keys" check would wrongly demand the idle provider's.
+    provider = (getattr(settings, "INSIGHTS_PROVIDER", "") or "openai").strip().lower()
+    if provider == "openai" and not getattr(settings, "OPENAI_API_KEY", ""):
+        errors.append("OPENAI_API_KEY must be set when INSIGHTS_PROVIDER=openai in production")
+    elif provider in ("claude", "anthropic") and not getattr(settings, "ANTHROPIC_API_KEY", ""):
+        errors.append("ANTHROPIC_API_KEY must be set when INSIGHTS_PROVIDER=claude in production")
+
     return errors

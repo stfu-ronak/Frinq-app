@@ -55,7 +55,10 @@ function walkSource(dir, onFile) {
     return;
   }
   for (const e of entries) {
-    if (e === "node_modules" || e === ".git") continue;
+    // Tests don't ship — a mocked `http://x/api` in a *.test.ts is not a
+    // production endpoint, and the dependency/lockfile checks already gate
+    // forbidden runtimes regardless of what a test imports.
+    if (e === "node_modules" || e === ".git" || e === "__tests__") continue;
     const full = join(dir, e);
     let st;
     try {
@@ -64,7 +67,11 @@ function walkSource(dir, onFile) {
       continue;
     }
     if (st.isDirectory()) walkSource(full, onFile);
-    else if ([".ts", ".tsx", ".js", ".jsx", ".mjs"].includes(extname(e))) onFile(full);
+    else if (
+      [".ts", ".tsx", ".js", ".jsx", ".mjs"].includes(extname(e)) &&
+      !/\.(test|spec)\.[jt]sx?$/.test(e)
+    )
+      onFile(full);
   }
 }
 

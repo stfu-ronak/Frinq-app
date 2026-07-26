@@ -18,10 +18,41 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.api.deps import get_pool
+from app.config import settings
 from app.core.whatsapp import send_launch_notice
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
+
+
+def _validate_twilio_signature(request: Request, form: dict[str, str]) -> bool:
+    """Verify the X-Twilio-Signature header so ONLY Twilio can drive the
+    inbound webhook. Without this any unauthenticated caller can forge RSVP
+    rows and inject stored content into the admin inbox for arbitrary phones.
+
+    When TWILIO_AUTH_TOKEN is unset the behaviour depends on env: dev/staging
+    skip (so the local flow works without Twilio creds), production fails
+    closed (we can't verify, so we refuse rather than accept forgeries).
+
+    Behind DigitalOcean's TLS-terminating proxy the ASGI scheme is http while
+    Twilio signed against the public https URL, so rebuild the URL from the
+    forwarded proto + host or the signature never matches."""
+    auth_token = settings.TWILIO_AUTH_TOKEN
+    if not auth_token:
+        return settings.APP_ENV != "production"
+
+    signature = request.headers.get("X-Twilio-Signature", "")
+    if not signature:
+        return False
+
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("host", request.url.netloc)
+    url = f"{proto}://{host}{request.url.path}"
+    if request.url.query:
+        url = f"{url}?{request.url.query}"
+
+    from twilio.request_validator import RequestValidator
+    return RequestValidator(auth_token).validate(url, form, signature)
 
 # ── Sunday-invite RSVP button auto-replies ────────────────────────────────────
 # Keyed by the button `id` we set on the invite template (twilio/card actions).
@@ -49,6 +80,13 @@ _TEXT_TO_CHOICE = {
 }
 
 
+def _mask_phone(value: str) -> str:
+    """Redact a phone/from-field for logs — never the full number in cleartext
+    (matches the identifiers-not-raw-content convention in moderation.py)."""
+    digits = "".join(c for c in (value or "") if c.isdigit())[-10:]
+    return f"{digits[:2]}****{digits[-2:]}" if len(digits) == 10 else "****"
+
+
 def _choice_from(payload: str, button_text: str, body: str) -> str | None:
     if payload in RSVP_REPLIES:
         return payload
@@ -64,7 +102,7 @@ async def _record_rsvp(pool: asyncpg.Pool, from_field: str, choice: str) -> None
     digits = "".join(c for c in (from_field or "") if c.isdigit())
     last10 = digits[-10:]
     if len(last10) != 10:
-        logger.warning("whatsapp.rsvp.no_phone", from_field=from_field)
+        logger.warning("whatsapp.rsvp.no_phone", from_masked=_mask_phone(from_field))
         return
     try:
         async with pool.acquire() as conn:
@@ -74,9 +112,9 @@ async def _record_rsvp(pool: asyncpg.Pool, from_field: str, choice: str) -> None
                    WHERE RIGHT(regexp_replace(phone, '\\D', '', 'g'), 10) = $2""",
                 choice, last10,
             )
-        logger.info("whatsapp.rsvp.recorded", phone=last10, choice=choice)
+        logger.info("whatsapp.rsvp.recorded", phone=_mask_phone(last10), choice=choice)
     except Exception as exc:  # noqa: BLE001
-        logger.error("whatsapp.rsvp.record_failed", error=str(exc), phone=last10)
+        logger.error("whatsapp.rsvp.record_failed", error=str(exc), phone=_mask_phone(last10))
 
 
 async def _store_inbound(
@@ -94,7 +132,7 @@ async def _store_inbound(
                 phone, body or None, button_text or None, payload or None, choice,
             )
     except Exception as exc:  # noqa: BLE001
-        logger.error("whatsapp.inbound.store_failed", error=str(exc), phone=phone)
+        logger.error("whatsapp.inbound.store_failed", error=str(exc), phone=_mask_phone(phone))
 
 
 @router.post("/inbound")
@@ -109,16 +147,24 @@ async def whatsapp_inbound(
     application/x-www-form-urlencoded) so we don't depend on python-multipart."""
     from urllib.parse import parse_qs
     raw = (await request.body()).decode("utf-8", "ignore")
-    form = {k: (v[0] if v else "") for k, v in parse_qs(raw).items()}
+    form = {k: (v[0] if v else "") for k, v in parse_qs(raw, keep_blank_values=True).items()}
+
+    if not _validate_twilio_signature(request, form):
+        logger.warning("whatsapp.inbound.bad_signature", from_field=form.get("From", ""))
+        raise HTTPException(status_code=403, detail="invalid signature")
+
     payload = (form.get("ButtonPayload") or "").strip()
     button_text = (form.get("ButtonText") or "").strip()
     body = (form.get("Body") or "").strip()
     from_field = (form.get("From") or "").strip()
 
     choice = _choice_from(payload, button_text, body)
+    # payload/button_text/choice are structural (rsvp_yes etc.) — safe. The
+    # phone is masked and the free-text body is reduced to a length, never
+    # logged verbatim.
     logger.info(
-        "whatsapp.inbound", from_field=from_field, payload=payload,
-        button_text=button_text, body=body[:80], choice=choice,
+        "whatsapp.inbound", from_masked=_mask_phone(from_field), payload=payload,
+        button_text=button_text, body_len=len(body), choice=choice,
     )
 
     await _store_inbound(pool, from_field, body, button_text, payload, choice)

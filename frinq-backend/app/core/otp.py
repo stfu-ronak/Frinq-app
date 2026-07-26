@@ -190,9 +190,11 @@ async def verify_otp(phone: str, code: str) -> None:
     """Verify code via Twilio Verify. Raises ValueError with reason on failure.
 
     Distinct exception types so the route can return distinct HTTP codes:
-      - TimeoutError("twilio_timeout") → 504 Gateway Timeout
-      - ValueError("expired")          → 410 Gone (code already used / 404 from Twilio)
-      - ValueError("invalid_code")     → 400 Bad Request (wrong code, generic)
+      - TimeoutError("twilio_timeout")     → 504 Gateway Timeout
+      - ValueError("expired")              → 410 Gone (code already used / 404 from Twilio)
+      - ValueError("invalid_code")         → 400 Bad Request (wrong code)
+      - RuntimeError("twilio_unavailable") → 503 (Twilio 429/5xx/auth or a
+                                             connection failure — NOT a wrong code)
 
     Every Twilio rejection is logged with the real Twilio status + error code
     so we can debug "OTP says wrong but I typed it right" reports — without
@@ -263,15 +265,22 @@ async def verify_otp(phone: str, code: str) -> None:
             )
             if twilio_status == 404:
                 raise ValueError("expired") from exc
-        else:
-            logger.error(
-                "otp.verify_unknown_error",
-                phone=phone[:4] + "****",
-                error_type=type(exc).__name__,
-                error=str(exc),
-                ms=ms,
-            )
-        raise ValueError("invalid_code") from exc
+            # A genuinely wrong code does NOT raise here — Twilio returns HTTP
+            # 200 with check.status="pending" (handled below). So every other
+            # TwilioRestException (429 rate-limited, 5xx outage, 401 bad creds)
+            # is an infrastructure/config failure, not a wrong code. Telling
+            # the user "incorrect code" during a Twilio outage is a lie and
+            # hides the real problem from monitoring.
+            raise RuntimeError("twilio_unavailable") from exc
+        logger.error(
+            "otp.verify_unknown_error",
+            phone=phone[:4] + "****",
+            error_type=type(exc).__name__,
+            error=str(exc),
+            ms=ms,
+        )
+        # Connection reset / DNS / unexpected client error — infra, not a wrong code.
+        raise RuntimeError("twilio_unavailable") from exc
 
     if check.status != "approved":
         logger.warning(

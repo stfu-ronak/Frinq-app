@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { BackHandler } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { useQuiz } from '../quizContext';
 import { getStep, nextStep, previousStep } from '../domain/quizDefinition';
@@ -48,6 +49,23 @@ export function QuizStepScreen() {
   // Finalize state for the LAST step. Without this, a failed finalize
   // (offline / 5xx) did nothing visible — the screen just sat there.
   const [finalizeState, setFinalizeState] = useState<'idle' | 'finalizing' | 'error'>('idle');
+
+  // Android hardware-back must route through goBack() (machine BACK + nav pop
+  // together). A bare native pop leaves machine.stepId ahead of the route, so
+  // the next persistDraft writes a stale lastRoute and the quiz resumes at the
+  // wrong step after restart. On the first step (no prev), fall through to the
+  // default (exit the quiz).
+  useEffect(() => {
+    const onBack = () => {
+      if (finalizeState !== 'idle') return false;
+      if (!step || !previousStep(step.id)) return false;
+      goBack();
+      return true;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step?.id, finalizeState]);
 
   if (!step) return null; // unreachable: route params always come from getStep-validated ids
 
