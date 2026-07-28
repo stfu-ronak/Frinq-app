@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
-from app.core.quiz_config import InvalidQuizConfigError, validate_steps
+from app.core.quiz_config import InvalidQuizConfigError, validate_steps, get_active_quiz_config
 
 
 def test_rejects_unknown_kind():
@@ -74,3 +77,38 @@ def test_accepts_valid_mixed_step_list():
         {"id": "h", "kind": "intro", "heading": "almost done", "ctaLabel": "continue"},
     ]
     validate_steps(steps)  # must not raise
+
+
+def test_accepts_legacy_step_kinds():
+    """Test that legacy step kinds (voiceOrText, opinions, preferences) pass validation."""
+    steps = [
+        {"id": "a", "kind": "voiceOrText", "answerKey": "story", "prompt": "tell us a story"},
+        {"id": "b", "kind": "opinions", "answerKey": "opinions_why", "prompt": "why do you think that?"},
+        {"id": "c", "kind": "preferences", "answerKey": "preferences", "prompt": "what are your preferences?"},
+    ]
+    validate_steps(steps)  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_get_active_quiz_config_parses_jsonb():
+    """Test that get_active_quiz_config parses jsonb strings to Python objects."""
+    steps = [
+        {"id": "a", "kind": "text", "answerKey": "custom_1", "prompt": "hello?"},
+        {"id": "b", "kind": "text", "answerKey": "custom_2", "prompt": "world?"},
+    ]
+
+    # Mock asyncpg connection with jsonb as string (as returned from the DB)
+    mock_conn = AsyncMock()
+    mock_row = MagicMock()
+    mock_row.__getitem__.side_effect = lambda key: {
+        "version": 1,
+        "steps": json.dumps(steps),  # DB returns string, not parsed list
+    }[key]
+    mock_conn.fetchrow.return_value = mock_row
+
+    result = await get_active_quiz_config(mock_conn)
+
+    # Verify steps were parsed from string to list
+    assert isinstance(result["steps"], list)
+    assert result["steps"] == steps
+    assert result["version"] == 1

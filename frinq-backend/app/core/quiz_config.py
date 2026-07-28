@@ -11,6 +11,7 @@ nothing useful.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import asyncpg
@@ -21,7 +22,7 @@ RESERVED_ANSWER_KEYS: frozenset[str] = frozenset({
 
 _KNOWN_KINDS = {
     "text", "singleChoiceCard", "singleChoiceList", "multiChoiceTags",
-    "slider", "rapidFire", "intro",
+    "slider", "rapidFire", "intro", "voiceOrText", "opinions", "preferences",
 }
 
 
@@ -127,12 +128,14 @@ async def get_active_quiz_config(conn: asyncpg.Connection) -> dict[str, Any]:
     )
     if row is None:
         raise InvalidQuizConfigError("no active quiz_config row")
-    return {"version": row["version"], "steps": row["steps"]}
+    steps = row["steps"]
+    if isinstance(steps, str):
+        steps = json.loads(steps)
+    return {"version": row["version"], "steps": steps}
 
 
 async def set_quiz_config(conn: asyncpg.Connection, steps: list[dict[str, Any]], created_by: str) -> dict[str, Any]:
     validate_steps(steps)
-    import json
     async with conn.transaction():
         current = await conn.fetchval("SELECT MAX(version) FROM quiz_config")
         next_version = (current or 0) + 1
@@ -143,4 +146,7 @@ async def set_quiz_config(conn: asyncpg.Connection, steps: list[dict[str, Any]],
                RETURNING version, steps""",
             next_version, json.dumps(steps), created_by,
         )
-    return {"version": row["version"], "steps": row["steps"]}
+    returned_steps = row["steps"]
+    if isinstance(returned_steps, str):
+        returned_steps = json.loads(returned_steps)
+    return {"version": row["version"], "steps": returned_steps}
