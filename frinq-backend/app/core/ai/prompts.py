@@ -558,6 +558,10 @@ plans that sound like a nightmare:
 {event_no}
 
 ───────────────────────────────────────────────────────────────
+Additional context from custom questions this person answered:
+{additional_context}
+
+───────────────────────────────────────────────────────────────
 Now: pick the ONE archetype from the curated list that best matches.
 Write the headline, 5 cross-referenced insights, 5-7 tags, and the share_quote.
 Return only the JSON.

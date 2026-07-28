@@ -63,6 +63,35 @@ def _parse_dob(dob: str | None) -> tuple[str, int]:
     return "unknown", 0
 
 
+# Every key already named as an explicit placeholder in INSIGHTS_USER (either
+# directly, or via an alternate/legacy alias read inside _build_insights_prompt)
+# plus onboarding/structural fields that are never custom-question answers.
+# Anything in `answers` NOT in this set falls through to the generic
+# "additional context" section, so a brand-new admin-added question still
+# reaches the AI instead of being silently dropped.
+_KNOWN_ANSWER_KEYS: Final[frozenset[str]] = frozenset({
+    "dob", "Q03_DOB", "city", "social_type", "saturday", "scene", "substance_scene",
+    "connection", "trip", "rapid", "preferences", "opinions", "opinions_why",
+    "hobbies", "interests", "red_flags", "show_up", "looking_for", "story",
+    "voice_story", "storytime", "travel_style", "connection_mode",
+    "would_rather", "meeting_style", "event_yes", "event_no",
+    # onboarding/structural — never custom-question answers, but also never
+    # worth repeating in "additional context"
+    "name", "phone", "gender", "pronoun", "social_linkedin", "social_instagram",
+})
+
+
+def _build_additional_context(answers: dict[str, Any], pii: PIIContext) -> str:
+    lines = []
+    for key, value in answers.items():
+        if key in _KNOWN_ANSWER_KEYS or not value:
+            continue
+        formatted = _scrub_free_text(value, pii) if isinstance(value, (str, list)) else str(value)
+        if formatted:
+            lines.append(f"  - {key}: {formatted}")
+    return "\n".join(lines) if lines else "  (none)"
+
+
 def _build_insights_prompt(answers: dict[str, Any]) -> str:
     dob = answers.get("dob") or answers.get("Q03_DOB") or ""
     birth_month, birth_month_num = _parse_dob(dob)
@@ -151,6 +180,8 @@ def _build_insights_prompt(answers: dict[str, Any]) -> str:
                 opinions_why_lines.append(f"  {label} \"{why}\"")
     opinions_why_str = "\n".join(opinions_why_lines) or "  (not answered)"
 
+    additional_context = _build_additional_context(answers, pii)
+
     return prompts.INSIGHTS_USER.format(
         birth_month=birth_month,
         birth_month_num=birth_month_num,
@@ -200,6 +231,7 @@ def _build_insights_prompt(answers: dict[str, Any]) -> str:
         event_no=_list_str(answers.get("event_no")),
         would_rather=str(answers.get("would_rather") or "not specified"),
         meeting_style=str(answers.get("meeting_style") or "not specified"),
+        additional_context=additional_context,
     )
 
 
