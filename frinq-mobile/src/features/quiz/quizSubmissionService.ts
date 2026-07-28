@@ -1,7 +1,7 @@
 import { ApiClient } from '../../services/api/apiClient';
 import { finalizeQuiz, QuizSubmitResult } from './quizSyncService';
 import { validateAnswers } from '../../storage/quizDraftRepository';
-import { LAST_STEP_ID, ANSWER_KEYS } from './domain/quizDefinition';
+import { currentLastStepId, ANSWER_KEYS } from './domain/quizDefinition';
 
 export type FinalizeOutcome =
   | { kind: 'success'; result: QuizSubmitResult }
@@ -36,7 +36,7 @@ export class QuizSubmissionService {
       return Promise.resolve({ kind: 'invalid', reason: `missing_answers:${missing.join(',')}` });
     }
 
-    this.inFlight = finalizeQuiz(this.apiClient, submissionId, answers, LAST_STEP_ID)
+    this.inFlight = finalizeQuiz(this.apiClient, submissionId, answers, currentLastStepId())
       .then((result): FinalizeOutcome => ({ kind: 'success', result }))
       .catch((): FinalizeOutcome => ({ kind: 'error' }))
       .finally(() => {

@@ -1,7 +1,8 @@
 import {
-  QUIZ_STEPS,
+  ONBOARDING_PREFIX,
+  DEFAULT_CONTENT_STEPS,
   FIRST_STEP_ID,
-  LAST_STEP_ID,
+  currentLastStepId,
   getStep,
   nextStep,
   previousStep,
@@ -9,6 +10,11 @@ import {
   answerKeyForStep,
   ANSWER_KEYS,
 } from '../domain/quizDefinition';
+
+// The compiled-in default list this suite asserts over. No test here calls
+// setContentSteps, so the module's active list stays equal to this.
+const QUIZ_STEPS = [...ONBOARDING_PREFIX, ...DEFAULT_CONTENT_STEPS];
+const LAST_STEP_ID = currentLastStepId();
 
 describe('QUIZ_STEPS structure', () => {
   it('has unique step ids', () => {

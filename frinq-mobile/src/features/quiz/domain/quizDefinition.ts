@@ -142,14 +142,20 @@ export type QuizStep =
 // product; nextStep()/previousStep() below derive purely from array position.
 // ---------------------------------------------------------------------------
 
-export const QUIZ_STEPS: readonly QuizStep[] = [
+/** The fixed onboarding steps. Never replaced by admin-authored content —
+ *  every quiz starts with exactly these, in this order. */
+export const ONBOARDING_PREFIX: readonly QuizStep[] = [
   { id: 's0', kind: 'intro', section: 'intro', heading: "let's get to know you.", body: 'a few questions. no right answers.', ctaLabel: 'continue' },
   { id: 'name', kind: 'text', section: 'basics', answerKey: 'name', prompt: 'what should we call you?', placeholder: 'your name...', minLength: 1 },
   { id: 'city', kind: 'text', section: 'basics', answerKey: 'city', prompt: 'where do you live?', minLength: 2 },
   { id: 'age', kind: 'date', section: 'basics', answerKey: 'dob', prompt: 'when were you born?' },
   { id: 'ready', kind: 'intro', section: 'intro', heading: 'are you ready?', ctaLabel: 'continue' },
   { id: 'nahh', kind: 'intro', section: 'intro', heading: 'we want to understand the real you. let’s dive in.', body: 'let’s begin.', ctaLabel: 'continue' },
+];
 
+/** The compiled-in content steps, i.e. the part `setContentSteps` replaces.
+ *  Also the fallback when fetching the admin-authored set fails. */
+export const DEFAULT_CONTENT_STEPS: readonly QuizStep[] = [
   {
     id: 'social_type', kind: 'singleChoiceCard', section: 'who you are', answerKey: 'social_type',
     prompt: 'what is your social type?',
@@ -357,32 +363,46 @@ export const QUIZ_STEPS: readonly QuizStep[] = [
   },
 ];
 
-export const FIRST_STEP_ID: StepId = QUIZ_STEPS[0].id;
-export const LAST_STEP_ID: StepId = QUIZ_STEPS[QUIZ_STEPS.length - 1].id;
+let _activeSteps: readonly QuizStep[] = [...ONBOARDING_PREFIX, ...DEFAULT_CONTENT_STEPS];
+let _stepIndex = new Map(_activeSteps.map((s, i) => [s.id, i]));
 
-const STEP_INDEX = new Map(QUIZ_STEPS.map((s, i) => [s.id, i]));
+/** Called once by QuizNavigator after fetching (or falling back on) the active
+ *  quiz config's content steps — replaces everything after ONBOARDING_PREFIX.
+ *  Never called mid-quiz-session. */
+export function setContentSteps(steps: readonly QuizStep[]): void {
+  _activeSteps = [...ONBOARDING_PREFIX, ...steps];
+  _stepIndex = new Map(_activeSteps.map((s, i) => [s.id, i]));
+}
+
+/** Always the first onboarding step — content swaps can never change it. */
+export const FIRST_STEP_ID: StepId = ONBOARDING_PREFIX[0].id;
+
+/** Dynamic: the terminal step depends on which content steps are active. */
+export function currentLastStepId(): StepId {
+  return _activeSteps[_activeSteps.length - 1].id;
+}
 
 export function getStep(id: StepId): QuizStep | undefined {
-  const i = STEP_INDEX.get(id);
-  return i === undefined ? undefined : QUIZ_STEPS[i];
+  const i = _stepIndex.get(id);
+  return i === undefined ? undefined : _activeSteps[i];
 }
 
 /** Linear next-step lookup. Every non-terminal step has exactly one next
  *  step; there is no conditional branching in the audited web reference. */
 export function nextStep(id: StepId): StepId | null {
-  const i = STEP_INDEX.get(id);
-  if (i === undefined || i + 1 >= QUIZ_STEPS.length) return null;
-  return QUIZ_STEPS[i + 1].id;
+  const i = _stepIndex.get(id);
+  if (i === undefined || i + 1 >= _activeSteps.length) return null;
+  return _activeSteps[i + 1].id;
 }
 
 export function previousStep(id: StepId): StepId | null {
-  const i = STEP_INDEX.get(id);
+  const i = _stepIndex.get(id);
   if (i === undefined || i <= 0) return null;
-  return QUIZ_STEPS[i - 1].id;
+  return _activeSteps[i - 1].id;
 }
 
 export function stepProgress(id: StepId): { step: number; total: number } {
-  const inputSteps = QUIZ_STEPS.filter((s) => s.kind !== 'intro');
+  const inputSteps = _activeSteps.filter((s) => s.kind !== 'intro');
   const i = inputSteps.findIndex((s) => s.id === id);
   return { step: i === -1 ? 0 : i + 1, total: inputSteps.length };
 }

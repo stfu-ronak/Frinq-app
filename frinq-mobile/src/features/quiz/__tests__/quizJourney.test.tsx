@@ -18,7 +18,10 @@ import { render, fireEvent } from '@testing-library/react-native';
 import { QuizProvider } from '../quizContext';
 import { QuizStepScreen } from '../screens/QuizStepScreen';
 import { QuizDraftRepository, KeyValueStore } from '../../../storage/quizDraftRepository';
-import { QUIZ_STEPS, ANSWER_KEYS, QuizStep } from '../domain/quizDefinition';
+import { ONBOARDING_PREFIX, DEFAULT_CONTENT_STEPS, ANSWER_KEYS, QuizStep } from '../domain/quizDefinition';
+
+// The compiled-in default list; this suite never calls setContentSteps.
+const QUIZ_STEPS = [...ONBOARDING_PREFIX, ...DEFAULT_CONTENT_STEPS];
 
 const mockRouteState = { stepId: 'city' };
 const mockNavigate = jest.fn();
