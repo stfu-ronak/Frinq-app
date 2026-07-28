@@ -57,6 +57,7 @@ export function QuizNavigator({ onQuizComplete }: { onQuizComplete: () => void }
         // Offline / backend hiccup — quiz still works with today's compiled-in content.
         contentSteps = DEFAULT_CONTENT_STEPS;
       }
+      if (cancelled) return;
       setContentSteps(contentSteps);
       setDynamicAnswerKeys(contentSteps.flatMap((step) => {
         const answerKey = answerKeyForStep(step);

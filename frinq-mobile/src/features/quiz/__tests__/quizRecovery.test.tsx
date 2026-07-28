@@ -11,11 +11,11 @@
  * the local draft (server conflict / retry-safe).
  */
 import React from 'react';
-import { render, waitFor } from '@testing-library/react-native';
+import { act, render, waitFor } from '@testing-library/react-native';
 import { QuizNavigator } from '../../../navigation/QuizNavigator';
-import { QuizDraftRepository } from '../../../storage/quizDraftRepository';
+import { QuizDraftRepository, setDynamicAnswerKeys } from '../../../storage/quizDraftRepository';
 import { QuizSubmissionService } from '../quizSubmissionService';
-import { ANSWER_KEYS, getStep } from '../domain/quizDefinition';
+import { ANSWER_KEYS, DEFAULT_CONTENT_STEPS, getStep, setContentSteps } from '../domain/quizDefinition';
 
 function fullAnswers(): Record<string, unknown> {
   const answers: Record<string, unknown> = {};
@@ -51,15 +51,25 @@ jest.mock('../quizSyncService', () => {
 jest.mock('@react-navigation/native-stack', () => ({
   createNativeStackNavigator: () => ({
     Navigator: ({ children }: any) => children,
-    Screen: () => null,
+    Screen: ({ component: Component, initialParams }: any) => <Component route={{ params: initialParams }} />,
   }),
 }));
+
+jest.mock('../screens/QuizStepScreen', () => {
+  const { Text } = require('react-native');
+  return { QuizStepScreen: ({ route }: any) => <Text testID="resolved-step">{route.params.stepId}</Text> };
+});
 
 const USER: any = { id: 'user-1', phone: '9876543210' };
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockStoreData = new Map();
+});
+
+afterEach(() => {
+  setContentSteps(DEFAULT_CONTENT_STEPS);
+  setDynamicAnswerKeys([]);
 });
 
 describe('QuizNavigator resolution', () => {
@@ -87,7 +97,8 @@ describe('QuizNavigator resolution', () => {
   });
 
   it('falls back to the compiled-in content when fetching quiz config fails', async () => {
-    mockStartQuiz.mockResolvedValue({ submission_id: 'sub-new' });
+    const repo = new QuizDraftRepository({ store: mockStore, now: () => 1 });
+    repo.save({ submissionId: 'sub-existing', userId: USER.id, lastRoute: 'social_type', answers: { city: 'Mumbai' } });
     const apiClient = {
       request: jest.fn(({ path }) => {
         if (path === '/api/v1/users/me') return Promise.resolve(USER);
@@ -97,10 +108,54 @@ describe('QuizNavigator resolution', () => {
     };
     mockUseSession.mockReturnValue({ apiClient });
 
-    render(<QuizNavigator onQuizComplete={jest.fn()} />);
+    const screen = render(<QuizNavigator onQuizComplete={jest.fn()} />);
 
     await waitFor(() => expect(apiClient.request).toHaveBeenCalledWith({ path: '/api/v1/quiz/config' }));
-    expect(getStep('social_type')).toEqual(expect.objectContaining({ id: 'social_type' }));
+    expect(await screen.findByText('social_type')).toBeTruthy();
+  });
+
+  it('does not let a cancelled resolver overwrite newer content steps', async () => {
+    const repo = new QuizDraftRepository({ store: mockStore, now: () => 1 });
+    repo.save({ submissionId: 'sub-existing', userId: USER.id, lastRoute: 'new-content', answers: { city: 'Mumbai' } });
+    let resolveOldConfig: (value: unknown) => void = () => {};
+    const oldApiClient = {
+      request: jest.fn(({ path }) => {
+        if (path === '/api/v1/users/me') return Promise.resolve(USER);
+        if (path === '/api/v1/quiz/config') return new Promise((resolve) => { resolveOldConfig = resolve; });
+        return Promise.resolve({});
+      }),
+    };
+    const newApiClient = {
+      request: jest.fn(({ path }) => {
+        if (path === '/api/v1/users/me') return Promise.resolve(USER);
+        if (path === '/api/v1/quiz/config') {
+          return Promise.resolve({
+            version: 2,
+            steps: [{ id: 'new-content', kind: 'text', section: 'custom', answerKey: 'new_answer', prompt: 'new?' }],
+          });
+        }
+        return Promise.resolve({});
+      }),
+    };
+    let activeApiClient = oldApiClient;
+    mockUseSession.mockImplementation(() => ({ apiClient: activeApiClient }));
+
+    const screen = render(<QuizNavigator onQuizComplete={jest.fn()} />);
+    await waitFor(() => expect(oldApiClient.request).toHaveBeenCalledWith({ path: '/api/v1/quiz/config' }));
+
+    activeApiClient = newApiClient;
+    screen.rerender(<QuizNavigator onQuizComplete={jest.fn()} />);
+    expect(await screen.findByText('new-content')).toBeTruthy();
+
+    await act(async () => {
+      resolveOldConfig({
+        version: 1,
+        steps: [{ id: 'old-content', kind: 'text', section: 'custom', answerKey: 'old_answer', prompt: 'old?' }],
+      });
+    });
+
+    expect(getStep('new-content')).toEqual(expect.objectContaining({ id: 'new-content' }));
+    expect(getStep('old-content')).toBeUndefined();
   });
 
   it('shows a retryable error instead of an unhandled rejection when /users/me fails', async () => {
