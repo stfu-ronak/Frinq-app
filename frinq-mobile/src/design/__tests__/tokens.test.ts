@@ -36,6 +36,7 @@ describe('spacing/radius/touch tokens', () => {
 describe('typography tokens', () => {
   it('uses Borel for display and Vastago for body/UI', () => {
     expect(typeScale.display.fontFamily).toBe('Borel-Regular');
+    expect(typeScale.display.lineHeight).toBe(58);
     expect(typeScale.body.fontFamily).toBe(fontFamily.body);
     expect(fontFamily.body).toMatch(/^VastagoGrotesk-/);
   });

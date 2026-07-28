@@ -19,7 +19,7 @@ export const fontFamily = {
 /** role -> { fontFamily, fontSize, lineHeight }. Line heights are generous for
  *  Dynamic Type / font-scaling headroom (accessibility wins over density). */
 export const typeScale = {
-  display: { fontFamily: fontFamily.display, fontSize: 40, lineHeight: 48 },
+  display: { fontFamily: fontFamily.display, fontSize: 40, lineHeight: 58 },
   title: { fontFamily: fontFamily.bodySemiBold, fontSize: 28, lineHeight: 34 },
   heading: { fontFamily: fontFamily.bodySemiBold, fontSize: 22, lineHeight: 28 },
   subheading: { fontFamily: fontFamily.bodyMedium, fontSize: 18, lineHeight: 24 },
