@@ -29,6 +29,7 @@ from app.api.deps import CurrentAccount, get_current_account, get_pool
 from app.config import settings
 from app.core import metrics
 from app.core.age_gate import AgeGateError, validate_frinq_dob
+from app.core.quiz_config import get_active_quiz_config
 from app.core.rate_limit import check_rate_limit, hash_identifier
 from app.core.redis_client import get_redis
 from app.schemas.quiz import (
@@ -224,6 +225,12 @@ async def save_partial(
     if result == "UPDATE 0":
         raise HTTPException(status_code=404, detail="submission not found")
     return {"ok": True}
+
+
+@router.get("/config")
+async def get_quiz_config(pool: asyncpg.Pool = Depends(get_pool)) -> dict:
+    async with pool.acquire() as conn:
+        return await get_active_quiz_config(conn)
 
 
 @router.post("/start", status_code=status.HTTP_201_CREATED)
