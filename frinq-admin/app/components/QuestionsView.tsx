@@ -15,18 +15,20 @@ interface QuizStepDraft {
   [key: string]: unknown;
 }
 
-function optionsForSave(step: Record<string, unknown>): QuizStepDraft {
-  const { _optionsText, ...fields } = step;
+export function optionsForSave(step: Record<string, unknown>): QuizStepDraft {
+  const { _optionsText, _optionValues, ...fields } = step;
   if (typeof _optionsText !== "string") return fields as QuizStepDraft;
 
   const lines = _optionsText.split("\n").map((line) => line.trim()).filter(Boolean);
   if (fields.kind === "multiChoiceTags") return { ...fields, options: lines } as unknown as QuizStepDraft;
+  const existingValues = Array.isArray(_optionValues) ? _optionValues : [];
 
-  const options = lines.map((line) => {
+  const options = lines.map((line, index) => {
     const [labelPart, ...descriptionParts] = line.split("|");
     const label = labelPart.trim();
     const description = descriptionParts.join("|").trim();
-    return description ? { value: label, label, description } : { value: label, label };
+    const value = typeof existingValues[index] === "string" ? existingValues[index] : label;
+    return description ? { value, label, description } : { value, label };
   });
   return { ...fields, options } as unknown as QuizStepDraft;
 }
@@ -126,6 +128,7 @@ export function QuestionsView({ adminKey, onRequestPassword, onWrongPassword }: 
       {editingIndex !== null ? (
         <QuestionForm
           initial={editingIndex >= 0 ? steps[editingIndex] : null}
+          allowRapidFire={!steps.some((step) => step.kind === "rapidFire")}
           onSave={(step) => {
             const nextStep = optionsForSave(step);
             const next = editingIndex >= 0 ? steps.map((s, i) => (i === editingIndex ? nextStep : s)) : [...steps, nextStep];
