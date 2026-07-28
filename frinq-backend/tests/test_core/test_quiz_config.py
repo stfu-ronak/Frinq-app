@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+import pytest
+
+from app.core.quiz_config import InvalidQuizConfigError, validate_steps
+
+
+def test_rejects_unknown_kind():
+    with pytest.raises(InvalidQuizConfigError):
+        validate_steps([{"id": "x", "kind": "notarealkind"}])
+
+
+def test_rejects_missing_required_field_for_kind():
+    with pytest.raises(InvalidQuizConfigError):
+        validate_steps([{"id": "x", "kind": "text", "answerKey": "custom_1"}])  # missing prompt
+
+
+def test_rejects_duplicate_answer_key():
+    steps = [
+        {"id": "a", "kind": "text", "answerKey": "custom_1", "prompt": "one?"},
+        {"id": "b", "kind": "text", "answerKey": "custom_1", "prompt": "two?"},
+    ]
+    with pytest.raises(InvalidQuizConfigError):
+        validate_steps(steps)
+
+
+def test_rejects_reserved_answer_key():
+    steps = [{"id": "a", "kind": "text", "answerKey": "name", "prompt": "what's your name?"}]
+    with pytest.raises(InvalidQuizConfigError):
+        validate_steps(steps)
+
+
+def test_rejects_box_variant_with_wrong_option_count():
+    steps = [{
+        "id": "a", "kind": "singleChoiceList", "answerKey": "custom_1", "prompt": "p",
+        "variant": "box", "chrome": "simple",
+        "options": [{"value": "a", "label": "A"}, {"value": "b", "label": "B"}, {"value": "c", "label": "C"}],
+    }]
+    with pytest.raises(InvalidQuizConfigError):
+        validate_steps(steps)
+
+
+def test_rejects_box_variant_without_simple_chrome():
+    steps = [{
+        "id": "a", "kind": "singleChoiceList", "answerKey": "custom_1", "prompt": "p",
+        "variant": "box",
+        "options": [{"value": "a", "label": "A"}, {"value": "b", "label": "B"}],
+    }]
+    with pytest.raises(InvalidQuizConfigError):
+        validate_steps(steps)
+
+
+def test_accepts_valid_mixed_step_list():
+    steps = [
+        {"id": "a", "kind": "text", "answerKey": "custom_1", "prompt": "what's your favorite meal?"},
+        {"id": "b", "kind": "text", "answerKey": "custom_2", "prompt": "tell us a story", "allowVoice": True},
+        {
+            "id": "c", "kind": "singleChoiceCard", "answerKey": "custom_3", "prompt": "pick one",
+            "options": [{"value": "x", "label": "X", "description": "desc"}, {"value": "y", "label": "Y"}],
+        },
+        {
+            "id": "d", "kind": "multiChoiceTags", "answerKey": "custom_4", "prompt": "pick some",
+            "options": ["one", "two", "three"], "layout": "list",
+        },
+        {
+            "id": "e", "kind": "singleChoiceList", "answerKey": "custom_5", "prompt": "would you rather",
+            "variant": "box", "chrome": "simple",
+            "options": [{"value": "a", "label": "A"}, {"value": "b", "label": "B"}],
+        },
+        {"id": "f", "kind": "slider", "answerKey": "custom_6", "prompt": "trust scale",
+         "leftLabel": "logic", "leftHint": "logic", "rightLabel": "gut", "rightHint": "gut"},
+        {"id": "g", "kind": "rapidFire", "answerKey": "rapid",
+         "pairs": [{"a": "x", "b": "y"}], "secondsPerPair": 10},
+        {"id": "h", "kind": "intro", "heading": "almost done", "ctaLabel": "continue"},
+    ]
+    validate_steps(steps)  # must not raise
