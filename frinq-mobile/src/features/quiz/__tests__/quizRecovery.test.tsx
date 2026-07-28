@@ -15,7 +15,7 @@ import { render, waitFor } from '@testing-library/react-native';
 import { QuizNavigator } from '../../../navigation/QuizNavigator';
 import { QuizDraftRepository } from '../../../storage/quizDraftRepository';
 import { QuizSubmissionService } from '../quizSubmissionService';
-import { ANSWER_KEYS } from '../domain/quizDefinition';
+import { ANSWER_KEYS, getStep } from '../domain/quizDefinition';
 
 function fullAnswers(): Record<string, unknown> {
   const answers: Record<string, unknown> = {};
@@ -84,6 +84,23 @@ describe('QuizNavigator resolution', () => {
     render(<QuizNavigator onQuizComplete={jest.fn()} />);
 
     await waitFor(() => expect(mockStartQuiz).toHaveBeenCalledWith(apiClient, USER.phone));
+  });
+
+  it('falls back to the compiled-in content when fetching quiz config fails', async () => {
+    mockStartQuiz.mockResolvedValue({ submission_id: 'sub-new' });
+    const apiClient = {
+      request: jest.fn(({ path }) => {
+        if (path === '/api/v1/users/me') return Promise.resolve(USER);
+        if (path === '/api/v1/quiz/config') return Promise.reject(new Error('network'));
+        return Promise.resolve({});
+      }),
+    };
+    mockUseSession.mockReturnValue({ apiClient });
+
+    render(<QuizNavigator onQuizComplete={jest.fn()} />);
+
+    await waitFor(() => expect(apiClient.request).toHaveBeenCalledWith({ path: '/api/v1/quiz/config' }));
+    expect(getStep('social_type')).toEqual(expect.objectContaining({ id: 'social_type' }));
   });
 
   it('shows a retryable error instead of an unhandled rejection when /users/me fails', async () => {

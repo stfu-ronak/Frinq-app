@@ -110,13 +110,20 @@ def validate_steps(steps: list[dict[str, Any]]) -> None:
     if not isinstance(steps, list) or not steps:
         raise InvalidQuizConfigError("steps must be a non-empty list")
 
+    seen_ids: set[str] = set()
     seen_keys: set[str] = set()
     for step in steps:
-        if not isinstance(step, dict) or not step.get("id"):
+        if not isinstance(step, dict) or not isinstance(step.get("id"), str) or not step["id"]:
             raise InvalidQuizConfigError("every step needs an 'id'")
-        _validate_one_step(step)
+        step_id = step["id"]
+        if step_id in seen_ids:
+            raise InvalidQuizConfigError(f"duplicate step id: {step_id!r}")
+        seen_ids.add(step_id)
         answer_key = step.get("answerKey")
-        if answer_key:
+        if answer_key is not None and (not isinstance(answer_key, str) or not answer_key):
+            raise InvalidQuizConfigError("every answerKey must be a non-empty string")
+        _validate_one_step(step)
+        if answer_key is not None:
             if answer_key in seen_keys:
                 raise InvalidQuizConfigError(f"duplicate answerKey: {answer_key!r}")
             seen_keys.add(answer_key)

@@ -1,7 +1,7 @@
 import { ApiClient } from '../../services/api/apiClient';
 import { finalizeQuiz, QuizSubmitResult } from './quizSyncService';
 import { validateAnswers } from '../../storage/quizDraftRepository';
-import { currentLastStepId, ANSWER_KEYS } from './domain/quizDefinition';
+import { currentAnswerKeys, currentLastStepId } from './domain/quizDefinition';
 
 export type FinalizeOutcome =
   | { kind: 'success'; result: QuizSubmitResult }
@@ -28,10 +28,10 @@ export class QuizSubmissionService {
     } catch (err) {
       return Promise.resolve({ kind: 'invalid', reason: err instanceof Error ? err.message : 'invalid' });
     }
-    // Every ANSWER_KEYS entry must be present before the quiz can finalize —
+    // Every active quiz-session answer key must be present before finalizing —
     // a locally-corrupted or partially-recovered draft must not silently
     // submit an incomplete payload.
-    const missing = [...ANSWER_KEYS].filter((k) => !(k in answers));
+    const missing = currentAnswerKeys().filter((k) => !(k in answers));
     if (missing.length > 0) {
       return Promise.resolve({ kind: 'invalid', reason: `missing_answers:${missing.join(',')}` });
     }

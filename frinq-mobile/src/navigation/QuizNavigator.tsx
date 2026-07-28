@@ -6,9 +6,10 @@ import { QuizProvider } from '../features/quiz/quizContext';
 import { QuizStepScreen, QuizStepRouteParams } from '../features/quiz/screens/QuizStepScreen';
 import { QuizSubmissionService } from '../features/quiz/quizSubmissionService';
 import { startQuiz, partialSave as partialSaveApi } from '../features/quiz/quizSyncService';
+import { fetchQuizConfig } from '../features/quiz/quizConfigService';
 import { getEncryptedStore } from '../storage/encryptedStorage';
-import { QuizDraftRepository } from '../storage/quizDraftRepository';
-import { FIRST_STEP_ID, nextStep } from '../features/quiz/domain/quizDefinition';
+import { QuizDraftRepository, setDynamicAnswerKeys } from '../storage/quizDraftRepository';
+import { answerKeyForStep, DEFAULT_CONTENT_STEPS, FIRST_STEP_ID, nextStep, ONBOARDING_PREFIX, QuizStep, setContentSteps } from '../features/quiz/domain/quizDefinition';
 import { BootSplash } from './placeholders';
 import { ErrorState } from '../design/components/ErrorState';
 
@@ -19,6 +20,12 @@ interface ResolvedQuiz {
   userId: string;
   initialStepId: string;
   repo: QuizDraftRepository;
+}
+
+function isValidContentSteps(steps: readonly QuizStep[]): boolean {
+  if (steps.length === 0) return false;
+  const onboardingIds = new Set(ONBOARDING_PREFIX.map((step) => step.id));
+  return steps.every((step) => typeof step.id === 'string' && !onboardingIds.has(step.id));
 }
 
 /**
@@ -41,6 +48,20 @@ export function QuizNavigator({ onQuizComplete }: { onQuizComplete: () => void }
     setResolveFailed(false);
     (async () => {
       const user = await apiClient.request<UserResponse>({ path: '/api/v1/users/me' });
+      let contentSteps: readonly QuizStep[];
+      try {
+        const config = await fetchQuizConfig(apiClient);
+        if (!isValidContentSteps(config.steps)) throw new Error('invalid_quiz_config');
+        contentSteps = config.steps;
+      } catch {
+        // Offline / backend hiccup — quiz still works with today's compiled-in content.
+        contentSteps = DEFAULT_CONTENT_STEPS;
+      }
+      setContentSteps(contentSteps);
+      setDynamicAnswerKeys(contentSteps.flatMap((step) => {
+        const answerKey = answerKeyForStep(step);
+        return answerKey === null ? [] : [answerKey];
+      }));
       const store = await getEncryptedStore();
       const repo = new QuizDraftRepository({ store, now: () => Date.now() });
       const existing = repo.load(user.id);

@@ -27,6 +27,23 @@ def test_rejects_duplicate_answer_key():
         validate_steps(steps)
 
 
+def test_rejects_duplicate_step_id():
+    steps = [
+        {"id": "duplicate", "kind": "text", "answerKey": "custom_1", "prompt": "one?"},
+        {"id": "duplicate", "kind": "text", "answerKey": "custom_2", "prompt": "two?"},
+    ]
+    with pytest.raises(InvalidQuizConfigError, match="duplicate step id"):
+        validate_steps(steps)
+
+
+@pytest.mark.parametrize("field, value", [("id", 7), ("id", []), ("answerKey", 7), ("answerKey", ["custom"])])
+def test_rejects_non_string_step_ids_and_answer_keys(field, value):
+    step = {"id": "a", "kind": "text", "answerKey": "custom_1", "prompt": "one?"}
+    step[field] = value
+    with pytest.raises(InvalidQuizConfigError):
+        validate_steps([step])
+
+
 def test_rejects_reserved_answer_key():
     steps = [{"id": "a", "kind": "text", "answerKey": "name", "prompt": "what's your name?"}]
     with pytest.raises(InvalidQuizConfigError):

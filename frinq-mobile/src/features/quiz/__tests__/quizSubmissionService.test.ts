@@ -1,5 +1,6 @@
 import { QuizSubmissionService } from '../quizSubmissionService';
-import { ANSWER_KEYS } from '../domain/quizDefinition';
+import { ANSWER_KEYS, DEFAULT_CONTENT_STEPS, setContentSteps } from '../domain/quizDefinition';
+import { setDynamicAnswerKeys } from '../../../storage/quizDraftRepository';
 
 function fullAnswers(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   const answers: Record<string, unknown> = {};
@@ -22,6 +23,22 @@ describe('QuizSubmissionService', () => {
     const outcome = await svc.finalize('sub-1', fullAnswers({ evil: 'x' }));
     expect(outcome.kind).toBe('invalid');
     expect(apiClient.request).not.toHaveBeenCalled();
+  });
+
+  it('finalizes using the active content answer keys instead of compiled-in defaults', async () => {
+    const activeSteps = [{ id: 'custom', kind: 'text', section: 'custom', answerKey: 'custom_answer', prompt: 'custom?' }] as const;
+    setContentSteps(activeSteps);
+    setDynamicAnswerKeys(['custom_answer']);
+    const apiClient = { request: jest.fn().mockResolvedValue({ submission_id: 'sub-1', status: 'pending' }) };
+    const svc = new QuizSubmissionService(apiClient as any);
+
+    const outcome = await svc.finalize('sub-1', {
+      name: 'Ada', city: 'Mumbai', dob: '1999-03-14', custom_answer: 'yes',
+    });
+
+    expect(outcome.kind).toBe('success');
+    setContentSteps(DEFAULT_CONTENT_STEPS);
+    setDynamicAnswerKeys([]);
   });
 
   it('calls PATCH complete when a submissionId is known', async () => {

@@ -425,4 +425,12 @@ export function answerKeyForStep(step: QuizStep): string | null {
   return 'answerKey' in step ? step.answerKey : null;
 }
 
+/** All answer keys required by the currently installed quiz session. */
+export function currentAnswerKeys(): readonly string[] {
+  return _activeSteps.flatMap((step) => {
+    const answerKey = answerKeyForStep(step);
+    return answerKey === null ? [] : [answerKey];
+  });
+}
+
 export { FIXED_ANSWER_KEYS, FIXED_ANSWER_KEYS as ANSWER_KEYS };
