@@ -23,17 +23,9 @@ function optionsText(initial: Record<string, unknown>): string {
     if (!option || typeof option !== "object") return "";
     const value = option as { label?: unknown; value?: unknown; description?: unknown };
     const label = typeof value.label === "string" ? value.label : String(value.value ?? "");
-    return typeof value.description === "string" ? `${label} | ${value.description}` : label;
+    const prefix = typeof value.value === "string" ? `${value.value} :: ` : "";
+    return typeof value.description === "string" ? `${prefix}${label} | ${value.description}` : `${prefix}${label}`;
   }).filter(Boolean).join("\n");
-}
-
-function optionValues(initial: Record<string, unknown>): string[] {
-  if (!Array.isArray(initial.options)) return [];
-  return initial.options.map((option) => (
-    option && typeof option === "object" && typeof (option as { value?: unknown }).value === "string"
-      ? (option as { value: string }).value
-      : ""
-  ));
 }
 
 function pairsText(initial: Record<string, unknown>): string {
@@ -55,7 +47,6 @@ export function QuestionForm({ initial, onSave, onCancel, allowRapidFire = false
   const [fields, setFields] = useState<Record<string, unknown>>(() => initial ? {
     ...initial,
     _optionsText: optionsText(initial),
-    _optionValues: optionValues(initial),
     _pairsText: pairsText(initial),
   } : {});
 
@@ -71,15 +62,7 @@ export function QuestionForm({ initial, onSave, onCancel, allowRapidFire = false
       return;
     }
     if (kind === "rapidFire") {
-      const pairs = String(fields._pairsText ?? "").split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
-        const [a, ...rest] = line.split("|");
-        return { a: a.trim(), b: rest.join("|").trim() };
-      });
-      const rapidFireFields = { ...fields };
-      delete rapidFireFields._pairsText;
-      delete rapidFireFields._optionValues;
-      delete rapidFireFields._optionsText;
-      onSave({ ...rapidFireFields, id: (fields.id as string) || "rapid_fire", kind, pairs, secondsPerPair: Number(fields.secondsPerPair) || 5 });
+      onSave({ ...fields, id: (fields.id as string) || "rapid_fire", kind });
       return;
     }
     const answerKey = (fields.answerKey as string) || newAnswerKey();
@@ -91,7 +74,7 @@ export function QuestionForm({ initial, onSave, onCancel, allowRapidFire = false
     {kind === "slider" && <>{field("prompt", "prompt")}{field("leftLabel", "left label")}{field("leftHint", "left hint (short)")}{field("rightLabel", "right label")}{field("rightHint", "right hint (short)")}</>}
     {kind === "intro" && <>{field("heading", "heading")}{field("body", "body (optional)")}{field("ctaLabel", "button label")}</>}
     {kind === "rapidFire" && <><label className="flex flex-col gap-1"><span className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.1em] uppercase text-[#8B7355]">pairs (one “this or that” pair per line)</span><textarea rows={5} value={(fields._pairsText as string) ?? ""} onChange={(e) => setFields((f) => ({ ...f, _pairsText: e.target.value }))} className="frinq-input" /></label>{field("secondsPerPair", "seconds per pair", "5")}</>}
-    {(kind === "singleChoiceCard" || kind === "singleChoiceList" || kind === "multiChoiceTags") && <>{field("prompt", "prompt")}<label className="flex flex-col gap-1"><span className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.1em] uppercase text-[#8B7355]">options (one per line{kind === "singleChoiceCard" ? ', or "label | description"' : ""})</span><textarea rows={5} value={(fields._optionsText as string) ?? ""} onChange={(e) => setFields((f) => ({ ...f, _optionsText: e.target.value }))} className="frinq-input" /></label>{kind === "singleChoiceList" && <label className="flex items-center gap-2"><input type="checkbox" checked={fields.variant === "box"} onChange={(e) => setFields((f) => ({ ...f, variant: e.target.checked ? "box" : "pill", chrome: e.target.checked ? "simple" : undefined }))} /><span className="font-[family-name:var(--font-motive)] text-[10px] text-[#2A1810]">&quot;would you rather&quot; style (exactly 2 options)</span></label>}{kind === "multiChoiceTags" && <label className="flex items-center gap-2"><input type="checkbox" checked={fields.layout === "list"} onChange={(e) => setFields((f) => ({ ...f, layout: e.target.checked ? "list" : "chips" }))} /><span className="font-[family-name:var(--font-motive)] text-[10px] text-[#2A1810]">vertical checklist style (instead of tag flow)</span></label>}</>}
+    {(kind === "singleChoiceCard" || kind === "singleChoiceList" || kind === "multiChoiceTags") && <>{field("prompt", "prompt")}<label className="flex flex-col gap-1"><span className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.1em] uppercase text-[#8B7355]">options (one per line{kind === "multiChoiceTags" ? "" : ', use “value :: label” to preserve a choice value'}{kind === "singleChoiceCard" ? ', and “label | description” for descriptions' : ""})</span><textarea rows={5} value={(fields._optionsText as string) ?? ""} onChange={(e) => setFields((f) => ({ ...f, _optionsText: e.target.value }))} className="frinq-input" /></label>{kind === "singleChoiceList" && <label className="flex items-center gap-2"><input type="checkbox" checked={fields.variant === "box"} onChange={(e) => setFields((f) => ({ ...f, variant: e.target.checked ? "box" : "pill", chrome: e.target.checked ? "simple" : undefined }))} /><span className="font-[family-name:var(--font-motive)] text-[10px] text-[#2A1810]">&quot;would you rather&quot; style (exactly 2 options)</span></label>}{kind === "multiChoiceTags" && <label className="flex items-center gap-2"><input type="checkbox" checked={fields.layout === "list"} onChange={(e) => setFields((f) => ({ ...f, layout: e.target.checked ? "list" : "chips" }))} /><span className="font-[family-name:var(--font-motive)] text-[10px] text-[#2A1810]">vertical checklist style (instead of tag flow)</span></label>}</>}
     <div className="flex gap-2 mt-2"><button onClick={submit} className="font-[family-name:var(--font-motive)] text-[10px] px-3 py-1.5 border border-[rgba(42,24,16,0.3)] text-[#2A1810] hover:bg-[rgba(42,24,16,0.05)]">save</button><button onClick={onCancel} className="font-[family-name:var(--font-motive)] text-[9px] text-[#8B7355]">cancel</button></div>
   </div>;
 }
