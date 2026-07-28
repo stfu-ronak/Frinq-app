@@ -1,7 +1,7 @@
 /**
  * Typed native representation of the quiz. No server-editable-question
  * feature — the step list is a closed, versioned, compiled-in array. Answer
- * keys mirror storage/quizDraftRepository.ts's ANSWER_KEYS exactly (that
+ * keys mirror storage/quizDraftRepository.ts's FIXED_ANSWER_KEYS exactly (that
  * module is the single source of truth for the allowlist/bounds; this file
  * adds copy, options, template choice, and ordering on top).
  *
@@ -19,7 +19,7 @@
  * submission (bare-string vs array), the same way Task 29 caught real
  * UserResponse drift — do not assume.
  */
-import { ANSWER_KEYS } from './answerSchema';
+import { FIXED_ANSWER_KEYS } from './answerSchema';
 
 export type StepId = string;
 
@@ -407,11 +407,11 @@ export function stepProgress(id: StepId): { step: number; total: number } {
   return { step: i === -1 ? 0 : i + 1, total: inputSteps.length };
 }
 
-/** Every answer-bearing step's key must be in the shared ANSWER_KEYS
+/** Every answer-bearing step's key must be in the shared FIXED_ANSWER_KEYS
  *  allowlist (storage/quizDraftRepository.ts) — checked by the structural
  *  test, not just at runtime. */
 export function answerKeyForStep(step: QuizStep): string | null {
   return 'answerKey' in step ? step.answerKey : null;
 }
 
-export { ANSWER_KEYS };
+export { FIXED_ANSWER_KEYS, FIXED_ANSWER_KEYS as ANSWER_KEYS };

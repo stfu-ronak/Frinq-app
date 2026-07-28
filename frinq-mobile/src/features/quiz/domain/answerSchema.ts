@@ -1,7 +1,7 @@
-import { ANSWER_KEYS, LIMITS } from '../../../storage/quizDraftRepository';
+import { FIXED_ANSWER_KEYS, LIMITS } from '../../../storage/quizDraftRepository';
 
 export type { };
-export { ANSWER_KEYS, LIMITS };
+export { FIXED_ANSWER_KEYS, FIXED_ANSWER_KEYS as ANSWER_KEYS, LIMITS };
 
 export interface ValidationResult {
   valid: boolean;
