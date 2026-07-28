@@ -27,6 +27,10 @@ interface BaseStep {
   id: StepId;
   /** Analytics/back-navigation section label shown in QuizHeader. */
   section: string;
+  /** Opt into the stripped-back SimpleStepFrame instead of progress chrome. */
+  chrome?: 'simple';
+  /** Render an optional Skip affordance when the template supports it. */
+  showSkip?: boolean;
 }
 
 export interface IntroStep extends BaseStep {
@@ -65,6 +69,8 @@ export interface SingleChoiceListStep extends BaseStep {
   answerKey: string;
   prompt: string;
   options: ReadonlyArray<{ value: string; label: string }>;
+  /** Default pill rows, or large mutually-exclusive boxes in simple chrome. */
+  variant?: 'pill' | 'box';
 }
 
 export interface MultiChoiceTagsStep extends BaseStep {
@@ -76,6 +82,20 @@ export interface MultiChoiceTagsStep extends BaseStep {
   options: readonly string[];
   min?: number;
   max?: number;
+  /** Default wrapping chips, or full-width selectable rows. */
+  layout?: 'chips' | 'list';
+  allowCustom?: boolean;
+  customPlaceholder?: string;
+}
+
+/** Optional social-profile links; each answer is persisted under its own
+ * fixed draft key so the user can skip either field independently. */
+export interface SocialVerificationStep extends BaseStep {
+  kind: 'socialVerification';
+  heading: string;
+  body?: string;
+  linkedinAnswerKey: string;
+  instagramAnswerKey: string;
 }
 
 export interface RapidFirePair {
@@ -141,6 +161,7 @@ export type QuizStep =
   | SingleChoiceCardStep
   | SingleChoiceListStep
   | MultiChoiceTagsStep
+  | SocialVerificationStep
   | RapidFireStep
   | OpinionsStep
   | PreferencesStep
@@ -160,6 +181,11 @@ export const ONBOARDING_PREFIX: readonly QuizStep[] = [
   { id: 'name', kind: 'text', section: 'basics', answerKey: 'name', prompt: 'what should we call you?', placeholder: 'your name...', minLength: 1 },
   { id: 'city', kind: 'text', section: 'basics', answerKey: 'city', prompt: 'where do you live?', minLength: 2 },
   { id: 'age', kind: 'date', section: 'basics', answerKey: 'dob', prompt: 'when were you born?' },
+  {
+    id: 'social_verification', kind: 'socialVerification', section: 'basics', chrome: 'simple', showSkip: true,
+    heading: 'social verification',
+    linkedinAnswerKey: 'social_linkedin', instagramAnswerKey: 'social_instagram',
+  },
   { id: 'ready', kind: 'intro', section: 'intro', heading: 'are you ready?', ctaLabel: 'continue' },
   { id: 'nahh', kind: 'intro', section: 'intro', heading: 'we want to understand the real you. let’s dive in.', body: 'let’s begin.', ctaLabel: 'continue' },
 ];
@@ -425,12 +451,19 @@ export function answerKeyForStep(step: QuizStep): string | null {
   return 'answerKey' in step ? step.answerKey : null;
 }
 
+/** All draft keys written by a step. Most steps have one `answerKey`; social
+ * verification intentionally stores its two optional profile links separately. */
+export function answerKeysForStep(step: QuizStep): readonly string[] {
+  if (step.kind === 'socialVerification') {
+    return [step.linkedinAnswerKey, step.instagramAnswerKey];
+  }
+  const answerKey = answerKeyForStep(step);
+  return answerKey === null ? [] : [answerKey];
+}
+
 /** All answer keys required by the currently installed quiz session. */
 export function currentAnswerKeys(): readonly string[] {
-  return _activeSteps.flatMap((step) => {
-    const answerKey = answerKeyForStep(step);
-    return answerKey === null ? [] : [answerKey];
-  });
+  return _activeSteps.flatMap(answerKeysForStep);
 }
 
 export { FIXED_ANSWER_KEYS, FIXED_ANSWER_KEYS as ANSWER_KEYS };

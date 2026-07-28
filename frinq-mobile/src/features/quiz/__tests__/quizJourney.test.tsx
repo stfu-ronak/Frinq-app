@@ -76,13 +76,17 @@ function driveStep(screen: ReturnType<typeof render>, step: QuizStep) {
       return;
     case 'singleChoiceList':
       fireEvent.press(screen.getByText(step.options[0].label));
+      if (step.chrome === 'simple') fireEvent.press(screen.getByRole('button', { name: 'continue' }));
       return;
     case 'multiChoiceTags':
       fireEvent.press(screen.getByText(step.options[0]));
       fireEvent.press(screen.getByRole('button', { name: 'continue' }));
       return;
     case 'rapidFire':
-      for (const pair of step.pairs) fireEvent.press(screen.getByText(pair.a));
+      for (const pair of step.pairs) {
+        fireEvent.press(screen.getByText(pair.a));
+        fireEvent.press(screen.getByRole('button', { name: 'Next' }));
+      }
       return;
     case 'opinions':
       for (const pair of step.pairs) fireEvent.press(screen.getByText(pair.a));
@@ -95,6 +99,11 @@ function driveStep(screen: ReturnType<typeof render>, step: QuizStep) {
       return;
     case 'voiceOrText':
       fireEvent.changeText(screen.getByLabelText(step.heading), 'a short answer');
+      fireEvent.press(screen.getByRole('button', { name: 'continue' }));
+      return;
+    case 'socialVerification':
+      fireEvent.changeText(screen.getByLabelText('your LinkedIn profile'), 'linkedin.com/in/test');
+      fireEvent.changeText(screen.getByLabelText('your Instagram profile'), '@test');
       fireEvent.press(screen.getByRole('button', { name: 'continue' }));
       return;
   }
@@ -125,7 +134,9 @@ describe('quiz journey: city through last_question', () => {
     const draft = repo.load(USER);
     expect(draft).not.toBeNull();
     for (const key of ANSWER_KEYS) {
-      if (key === 'name') continue; // pre-auth field, not part of this journey slice
+      // name is pre-auth; gender/pronoun are profile fields rather than quiz
+      // steps, even though all three share the draft allowlist.
+      if (key === 'name' || key === 'gender' || key === 'pronoun') continue;
       expect(draft!.answers[key]).toBeDefined();
     }
   });

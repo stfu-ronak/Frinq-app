@@ -7,7 +7,7 @@ import {
   nextStep,
   previousStep,
   stepProgress,
-  answerKeyForStep,
+  answerKeysForStep,
   ANSWER_KEYS,
 } from '../domain/quizDefinition';
 
@@ -23,28 +23,30 @@ describe('QUIZ_STEPS structure', () => {
   });
 
   it('has unique answer keys among answer-bearing steps', () => {
-    const keys = QUIZ_STEPS.map(answerKeyForStep).filter((k): k is string => k !== null);
+    const keys = QUIZ_STEPS.flatMap(answerKeysForStep);
     expect(new Set(keys).size).toBe(keys.length);
   });
 
   it('every answer-bearing step key is in the shared ANSWER_KEYS allowlist', () => {
     const offenders = QUIZ_STEPS.filter((s) => {
-      const key = answerKeyForStep(s);
-      return key !== null && !ANSWER_KEYS.has(key);
+      return answerKeysForStep(s).some((key) => !ANSWER_KEYS.has(key));
     });
     expect(offenders).toEqual([]);
   });
 
   it('every ANSWER_KEYS entry is covered by exactly one step', () => {
-    const stepKeys = new Set(QUIZ_STEPS.map(answerKeyForStep).filter(Boolean));
+    const stepKeys = new Set(QUIZ_STEPS.flatMap(answerKeysForStep));
     for (const key of ANSWER_KEYS) {
+      // These profile fields share the draft allowlist but deliberately have
+      // no quiz step (asserted explicitly below).
+      if (key === 'gender' || key === 'pronoun') continue;
       expect(stepKeys.has(key)).toBe(true);
     }
   });
 
   it('excludes screenshot-only matching concepts (no gender/pronoun/location/dm/photo keys)', () => {
     const forbidden = /gender|pronoun|location|latitude|longitude|match|dm|photo|selfie/i;
-    const keys = QUIZ_STEPS.map(answerKeyForStep).filter(Boolean) as string[];
+    const keys = QUIZ_STEPS.flatMap(answerKeysForStep);
     for (const key of keys) {
       expect(key).not.toMatch(forbidden);
     }
