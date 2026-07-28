@@ -35,7 +35,7 @@ async def test_put_admin_quiz_config_rejects_invalid_steps(client, fake_pool: Fa
 
 async def test_put_admin_quiz_config_saves_new_version(client, fake_pool: FakePool):
     new_steps = [
-        {"id": "custom_q1", "kind": "text", "answerKey": "custom_q1", "prompt": "what's new?"},
+        {"id": "custom_q1", "kind": "text", "section": "custom", "answerKey": "custom_q1", "prompt": "what's new?"},
     ]
     fake_pool.store.fetchval_handler = lambda query, args: 1
 
