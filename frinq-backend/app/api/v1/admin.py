@@ -24,6 +24,7 @@ from app.config import settings
 from app.core.export.raw_responses import to_csv as raw_to_csv
 from app.core.export.raw_responses import to_xlsx as raw_to_xlsx
 from app.core.push import remove_all_for_user as remove_all_push_tokens_for_user
+from app.core.quiz_config import InvalidQuizConfigError, get_active_quiz_config, set_quiz_config
 from app.core.realtime import publish_ban_event
 from app.core.redis_client import get_redis
 from app.core.session import revoke_all_sessions
@@ -1784,6 +1785,29 @@ async def ban_user_moderation(
     await _publish_ban_event_best_effort(uid, reason_for_log="ban")
     logger.info("admin.moderation.ban", user_id=user_id)
     return {"ok": True}
+
+
+class SetQuizConfigRequest(BaseModel):
+    steps: list[dict[str, Any]]
+
+
+@router.get("/quiz-config", dependencies=[Depends(_require_admin)])
+async def get_quiz_config_admin(pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any]:
+    async with pool.acquire() as conn:
+        return await get_active_quiz_config(conn)
+
+
+@router.put("/quiz-config", dependencies=[Depends(_require_admin), Depends(_require_action_password)])
+async def put_quiz_config(
+    body: SetQuizConfigRequest, pool: asyncpg.Pool = Depends(get_pool)
+) -> dict[str, Any]:
+    try:
+        async with pool.acquire() as conn:
+            result = await set_quiz_config(conn, body.steps, settings.ADMIN_ACTOR_ID)
+    except InvalidQuizConfigError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    logger.info("admin.quiz_config.updated", version=result["version"], step_count=len(body.steps))
+    return result
 
 
 # ─── User management + audit trail (full-control console) ───────────────────────
