@@ -21,6 +21,7 @@ export function quizStepForSave(step: Record<string, unknown>): QuizStepDraft {
   const optionText = typeof step._optionsText === "string" ? step._optionsText : null;
   const pairText = typeof step._pairsText === "string" ? step._pairsText : null;
   const fields = Object.fromEntries(Object.entries(step).filter(([key]) => !key.startsWith("_")));
+  if (typeof fields.section !== "string" || !fields.section.trim()) fields.section = "custom";
 
   if (optionText !== null && fields.kind === "multiChoiceTags") {
     fields.options = optionText.split("\n").map((line) => line.trim()).filter(Boolean);

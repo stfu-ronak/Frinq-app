@@ -45,10 +45,11 @@ export function QuestionForm({ initial, onSave, onCancel, allowRapidFire = false
 }) {
   const [kind, setKind] = useState<StepKind | null>((initial?.kind as StepKind) ?? null);
   const [fields, setFields] = useState<Record<string, unknown>>(() => initial ? {
+    section: "custom",
     ...initial,
     _optionsText: optionsText(initial),
     _pairsText: pairsText(initial),
-  } : {});
+  } : { section: "custom" });
 
   if (!kind) return <div className="border border-[rgba(42,24,16,0.15)] rounded-md p-4"><p className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.14em] uppercase text-[#8B7355] mb-3">pick a question type</p><div className="flex flex-wrap gap-2">{(Object.keys(KIND_LABELS) as StepKind[]).filter((k) => k !== "rapidFire" || allowRapidFire).map((k) => <button key={k} onClick={() => setKind(k)} className="font-[family-name:var(--font-motive)] text-[10px] px-3 py-1.5 border border-[rgba(42,24,16,0.18)] text-[#2A1810] hover:bg-[rgba(42,24,16,0.05)]">{KIND_LABELS[k]}</button>)}</div><button onClick={onCancel} className="mt-3 font-[family-name:var(--font-motive)] text-[9px] text-[#8B7355]">cancel</button></div>;
 
@@ -70,6 +71,7 @@ export function QuestionForm({ initial, onSave, onCancel, allowRapidFire = false
   }
 
   return <div className="border border-[rgba(42,24,16,0.15)] rounded-md p-4 flex flex-col gap-3"><p className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.14em] uppercase text-[#8B7355]">{KIND_LABELS[kind]}</p>
+    {field("section", "section", "custom")}
     {kind === "text" && <>{field("prompt", "prompt")}{field("placeholder", "placeholder (optional)")}<label className="flex items-center gap-2"><input type="checkbox" checked={!!fields.allowVoice} onChange={(e) => setFields((f) => ({ ...f, allowVoice: e.target.checked }))} /><span className="font-[family-name:var(--font-motive)] text-[10px] text-[#2A1810]">allow voice answer</span></label></>}
     {kind === "slider" && <>{field("prompt", "prompt")}{field("leftLabel", "left label")}{field("leftHint", "left hint (short)")}{field("rightLabel", "right label")}{field("rightHint", "right hint (short)")}</>}
     {kind === "intro" && <>{field("heading", "heading")}{field("body", "body (optional)")}{field("ctaLabel", "button label")}</>}

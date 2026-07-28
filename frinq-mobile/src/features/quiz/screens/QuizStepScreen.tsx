@@ -122,6 +122,18 @@ export function QuizStepScreen() {
       return <IntroTemplate step={step} onContinue={advanceOrFinish} />;
 
     case 'text':
+      if (step.allowVoice) {
+        return (
+          <VoiceOrTextTemplate
+            step={{ ...step, kind: 'voiceOrText', heading: step.prompt }}
+            submissionId={state.submissionId}
+            value={(answer as string) ?? ''}
+            onChange={(v) => send({ type: 'ANSWER', key: step.answerKey, value: v })}
+            onContinue={advanceOrFinish}
+            onBack={previousStep(step.id) ? goBack : undefined}
+          />
+        );
+      }
       return (
         <TextInputTemplate
           step={step}

@@ -46,6 +46,7 @@ export interface TextStep extends BaseStep {
   prompt: string;
   placeholder?: string;
   minLength?: number;
+  allowVoice?: boolean;
 }
 
 export interface DateStep extends BaseStep {

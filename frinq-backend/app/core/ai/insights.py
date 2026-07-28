@@ -84,7 +84,7 @@ _KNOWN_ANSWER_KEYS: Final[frozenset[str]] = frozenset({
 def _build_additional_context(answers: dict[str, Any], pii: PIIContext) -> str:
     lines = []
     for key, value in answers.items():
-        if key in _KNOWN_ANSWER_KEYS or not value:
+        if key in _KNOWN_ANSWER_KEYS or value is None or value == "" or value == []:
             continue
         formatted = _scrub_free_text(value, pii) if isinstance(value, (str, list)) else str(value)
         if formatted:
@@ -215,11 +215,11 @@ def _build_insights_prompt(answers: dict[str, Any]) -> str:
         slider_4_label=_slider_label(prefs[3], "would rather be kind", "would rather be honest"),
         opinions="\n".join(opinion_lines),
         opinions_why=opinions_why_str,
-        hobbies=scrub_text(answers.get("hobbies", "") or "", pii) or "not shared",
+        hobbies=_scrub_free_text(answers.get("hobbies"), pii) or "not shared",
         interests=interests_str,
         red_flags=red_flags_str,
-        show_up=scrub_text(answers.get("show_up", "") or "", pii) or "not shared",
-        looking_for=scrub_text(answers.get("looking_for", "") or "", pii) or "not shared",
+        show_up=_scrub_free_text(answers.get("show_up"), pii) or "not shared",
+        looking_for=_scrub_free_text(answers.get("looking_for"), pii) or "not shared",
         story=story or "not shared",
         # Event-organizing answers (#13 batch). Used for the matching/
         # event-suggestion side of the system; also fed to Claude so the
@@ -243,6 +243,17 @@ def _list_str(value: Any) -> str:
         items = [str(v) for v in value if v]
         return "\n".join(f"  - {v}" for v in items) if items else "(none)"
     return str(value)
+
+
+def _scrub_free_text(value: Any, pii: PIIContext | None) -> str:
+    """Scrub a free-text answer that may arrive as a plain string (older
+    submissions) or a multi-select array (current quiz steps for hobbies/
+    show_up/looking_for) — joins array items into one inline sentence."""
+    if not value:
+        return ""
+    if isinstance(value, list):
+        return ", ".join(scrub_list([str(v) for v in value if v], pii))
+    return scrub_text(str(value), pii)
 
 
 def _strip_fences(text: str) -> str:

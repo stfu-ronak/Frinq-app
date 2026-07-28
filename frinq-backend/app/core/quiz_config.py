@@ -54,6 +54,11 @@ def _validate_one_step(step: dict[str, Any]) -> None:
         _require(step, "heading", "ctaLabel", kind=kind)
         return
 
+    _require(step, "answerKey", kind=kind)
+    answer_key = step["answerKey"]
+    if answer_key in RESERVED_ANSWER_KEYS:
+        raise InvalidQuizConfigError(f"answerKey {answer_key!r} is reserved for onboarding")
+
     if kind == "rapidFire":
         pairs = step.get("pairs")
         if not isinstance(pairs, list) or len(pairs) < 1:
@@ -65,11 +70,30 @@ def _validate_one_step(step: dict[str, Any]) -> None:
             raise InvalidQuizConfigError("rapidFire step needs secondsPerPair")
         return
 
-    # Every remaining kind is answer-bearing.
-    _require(step, "answerKey", "prompt", kind=kind)
-    answer_key = step["answerKey"]
-    if answer_key in RESERVED_ANSWER_KEYS:
-        raise InvalidQuizConfigError(f"answerKey {answer_key!r} is reserved for onboarding")
+    if kind == "voiceOrText":
+        _require(step, "heading", kind=kind)
+        return
+
+    if kind == "opinions":
+        pairs = step.get("pairs")
+        if not isinstance(pairs, list) or not pairs:
+            raise InvalidQuizConfigError("opinions step needs at least one pair")
+        for pair in pairs:
+            if not isinstance(pair, dict) or not all(pair.get(field) for field in ("prompt", "a", "b")):
+                raise InvalidQuizConfigError("opinions pair needs 'prompt', 'a', and 'b'")
+        return
+
+    if kind == "preferences":
+        sliders = step.get("sliders")
+        if not isinstance(sliders, list) or not sliders:
+            raise InvalidQuizConfigError("preferences step needs at least one slider")
+        required = ("prompt", "leftLabel", "leftHint", "rightLabel", "rightHint")
+        for slider in sliders:
+            if not isinstance(slider, dict) or not all(slider.get(field) for field in required):
+                raise InvalidQuizConfigError("preferences slider is missing a label, hint, or prompt")
+        return
+
+    _require(step, "prompt", kind=kind)
 
     if kind == "text":
         return  # optional allowVoice: bool — no further requirement
@@ -115,6 +139,8 @@ def validate_steps(steps: list[dict[str, Any]]) -> None:
     for step in steps:
         if not isinstance(step, dict) or not isinstance(step.get("id"), str) or not step["id"]:
             raise InvalidQuizConfigError("every step needs an 'id'")
+        if not isinstance(step.get("section"), str) or not step["section"].strip():
+            raise InvalidQuizConfigError("every step needs a non-empty 'section'")
         step_id = step["id"]
         if step_id in seen_ids:
             raise InvalidQuizConfigError(f"duplicate step id: {step_id!r}")

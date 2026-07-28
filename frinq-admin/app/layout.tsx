@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { AdminShell } from "./components/AdminShell";
 
 export const metadata: Metadata = {
   title: "frinq admin",
@@ -14,7 +15,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="h-full">
-      <body className="min-h-full">{children}</body>
+      <body className="min-h-full">
+        <AdminShell>{children}</AdminShell>
+      </body>
     </html>
   );
 }

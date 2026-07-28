@@ -32,3 +32,14 @@ for (const step of [
 const rapid = quizStepForSave({ id: "rapid", kind: "rapidFire", secondsPerPair: "10", _pairsText: "a | b" });
 assert.deepEqual(rapid.pairs, [{ a: "a", b: "b" }]);
 assert.equal(rapid.secondsPerPair, 10);
+
+const newQuestion = quizStepForSave({ id: "new", kind: "text", prompt: "New question?" });
+assert.equal(newQuestion.section, "custom");
+
+const sectionedQuestion = quizStepForSave({
+  id: "sectioned",
+  kind: "text",
+  section: "who you are",
+  prompt: "Sectioned question?",
+});
+assert.equal(sectionedQuestion.section, "who you are");
