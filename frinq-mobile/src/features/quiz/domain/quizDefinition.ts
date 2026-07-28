@@ -113,6 +113,16 @@ export interface PreferencesStep extends BaseStep {
   sliders: readonly SliderDef[];
 }
 
+export interface SliderStep extends BaseStep {
+  kind: 'slider';
+  answerKey: string;
+  prompt: string;
+  leftLabel: string;
+  leftHint: string;
+  rightLabel: string;
+  rightHint: string;
+}
+
 export interface VoiceOrTextStep extends BaseStep {
   kind: 'voiceOrText';
   answerKey: string;
@@ -134,6 +144,7 @@ export type QuizStep =
   | RapidFireStep
   | OpinionsStep
   | PreferencesStep
+  | SliderStep
   | VoiceOrTextStep;
 
 // ---------------------------------------------------------------------------

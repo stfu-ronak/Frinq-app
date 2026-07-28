@@ -10,9 +10,12 @@ import { RapidFireTemplate } from '../RapidFireTemplate';
 import { OpinionsTemplate } from '../OpinionsTemplate';
 import { PreferencesTemplate } from '../PreferencesTemplate';
 import { VoiceOrTextTemplate } from '../VoiceOrTextTemplate';
+import { SnapSlider } from '../../../components/SnapSlider';
+import { QuizScreenFrame } from '../../../components/QuizScreenFrame';
 import {
   IntroStep, TextStep, DateStep, SingleChoiceCardStep, SingleChoiceListStep,
   MultiChoiceTagsStep, RapidFireStep, OpinionsStep, PreferencesStep, VoiceOrTextStep,
+  SliderStep,
 } from '../../../domain/quizDefinition';
 
 jest.mock('../../../../../services/session/sessionContext', () => ({
@@ -209,6 +212,49 @@ describe('PreferencesTemplate', () => {
     );
     fireEvent.press(getAllByLabelText('strongly right')[0]);
     expect(onChange).toHaveBeenCalledWith(0, 100);
+  });
+});
+
+describe('slider step (QuizStepScreen inline case)', () => {
+  // No dedicated SliderTemplate file exists — QuizStepScreen renders SnapSlider
+  // directly inside QuizScreenFrame for kind: 'slider'. This harness mirrors
+  // that exact case body (local value state, gated Continue) rather than
+  // standing up the full QuizStepScreen (navigation/quizContext) for one case.
+  function SliderCase({ step, onContinue }: { step: SliderStep; onContinue: (value: number | undefined) => void }) {
+    const [value, setValue] = React.useState<number | undefined>(undefined);
+    return (
+      <QuizScreenFrame
+        stepId={step.id}
+        section={step.section}
+        continueLabel="continue"
+        onContinue={() => onContinue(value)}
+        continueDisabled={value === undefined}
+      >
+        <SnapSlider
+          prompt={step.prompt}
+          leftLabel={step.leftLabel}
+          leftHint={step.leftHint}
+          rightLabel={step.rightLabel}
+          rightHint={step.rightHint}
+          value={value}
+          onChange={setValue}
+        />
+      </QuizScreenFrame>
+    );
+  }
+
+  it('renders a single slider step and reports its value on continue', () => {
+    const step: SliderStep = {
+      id: 'custom_slider', kind: 'slider', section: 'content', answerKey: 'custom_slider',
+      prompt: 'you trust more', leftLabel: 'what you see', leftHint: 'see', rightLabel: 'what you sense', rightHint: 'sense',
+    };
+    const onContinue = jest.fn();
+    const { getByRole, getByLabelText } = render(<SliderCase step={step} onContinue={onContinue} />);
+    expect(getByRole('button', { name: 'continue' }).props.accessibilityState.disabled).toBe(true);
+    fireEvent.press(getByLabelText('strongly right'));
+    expect(getByRole('button', { name: 'continue' }).props.accessibilityState.disabled).toBe(false);
+    fireEvent.press(getByRole('button', { name: 'continue' }));
+    expect(onContinue).toHaveBeenCalledWith(100);
   });
 });
 

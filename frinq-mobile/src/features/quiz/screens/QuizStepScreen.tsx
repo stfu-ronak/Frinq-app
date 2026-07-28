@@ -8,6 +8,8 @@ import {
   SingleChoiceListTemplate, MultiChoiceTagsTemplate, RapidFireTemplate, OpinionsTemplate,
   PreferencesTemplate, VoiceOrTextTemplate,
 } from './templates';
+import { QuizScreenFrame } from '../components/QuizScreenFrame';
+import { SnapSlider } from '../components/SnapSlider';
 import { BootSplash } from '../../../navigation/placeholders';
 import { ErrorState } from '../../../design/components/ErrorState';
 
@@ -43,6 +45,12 @@ export function QuizStepScreen() {
     if (step?.kind === 'preferences') {
       setLocalPreferences((answer as Array<number | undefined>) ?? new Array(step.sliders.length).fill(undefined));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step?.id]);
+
+  const [localSlider, setLocalSlider] = useState<number | undefined>(answer as number | undefined);
+  useEffect(() => {
+    if (step?.kind === 'slider') setLocalSlider(answer as number | undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step?.id]);
 
@@ -203,6 +211,28 @@ export function QuizStepScreen() {
         />
       );
     }
+
+    case 'slider':
+      return (
+        <QuizScreenFrame
+          stepId={step.id}
+          section={step.section}
+          onBack={previousStep(step.id) ? goBack : undefined}
+          continueLabel="continue"
+          onContinue={() => { send({ type: 'ANSWER', key: step.answerKey, value: localSlider }); advanceOrFinish(); }}
+          continueDisabled={localSlider === undefined}
+        >
+          <SnapSlider
+            prompt={step.prompt}
+            leftLabel={step.leftLabel}
+            leftHint={step.leftHint}
+            rightLabel={step.rightLabel}
+            rightHint={step.rightHint}
+            value={localSlider}
+            onChange={setLocalSlider}
+          />
+        </QuizScreenFrame>
+      );
 
     case 'voiceOrText':
       return (
