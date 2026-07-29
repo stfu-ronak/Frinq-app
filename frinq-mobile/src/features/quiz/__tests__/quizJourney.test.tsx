@@ -134,9 +134,8 @@ describe('quiz journey: city through last_question', () => {
     const draft = repo.load(USER);
     expect(draft).not.toBeNull();
     for (const key of ANSWER_KEYS) {
-      // name is pre-auth; gender/pronoun are profile fields rather than quiz
-      // steps, even though all three share the draft allowlist.
-      if (key === 'name' || key === 'gender' || key === 'pronoun') continue;
+      // Name is collected before OTP and flushed into the authenticated draft.
+      if (key === 'name') continue;
       expect(draft!.answers[key]).toBeDefined();
     }
   });

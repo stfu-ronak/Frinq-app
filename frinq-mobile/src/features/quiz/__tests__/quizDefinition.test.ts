@@ -37,15 +37,13 @@ describe('QUIZ_STEPS structure', () => {
   it('every ANSWER_KEYS entry is covered by exactly one step', () => {
     const stepKeys = new Set(QUIZ_STEPS.flatMap(answerKeysForStep));
     for (const key of ANSWER_KEYS) {
-      // These profile fields share the draft allowlist but deliberately have
-      // no quiz step (asserted explicitly below).
-      if (key === 'gender' || key === 'pronoun') continue;
+      if (key === 'name') continue;
       expect(stepKeys.has(key)).toBe(true);
     }
   });
 
-  it('excludes screenshot-only matching concepts (no gender/pronoun/location/dm/photo keys)', () => {
-    const forbidden = /gender|pronoun|location|latitude|longitude|match|dm|photo|selfie/i;
+  it('permits the approved identity fields but excludes location collection and matching concepts', () => {
+    const forbidden = /location|latitude|longitude|match|dm|photo|selfie/i;
     const keys = QUIZ_STEPS.flatMap(answerKeysForStep);
     for (const key of keys) {
       expect(key).not.toMatch(forbidden);

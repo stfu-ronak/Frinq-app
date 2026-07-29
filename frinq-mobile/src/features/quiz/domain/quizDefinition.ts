@@ -20,6 +20,7 @@
  * UserResponse drift — do not assume.
  */
 import { FIXED_ANSWER_KEYS } from './answerSchema';
+import { GENDER_OPTIONS } from '../../../services/api/genderOptions';
 
 export type StepId = string;
 
@@ -47,6 +48,8 @@ export interface TextStep extends BaseStep {
   placeholder?: string;
   minLength?: number;
   allowVoice?: boolean;
+  /** Optional fixed onboarding values may advance without an answer. */
+  optional?: boolean;
 }
 
 export interface DateStep extends BaseStep {
@@ -178,8 +181,9 @@ export type QuizStep =
 /** The fixed onboarding steps. Never replaced by admin-authored content —
  *  every quiz starts with exactly these, in this order. */
 export const ONBOARDING_PREFIX: readonly QuizStep[] = [
-  { id: 's0', kind: 'intro', section: 'intro', heading: "let's get to know you.", body: 'a few questions. no right answers.', ctaLabel: 'continue' },
-  { id: 'name', kind: 'text', section: 'basics', answerKey: 'name', prompt: 'what should we call you?', placeholder: 'your name...', minLength: 1 },
+  { id: 'welcome', kind: 'intro', section: 'intro', heading: 'welcome', ctaLabel: 'continue' },
+  { id: 'gender', kind: 'singleChoiceList', section: 'basics', answerKey: 'gender', prompt: 'how do you identify yourself', options: GENDER_OPTIONS },
+  { id: 'pronoun', kind: 'text', section: 'basics', answerKey: 'pronoun', prompt: 'your pronouns', placeholder: 'she/her, he/him, they/them', minLength: 0, optional: true, showSkip: true },
   { id: 'city', kind: 'text', section: 'basics', answerKey: 'city', prompt: 'where do you live?', minLength: 2 },
   { id: 'age', kind: 'date', section: 'basics', answerKey: 'dob', prompt: 'when were you born?' },
   {
