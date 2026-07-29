@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View } from 'react-native';
-import { useRoute, RouteProp } from '@react-navigation/native';
-import { Screen } from '../../../design/components/Screen';
+import { StyleSheet, View } from 'react-native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { ReferenceJourneyFrame } from '../../../design/components/ReferenceJourneyFrame';
 import { BrandHeading, BodyText } from '../../../design/components/Text';
 import { OtpField } from '../../../design/components/OtpField';
 import { ArrowButton } from '../../../design/components/ArrowButton';
+import { PrimaryButton } from '../../../design/components/PrimaryButton';
 import { spacing } from '../../../design/tokens/spacing';
 import { useSession } from '../../../services/session/sessionContext';
 import { sendOtp, verifyOtp, acceptLegal } from '../authService';
@@ -27,6 +28,7 @@ export type OtpRouteParams = { Otp: { phone: string } };
  *  acceptance, then lets boot-state resolution (server-authoritative) route
  *  onward — this screen never decides the destination itself. */
 export function OtpScreen() {
+  const navigation = useNavigation<any>();
   const route = useRoute<RouteProp<OtpRouteParams, 'Otp'>>();
   const { phone } = route.params;
   const { apiClient, coordinator } = useSession();
@@ -109,13 +111,11 @@ export function OtpScreen() {
   }
 
   return (
-    <Screen scroll>
-      <View style={{ flex: 1, justifyContent: 'center' }}>
-        <BrandHeading variant="display" style={{ marginBottom: spacing.sm }}>
-          enter the code
-        </BrandHeading>
-        <BodyText variant="body" tone="secondary" style={{ marginBottom: spacing.xl }}>
-          We sent a 6-digit code to your WhatsApp.
+    <ReferenceJourneyFrame onBack={() => navigation.goBack()} scroll>
+      <View style={styles.body}>
+        <BrandHeading style={styles.heading}>verify</BrandHeading>
+        <BodyText tone="secondary" style={styles.copy}>
+          OTP has been sent to 91+ {phone}
         </BodyText>
 
         <OtpField value={code} onChangeText={(v) => { setCode(v); if (v.length === 6) handleVerify(v); }} error={error} autoFocus />
@@ -130,9 +130,18 @@ export function OtpScreen() {
           label={cooldown > 0 ? `resend in ${cooldown}s` : 'resend code'}
           onPress={handleResend}
           disabled={cooldown > 0}
-          style={{ marginTop: spacing.xl }}
+          style={styles.resend}
         />
       </View>
-    </Screen>
+      <PrimaryButton label="Confirm" onPress={() => handleVerify(code)} disabled={code.length !== 6} busy={loading} style={styles.confirm} />
+    </ReferenceJourneyFrame>
   );
 }
+
+const styles = StyleSheet.create({
+  body: { flex: 1, alignItems: 'center', paddingTop: 132 },
+  heading: { fontSize: 52, lineHeight: 64, textAlign: 'center', marginBottom: spacing.md },
+  copy: { textAlign: 'center', fontSize: 17, lineHeight: 26, marginBottom: spacing.xxl },
+  resend: { alignSelf: 'center', marginTop: spacing.xl },
+  confirm: { alignSelf: 'stretch', marginTop: spacing.lg },
+});

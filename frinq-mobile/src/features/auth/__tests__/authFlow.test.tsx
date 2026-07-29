@@ -64,20 +64,20 @@ afterEach(() => {
 });
 
 describe('PhoneScreen', () => {
-  it('disables Continue below 10 digits and enables it at 10', () => {
+  it('disables Request OTP below 10 digits and enables it at 10', () => {
     const { getByLabelText, getByRole } = render(<PhoneScreen />);
     const input = getByLabelText('Phone number');
     fireEvent.changeText(input, '987654321'); // 9 digits
-    expect(getByRole('button', { name: /Continue/ }).props.accessibilityState.disabled).toBe(true);
+    expect(getByRole('button', { name: 'Request OTP' }).props.accessibilityState.disabled).toBe(true);
     fireEvent.changeText(input, '9876543210'); // 10 digits
-    expect(getByRole('button', { name: /Continue/ }).props.accessibilityState.disabled).toBe(false);
+    expect(getByRole('button', { name: 'Request OTP' }).props.accessibilityState.disabled).toBe(false);
   });
 
   it('navigates to Otp with the phone number on success', async () => {
     mockSendOtp.mockResolvedValue({ ok: true });
     const { getByLabelText, getByRole } = render(<PhoneScreen />);
     fireEvent.changeText(getByLabelText('Phone number'), '9876543210');
-    fireEvent.press(getByRole('button', { name: /Continue/ }));
+    fireEvent.press(getByRole('button', { name: 'Request OTP' }));
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('Otp', { phone: '9876543210' }));
   });
 
@@ -85,7 +85,7 @@ describe('PhoneScreen', () => {
     mockSendOtp.mockResolvedValue({ ok: false, code: 'rate_limited', retryAfter: 60 });
     const { getByLabelText, getByRole, findByText } = render(<PhoneScreen />);
     fireEvent.changeText(getByLabelText('Phone number'), '9876543210');
-    fireEvent.press(getByRole('button', { name: /Continue/ }));
+    fireEvent.press(getByRole('button', { name: 'Request OTP' }));
     await findByText('Too many attempts — wait a bit and try again.');
     expect(mockNavigate).not.toHaveBeenCalled();
   });

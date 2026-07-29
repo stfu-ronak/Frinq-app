@@ -1,88 +1,64 @@
 import React, { useState } from 'react';
-import { Image, View } from 'react-native';
+import { Image, StyleSheet, TextInput, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { Screen } from '../../../design/components/Screen';
+import { ReferenceJourneyFrame } from '../../../design/components/ReferenceJourneyFrame';
 import { BrandHeading, BodyText } from '../../../design/components/Text';
-import { PhoneField } from '../../../design/components/PhoneField';
 import { PrimaryButton } from '../../../design/components/PrimaryButton';
-import { spacing } from '../../../design/tokens/spacing';
+import { color } from '../../../design/tokens/colors';
+import { radius, spacing, touchTarget } from '../../../design/tokens/spacing';
 import { useSession } from '../../../services/session/sessionContext';
 import { sendOtp } from '../authService';
 import { track } from '../../../services/telemetry/analytics';
 import { startQuiz } from '../../quiz/quizSyncService';
 import { savePendingQuizState } from '../../quiz/pendingQuizState';
 
-/** Collects a WhatsApp number and requests an OTP. Digits only, capped at 10
- *  (PhoneField already enforces this); the +91 dial code is a fixed prefix
- *  for this launch, same as the web reference. */
+/** Reference 2 phone page; submission behavior remains unchanged. */
 export function PhoneScreen() {
   const navigation = useNavigation<any>();
   const { apiClient } = useSession();
   const [digits, setDigits] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const canSubmit = digits.length === 10 && !loading;
 
   async function handleSubmit() {
-    if (digits.length < 10 || loading) return;
+    if (!canSubmit) return;
     setLoading(true);
     setError(null);
     const result = await sendOtp(apiClient, digits);
     setLoading(false);
     if (!result.ok) {
-      setError(
-        result.code === 'rate_limited'
-          ? 'Too many attempts — wait a bit and try again.'
-          : "Couldn't send the code, try again.",
-      );
+      setError(result.code === 'rate_limited' ? 'Too many attempts — wait a bit and try again.' : "Couldn't send the code, try again.");
       return;
     }
     track('otp_requested');
-
-    // Fire-and-forget, same semantics as the web reference: reuses an
-    // existing non-terminal submission for this phone, or creates one.
-    // Never blocks navigation to OTP entry on this succeeding.
-    startQuiz(apiClient, digits)
-      .then((res) => savePendingQuizState({ submissionId: res.submission_id }))
-      .catch(() => {
-        // Non-fatal: OtpScreen's post-verify flush proceeds without a known
-        // submissionId and finalizeQuiz falls back to POST /quiz/submit,
-        // which creates one.
-      });
-
+    startQuiz(apiClient, digits).then((res) => savePendingQuizState({ submissionId: res.submission_id })).catch(() => undefined);
     navigation.navigate('Otp', { phone: digits });
   }
 
   return (
-    <Screen scroll>
-      <View style={{ flex: 1, justifyContent: 'center' }}>
-        <BodyText variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>
-          before we start
-        </BodyText>
-        <BrandHeading variant="display" style={{ marginBottom: spacing.sm }}>
-          what's your WhatsApp number?
-        </BrandHeading>
-        <BodyText variant="body" tone="secondary" style={{ marginBottom: spacing.xl }}>
-          We'll send a 6-digit code to your WhatsApp.
-        </BodyText>
-
-        <PhoneField value={digits} onChangeText={setDigits} error={error} autoFocus />
-
-        <Image
-          source={require('../../../assets/images/telephone.png')}
-          style={{ width: 220, height: 176, alignSelf: 'center', marginTop: spacing.xxl }}
-          resizeMode="contain"
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-        />
-
-        <PrimaryButton
-          label={loading ? 'Sending…' : 'Continue'}
-          onPress={handleSubmit}
-          disabled={digits.length < 10}
-          busy={loading}
-          style={{ marginTop: spacing.xl, alignSelf: 'flex-start' }}
-        />
+    <ReferenceJourneyFrame onBack={() => navigation.goBack()} scroll>
+      <View style={styles.body}>
+        <BrandHeading style={styles.heading}>your number</BrandHeading>
+        <View style={styles.phoneRow}>
+          <BodyText style={styles.country}>+91</BodyText>
+          <TextInput accessibilityLabel="Phone number" placeholder="854 5454 6161" placeholderTextColor={color.text.muted} keyboardType="phone-pad" value={digits} onChangeText={(value) => setDigits(value.replace(/\D/g, '').slice(0, 10))} style={styles.input} />
+        </View>
+        {!!error && <BodyText variant="caption" tone="error" style={styles.error}>{error}</BodyText>}
+        <Image source={require('../../../../Public/Assets/telephone 1.png')} style={styles.phoneArt} resizeMode="contain" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
       </View>
-    </Screen>
+      <PrimaryButton label={loading ? 'Sending…' : 'Request OTP'} onPress={handleSubmit} disabled={!canSubmit} busy={loading} style={styles.cta} />
+    </ReferenceJourneyFrame>
   );
 }
+
+const styles = StyleSheet.create({
+  body: { flex: 1, alignItems: 'center', paddingTop: 120 },
+  heading: { fontSize: 46, lineHeight: 59, textAlign: 'center', marginBottom: spacing.xxxl },
+  phoneRow: { width: '100%', flexDirection: 'row', gap: spacing.sm },
+  country: { width: 70, minHeight: touchTarget.preferred, borderRadius: radius.sm, backgroundColor: color.bg.surface, textAlign: 'center', textAlignVertical: 'center', paddingTop: 12 },
+  input: { flex: 1, minHeight: touchTarget.preferred, borderWidth: 1, borderColor: color.border.subtle, borderRadius: radius.sm, paddingHorizontal: spacing.md, fontFamily: 'VastagoGrotesk-Regular', fontSize: 18, color: color.text.primary },
+  error: { alignSelf: 'stretch', marginTop: spacing.sm },
+  phoneArt: { width: '100%', height: 250, marginTop: spacing.xxxl, flex: 1 },
+  cta: { alignSelf: 'stretch', marginTop: spacing.lg },
+});
