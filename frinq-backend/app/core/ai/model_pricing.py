@@ -47,7 +47,9 @@ MODEL_INFO: Final[dict[str, ModelInfo]] = {
     "claude-haiku-4-5-20251001": ModelInfo("claude", 1.00, 5.00, False, (), True),
     # Gemini/Gemma. Prices are paid-tier USD per MTok; AI Studio free-tier
     # usage is still logged as zero-cost for local testing.
-    "gemini-3.6-flash": ModelInfo("gemini", 1.50, 7.50, True,
+    # Google currently documents this family as Gemini 3 Flash Preview; the
+    # requested "3.6 Flash" name is not a published Gemini API model id.
+    "gemini-3-flash-preview": ModelInfo("gemini", 0.50, 3.00, True,
                                    ("minimal", "low", "medium", "high"), False),
     "gemini-3.5-flash-lite": ModelInfo("gemini", 0.30, 2.50, True,
                                        ("minimal", "low", "medium", "high"), False),

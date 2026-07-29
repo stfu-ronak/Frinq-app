@@ -19,22 +19,31 @@ export type AllowedEvent =
   | 'report_submitted'
   | 'block_created'
   | 'notification_opt_in'
-  | 'account_deleted';
+  | 'account_deleted'
+  | 'event_viewed'
+  | 'event_registration_opened';
 
 const ALLOWED: ReadonlySet<AllowedEvent> = new Set([
   'screen_view', 'otp_requested', 'otp_verified', 'quiz_started', 'quiz_completed',
   'result_viewed', 'community_opened', 'message_sent', 'report_submitted',
-  'block_created', 'notification_opt_in', 'account_deleted',
+  'block_created', 'notification_opt_in', 'account_deleted', 'event_viewed',
+  'event_registration_opened',
 ]);
 
 export type AnalyticsTransport = (event: AllowedEvent) => void;
 
 let consent = false;
 let transport: AnalyticsTransport | null = null;
+let firebaseTransport: AnalyticsTransport | null = null;
 
 /** Wire the network transport (ApiClient POST /api/v1/track). */
 export function configureAnalytics(t: AnalyticsTransport | null): void {
   transport = t;
+}
+
+/** Wire Firebase Analytics separately from the backend audit transport. */
+export function configureFirebaseAnalytics(t: AnalyticsTransport | null): void {
+  firebaseTransport = t;
 }
 
 export function setAnalyticsConsent(enabled: boolean): void {
@@ -48,13 +57,15 @@ export function isAnalyticsEnabled(): boolean {
 /** Emit an allowlisted event. No-op unless consent is granted, a transport is
  *  configured, and the event is on the allowlist. */
 export function track(event: AllowedEvent): void {
-  if (!consent || !transport) return;
+  if (!consent) return;
   if (!ALLOWED.has(event)) return; // unreachable via types; guards JS callers
-  transport(event);
+  try { transport?.(event); } catch { /* telemetry must never block product flow */ }
+  try { firebaseTransport?.(event); } catch { /* telemetry must never block product flow */ }
 }
 
 /** Test/reset hook. */
 export function __resetAnalytics(): void {
   consent = false;
   transport = null;
+  firebaseTransport = null;
 }

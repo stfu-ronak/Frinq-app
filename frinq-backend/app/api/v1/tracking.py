@@ -18,6 +18,7 @@ ALLOWED_EVENTS = frozenset({
     "screen_view", "otp_requested", "otp_verified", "quiz_started",
     "quiz_completed", "result_viewed", "community_opened", "message_sent",
     "report_submitted", "block_created", "notification_opt_in", "account_deleted",
+    "event_viewed", "event_registration_opened",
 })
 
 

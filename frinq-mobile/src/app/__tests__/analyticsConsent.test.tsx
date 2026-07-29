@@ -14,6 +14,7 @@ jest.mock('../../storage/encryptedStorage', () => ({
 
 jest.mock('../../services/telemetry/analytics', () => ({
   setAnalyticsConsent: jest.fn(),
+  configureFirebaseAnalytics: jest.fn(),
 }));
 
 // AppProviders pulls in GestureHandlerRootView/NavigationContainer/SessionProvider

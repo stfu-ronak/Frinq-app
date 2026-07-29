@@ -73,6 +73,27 @@ async def test_ai_smoke_runs_deep_report_fixture(client, monkeypatch):
     assert "phone" not in seen["answers"]
 
 
+async def test_ai_smoke_runs_unified_summary_fixture(client, monkeypatch):
+    seen: dict[str, object] = {}
+
+    async def fake_generate(answers, *, model_config, usage_recorder):
+        seen["answers"] = answers
+        seen["config"] = model_config
+        return {"headline": "One clean result", "deep_summary": {"narrative": ["Clear."]}}
+
+    monkeypatch.setattr("app.api.v1.admin.generate_full_summary", fake_generate)
+    res = await client.post(
+        "/api/v1/admin/ai-test",
+        json={"step": "summary", "provider": "gemini", "model_id": "gemini-3.5-flash-lite", "effort": "low"},
+        headers=_ADMIN_ACTION_HEADERS,
+    )
+    assert res.status_code == 200
+    assert res.json()["step"] == "summary"
+    assert res.json()["result"]["headline"] == "One clean result"
+    assert seen["config"] == {"provider": "gemini", "model_id": "gemini-3.5-flash-lite", "effort": "low"}
+    assert "phone" not in seen["answers"]
+
+
 async def test_ai_config_patch_accepts_gemini(client, fake_pool: FakePool):
     fake_pool.store.fetchrow_handler = lambda query, args: {
         "step": args[0],

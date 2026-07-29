@@ -45,7 +45,7 @@ const NAV_ITEMS: { label: string; href: string; isActive: (pathname: string, tab
     href: "/?tab=journey",
     isActive: (p, t) => p === "/" && t === "journey",
   },
-  { label: "campaigns", href: "/rsvps", isActive: (p) => p === "/rsvps" },
+  { label: "events", href: "/events", isActive: (p) => p === "/events" },
   { label: "model config", href: "/model-config", isActive: (p) => p === "/model-config" },
   { label: "questions", href: "/questions", isActive: (p) => p === "/questions" },
 ];

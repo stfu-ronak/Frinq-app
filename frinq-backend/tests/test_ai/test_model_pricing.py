@@ -18,7 +18,7 @@ def test_is_known_model_true_for_every_catalog_entry():
 
 def test_gemini_and_gemma_models_are_selectable():
     for model_id in (
-        "gemini-3.6-flash",
+        "gemini-3-flash-preview",
         "gemini-3.5-flash-lite",
         "gemini-3.1-flash-lite",
         "gemma-4-31b-it",

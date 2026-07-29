@@ -72,3 +72,23 @@ body {
 }
 .frinq-input::placeholder { color: rgba(42, 24, 16, 0.35); }
 .frinq-input:focus { border-bottom-color: #7C1C0B; }
+
+.admin-button {
+  border: 1px solid rgba(42, 24, 16, 0.18);
+  color: #8B7355;
+  font-family: var(--font-motive), system-ui, sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  padding: 0.45rem 0.75rem;
+  text-transform: lowercase;
+}
+.admin-button:hover { color: #2A1810; }
+.admin-button-dark { background: #2A1810; border-color: #2A1810; color: #F5F0E8; }
+.admin-button-dark:hover { color: #F5F0E8; background: #7C1C0B; }
+.section-label {
+  color: #8B7355;
+  font-family: var(--font-motive), system-ui, sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}

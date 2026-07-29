@@ -18,14 +18,14 @@ async def test_gemini_3_uses_interactions_structured_output(httpx_mock, monkeypa
     usage: list[tuple[int, int]] = []
 
     result = await call_gemini_json(
-        system="system", user="user", model="gemini-3.6-flash", schema=SCHEMA,
+        system="system", user="user", model="gemini-3-flash-preview", schema=SCHEMA,
         effort="medium", usage_recorder=lambda i, o: usage.append((i, o)),
     )
 
     request = httpx_mock.get_requests()[0]
     payload = request.content.decode()
     assert request.headers["x-goog-api-key"] == "test-key"
-    assert '"model": "gemini-3.6-flash"' in payload
+    assert '"model": "gemini-3-flash-preview"' in payload
     assert '"response_format"' in payload
     assert '"mime_type": "application/json"' in payload
     assert "temperature" not in payload
@@ -62,4 +62,4 @@ async def test_gemma_uses_generate_content_and_extracts_usage(httpx_mock, monkey
 async def test_gemini_requires_backend_key(monkeypatch) -> None:
     monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
     with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
-        await call_gemini_json(system="system", user="user", model="gemini-3.6-flash", schema=SCHEMA)
+        await call_gemini_json(system="system", user="user", model="gemini-3-flash-preview", schema=SCHEMA)

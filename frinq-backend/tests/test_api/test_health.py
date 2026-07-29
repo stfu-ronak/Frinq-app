@@ -144,6 +144,36 @@ async def test_dependencies_status_never_affects_readiness_or_liveness(
     assert ready_res.status_code == 200
 
 
+async def test_observability_reports_dependency_latency_and_runtime_status(
+    monkeypatch: pytest.MonkeyPatch, client,
+) -> None:
+    monkeypatch.setattr(settings, "ADMIN_KEY", "test-admin-key")
+    pool = FakePool()
+    pool.store.fetchval_handler = lambda query, args: 1
+    monkeypatch.setattr(health, "_get_raw_pool", lambda: pool)
+    monkeypatch.setattr(health, "get_redis", lambda: _fake_redis(_FakeRedis(True)))
+
+    res = await client.get(
+        "/health/observability",
+        headers={"Authorization": "Bearer test-admin-key"},
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "ok"
+    assert body["checks"]["database"]["status"] == "ok"
+    assert isinstance(body["checks"]["database"]["latency_ms"], (int, float))
+    assert body["checks"]["redis"]["status"] == "ok"
+    assert isinstance(body["checks"]["redis"]["latency_ms"], (int, float))
+    assert body["runtime"]["deployment_version"] == settings.DEPLOYMENT_VERSION
+    assert body["runtime"]["checked_at"]
+
+
+async def test_observability_requires_admin_auth(client) -> None:
+    res = await client.get("/health/observability")
+    assert res.status_code == 401
+
+
 async def test_metrics_endpoint_requires_admin_auth(client) -> None:
     res = await client.get("/health/metrics")
     assert res.status_code == 401

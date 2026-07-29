@@ -8,8 +8,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 type Step = "insights" | "deep_report";
 const STEPS: { id: Step; label: string }[] = [
-  { id: "insights", label: "hero card / insights" },
-  { id: "deep_report", label: "deep report" },
+  { id: "insights", label: "primary · full summary + vibe card" },
+  { id: "deep_report", label: "safe fallback · full summary + vibe card" },
 ];
 
 interface ModelInfo {
@@ -59,6 +59,13 @@ interface UsageSummary {
   cost_this_week_usd: number;
   by_model: UsageByModel[];
   recent: UsageRecent[];
+}
+
+interface RuntimeSummary {
+  logical_generation: string;
+  primary: { provider: string; model_id: string; effort: string | null };
+  fallback: { provider: string; model_id: string; effort: string | null };
+  route: { active_route: string; primary_suppressed: boolean; cooldown_seconds: number; suppressed_until: string | null };
 }
 
 interface TestResult {
@@ -212,6 +219,7 @@ export function ModelConfigView({ adminKey, onRequestPassword, onWrongPassword }
 
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [usageError, setUsageError] = useState<string | null>(null);
+  const [runtime, setRuntime] = useState<RuntimeSummary | null>(null);
 
   const loadConfig = useCallback(async () => {
     if (!adminKey) return;
@@ -243,9 +251,24 @@ export function ModelConfigView({ adminKey, onRequestPassword, onWrongPassword }
     }
   }, [adminKey, logout]);
 
+  const loadRuntime = useCallback(async () => {
+    if (!adminKey) return;
+    try {
+      const res = await adminFetch(`${API_URL}/api/v1/admin/ai-runtime`, {}, { key: adminKey });
+      if (res.status === 401) { logout(); return; }
+      if (res.ok) setRuntime(await res.json());
+    } catch {
+      // Advisory poll; a transient status failure must not disable model controls.
+    }
+  }, [adminKey, logout]);
+
   useEffect(() => {
-    queueMicrotask(() => { loadConfig(); loadUsage(); });
-  }, [loadConfig, loadUsage]);
+    queueMicrotask(() => { loadConfig(); loadUsage(); loadRuntime(); });
+    const refresh = window.setInterval(() => {
+      if (document.visibilityState === "visible") { loadUsage(); loadRuntime(); }
+    }, 30_000);
+    return () => window.clearInterval(refresh);
+  }, [loadConfig, loadUsage, loadRuntime]);
 
   async function saveConfig(step: Step, provider: string, modelId: string, effort: string | null) {
     const pwd = await onRequestPassword();
@@ -269,7 +292,7 @@ export function ModelConfigView({ adminKey, onRequestPassword, onWrongPassword }
       }
       const updated: StepConfig = await res.json();
       setConfigs((prev) => (prev ? { ...prev, [step]: updated } : prev));
-      setFeedback(`${step === "insights" ? "hero card / insights" : "deep report"} model updated — takes effect for the next generation to start`);
+      setFeedback(`${step === "insights" ? "primary summary" : "safe fallback"} model updated — one combined generation call, next job onward`);
     } catch (e) {
       setFeedback(e instanceof Error ? e.message : "network error");
     } finally {
@@ -284,7 +307,7 @@ export function ModelConfigView({ adminKey, onRequestPassword, onWrongPassword }
     setTestingStep(step);
     try {
       const res = await adminFetch(`${API_URL}/api/v1/admin/ai-test`,
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ step, provider, model_id: modelId, effort }) },
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ step: "summary", provider, model_id: modelId, effort }) },
         { key: adminKey, pwd });
       if (res.status === 401) { logout(); return; }
       if (res.status === 403) { onWrongPassword(); setFeedback("wrong action password â€” try again"); return; }
@@ -306,7 +329,7 @@ export function ModelConfigView({ adminKey, onRequestPassword, onWrongPassword }
       <section>
         <p className="font-[family-name:var(--font-things)] text-[#2A1810] text-[15px] mb-1">generation models</p>
         <p className="font-[family-name:var(--font-motive)] text-[10px] text-[#8B7355] mb-5">
-          switching a model here only affects generations that haven&apos;t started yet — anything already in flight keeps running on whatever it started with.
+          Choose one primary model for the complete summary + vibe card. The safe fallback is used only after a primary failure or during its short cooldown.
         </p>
 
         {configError && <p className="font-[family-name:var(--font-motive)] text-[11px] text-[#7C1C0B] mb-4" role="alert">{configError}</p>}
@@ -319,6 +342,17 @@ export function ModelConfigView({ adminKey, onRequestPassword, onWrongPassword }
                 onSave={saveConfig} saving={savingStep === id}
                 onTest={testConnection} testing={testingStep === id} testResult={testResults[id] ?? null} />
             ))}
+          </div>
+        )}
+        {runtime && (
+          <div className="mt-4 border border-[rgba(42,24,16,0.12)] rounded-md p-4" role="status">
+            <p className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.14em] uppercase text-[#8B7355] mb-1">live route</p>
+            <p className="font-[family-name:var(--font-things)] text-[13px] text-[#2A1810]">
+              {runtime.route.active_route === "primary" ? "primary active" : "fallback active — primary cooling down"}
+            </p>
+            <p className="font-[family-name:var(--font-motive)] text-[10px] text-[rgba(42,24,16,0.55)] mt-1">
+              One model generates the complete summary and vibe card. Fallback cooldown: {runtime.route.cooldown_seconds}s.
+            </p>
           </div>
         )}
       </section>

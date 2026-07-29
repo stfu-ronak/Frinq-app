@@ -14,6 +14,8 @@ endpoint that never gates readiness.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
+from time import perf_counter
 from typing import Any
 
 from fastapi import APIRouter, Depends, Response
@@ -72,6 +74,36 @@ async def ready(response: Response) -> dict[str, Any]:
         "checks": {
             "database": "ok" if db_ok else "error",
             "redis": "ok" if redis_ok else "error",
+        },
+    }
+
+
+async def _timed_check(check) -> dict[str, Any]:
+    started = perf_counter()
+    try:
+        healthy = await check()
+    except Exception:  # noqa: BLE001 - health endpoint must not fail closed
+        healthy = False
+    return {
+        "status": "ok" if healthy else "error",
+        "latency_ms": round((perf_counter() - started) * 1000, 1),
+    }
+
+
+@router.get("/observability", dependencies=[Depends(require_admin)])
+async def observability() -> dict[str, Any]:
+    """Return admin-facing dependency health without exposing secrets."""
+    database, redis = await asyncio.gather(
+        _timed_check(_database_ready),
+        _timed_check(_redis_ready),
+    )
+    overall = "ok" if database["status"] == "ok" and redis["status"] == "ok" else "degraded"
+    return {
+        "status": overall,
+        "checks": {"database": database, "redis": redis},
+        "runtime": {
+            "deployment_version": settings.DEPLOYMENT_VERSION,
+            "checked_at": datetime.now(timezone.utc).isoformat(),
         },
     }
 

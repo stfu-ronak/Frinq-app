@@ -15,9 +15,11 @@ import { DeleteAccountScreen } from '../features/settings/screens/DeleteAccountS
 import { LegalDocumentScreen, LegalDocKey } from '../features/legal/screens/LegalDocumentScreen';
 import { LegalHubScreen } from '../features/legal/screens/LegalHubScreen';
 import { SupportScreen } from '../features/legal/screens/SupportScreen';
+import { EventsScreen } from '../features/events/screens/EventsScreen';
 
 export type MainTabParamList = {
   Community: undefined;
+  Events: undefined;
   Profile: undefined;
 };
 
@@ -73,6 +75,7 @@ export function MainTabs() {
       }}
     >
       <Tabs.Screen name="Community" component={CommunityScreen} />
+      <Tabs.Screen name="Events" component={EventsScreen} />
       <Tabs.Screen name="Profile" component={ProfileNavigator} />
     </Tabs.Navigator>
   );

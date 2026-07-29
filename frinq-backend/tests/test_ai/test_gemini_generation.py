@@ -44,11 +44,11 @@ async def test_gemini_provider_generates_normalized_insights(monkeypatch) -> Non
     monkeypatch.setattr(gemini_client, "call_gemini_json", fake_call)
     result = await generate_insights(
         _answers(),
-        model_config={"provider": "gemini", "model_id": "gemini-3.6-flash", "effort": "medium"},
+        model_config={"provider": "gemini", "model_id": "gemini-3-flash-preview", "effort": "medium"},
     )
 
     assert result["share_card"]["archetype_slug"] == "quiet-storm"
-    assert calls[0]["model"] == "gemini-3.6-flash"
+    assert calls[0]["model"] == "gemini-3-flash-preview"
     assert "8000000001" not in calls[0]["user"]
 
 

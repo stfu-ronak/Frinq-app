@@ -54,6 +54,7 @@ export function ChatBrowserView({ adminKey, onRequestPassword, onWrongPassword }
   const [loadingMore, setLoadingMore] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const [lastSync, setLastSync] = useState<Date | null>(null);
 
   const [actionBusy, setActionBusy] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
@@ -101,6 +102,25 @@ export function ChatBrowserView({ adminKey, onRequestPassword, onWrongPassword }
     }
   }, [adminKey, logout]);
 
+  const refreshLatest = useCallback(async (s: string) => {
+    if (!s || document.visibilityState !== "visible") return;
+    try {
+      const res = await adminFetch(`${API_URL}/api/v1/admin/communities/${s}/messages?limit=50`, {}, { key: adminKey });
+      if (res.status === 401) { logout(); return; }
+      if (!res.ok) return;
+      const data = await res.json();
+      const batch: MessageRow[] = data.messages || [];
+      setMessages((previous) => {
+        const byId = new Map<number, MessageRow>();
+        [...previous, ...batch].forEach((message) => byId.set(message.id, message));
+        return Array.from(byId.values()).sort((a, b) => b.id - a.id);
+      });
+      setLastSync(new Date());
+    } catch {
+      // Background sync is best-effort; visible list remains usable.
+    }
+  }, [adminKey, logout]);
+
   useEffect(() => {
     if (!slug) return;
     queueMicrotask(() => {
@@ -109,6 +129,17 @@ export function ChatBrowserView({ adminKey, onRequestPassword, onWrongPassword }
       loadMessages(slug);
     });
   }, [slug, loadMessages]);
+
+  useEffect(() => {
+    if (!slug) return;
+    const poll = () => { void refreshLatest(slug); };
+    const interval = window.setInterval(poll, 5000);
+    document.addEventListener("visibilitychange", poll);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", poll);
+    };
+  }, [slug, refreshLatest]);
 
   async function runAction(path: string, body: Record<string, unknown>, successMsg: string, onOk?: () => void) {
     const pwd = await onRequestPassword();
@@ -181,6 +212,7 @@ export function ChatBrowserView({ adminKey, onRequestPassword, onWrongPassword }
           className="font-[family-name:var(--font-motive)] text-[11px] px-2.5 py-1.5 border border-[rgba(42,24,16,0.18)] text-[#8B7355] hover:text-[#2A1810] disabled:opacity-40">
           {loading ? "refreshing…" : "refresh"}
         </button>
+        {lastSync && <span className="font-[family-name:var(--font-motive)] text-[9px] text-[rgba(42,24,16,0.35)]">live · {lastSync.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>}
       </div>
 
       {communitiesError && <p className="font-[family-name:var(--font-motive)] text-[11px] text-[#7C1C0B] mb-4">{communitiesError}</p>}

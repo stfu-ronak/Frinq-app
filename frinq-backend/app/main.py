@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from app.api.v1 import admin as admin_routes
 from app.api.v1 import auth as auth_routes
 from app.api.v1 import communities as communities_routes
+from app.api.v1 import events as events_routes
 from app.api.v1 import health as health_routes
 from app.api.v1 import legal as legal_routes
 from app.api.v1 import moderation as moderation_routes
@@ -154,6 +155,7 @@ app.add_middleware(
 
 app.include_router(auth_routes.router, prefix=API_V1_PREFIX)
 app.include_router(communities_routes.router, prefix=API_V1_PREFIX)
+app.include_router(events_routes.router, prefix=API_V1_PREFIX)
 app.include_router(legal_routes.router, prefix=API_V1_PREFIX)
 app.include_router(moderation_routes.router, prefix=API_V1_PREFIX)
 app.include_router(otp_routes.router, prefix=API_V1_PREFIX)

@@ -2,6 +2,7 @@ import {
   track,
   setAnalyticsConsent,
   configureAnalytics,
+  configureFirebaseAnalytics,
   isAnalyticsEnabled,
   __resetAnalytics,
   AllowedEvent,
@@ -41,6 +42,19 @@ describe('analytics consent gate', () => {
   it('does not send when no transport is configured', () => {
     setAnalyticsConsent(true);
     expect(() => track('otp_verified')).not.toThrow();
+  });
+
+  it('sends one allowlisted event to backend and Firebase after consent', () => {
+    const backend: AllowedEvent[] = [];
+    const firebase: AllowedEvent[] = [];
+    configureAnalytics((event) => backend.push(event));
+    configureFirebaseAnalytics((event) => firebase.push(event));
+    setAnalyticsConsent(true);
+
+    track('quiz_completed');
+
+    expect(backend).toEqual(['quiz_completed']);
+    expect(firebase).toEqual(['quiz_completed']);
   });
 });
 

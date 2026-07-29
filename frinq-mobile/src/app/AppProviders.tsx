@@ -1,15 +1,22 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import firebaseAnalytics from '@react-native-firebase/analytics';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StyleSheet } from 'react-native';
 import { AppErrorBoundary } from './AppErrorBoundary';
-import { setAnalyticsConsent } from '../services/telemetry/analytics';
+import { configureFirebaseAnalytics, setAnalyticsConsent } from '../services/telemetry/analytics';
 import { SessionProvider } from '../services/session/sessionContext';
 import { getEncryptedStore } from '../storage/encryptedStorage';
 
 const ANALYTICS_CONSENT_KEY = 'analytics_consent';
+
+configureFirebaseAnalytics((event) => {
+  void firebaseAnalytics().logEvent(event).catch(() => {
+    // Analytics failure must never block app flow.
+  });
+});
 
 /** Analytics consent context. Off by default; toggled from Settings (Task 35).
  *  Setting it here is the single source that gates `track()`. Persisted (not
@@ -26,12 +33,14 @@ export function AnalyticsConsentProvider({ children }: { children: React.ReactNo
 
   useEffect(() => {
     let cancelled = false;
+    void firebaseAnalytics().setAnalyticsCollectionEnabled(false).catch(() => {});
     (async () => {
       const store = await getEncryptedStore();
       const stored = store.getString(ANALYTICS_CONSENT_KEY) === '1';
       if (!cancelled && stored) {
         setEnabledState(true);
         setAnalyticsConsent(true);
+        void firebaseAnalytics().setAnalyticsCollectionEnabled(true).catch(() => {});
       }
     })();
     return () => {
@@ -45,6 +54,7 @@ export function AnalyticsConsentProvider({ children }: { children: React.ReactNo
       setEnabled: (v: boolean) => {
         setEnabledState(v);
         setAnalyticsConsent(v);
+        void firebaseAnalytics().setAnalyticsCollectionEnabled(v).catch(() => {});
         getEncryptedStore().then((store) => store.set(ANALYTICS_CONSENT_KEY, v ? '1' : '0'));
       },
     }),

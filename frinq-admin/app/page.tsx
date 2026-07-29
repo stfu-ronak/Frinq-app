@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, Fragment, Suspense } from "react";
+import { useState, useEffect, useCallback, Fragment, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { adminFetch } from "@/app/lib/adminFetch";
 import { useAdminAuth, NAV_HEIGHT_PX } from "@/app/components/AdminShell";
@@ -150,6 +150,21 @@ interface Analytics {
   cities: { city: string; count: number }[];
   social_types: { type: string; count: number }[];
   funnel: { step: string; count: number }[];
+  engagement: {
+    tracking_events_30d: number;
+    tracking_sessions_30d: number;
+    messages_30d: number;
+    active_chat_users_30d: number;
+    top_actions: { action: string; count: number }[];
+  };
+}
+interface Observability {
+  status: "ok" | "degraded";
+  checks: {
+    database: { status: "ok" | "error"; latency_ms: number };
+    redis: { status: "ok" | "error"; latency_ms: number };
+  };
+  runtime: { deployment_version: string; checked_at: string };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -183,6 +198,31 @@ function Stat({ label, value, sub, color }: { label: string; value: string | num
       <p className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.18em] text-[#8B7355] uppercase">{label}</p>
       <p className="font-[family-name:var(--font-things)] text-2xl" style={{ color: color || "#2A1810" }}>{value}</p>
       {sub && <p className="font-[family-name:var(--font-motive)] text-[9px] text-[#8B7355] tracking-[0.08em]">{sub}</p>}
+    </div>
+  );
+}
+
+function SystemHealth({ health }: { health: Observability | null }) {
+  if (!health) return null;
+  const check = (label: string, item: { status: string; latency_ms: number }) => (
+    <div className="flex items-center justify-between gap-4 py-2 border-b border-[rgba(42,24,16,0.05)] last:border-0">
+      <span className="font-[family-name:var(--font-motive)] text-[10px] text-[#8B7355] uppercase tracking-[0.12em]">{label}</span>
+      <span className={`font-[family-name:var(--font-motive)] text-[10px] ${item.status === "ok" ? "text-[#2A7810]" : "text-[#7C1C0B]"}`}>
+        {item.status} · {item.latency_ms}ms
+      </span>
+    </div>
+  );
+  return (
+    <div className="bg-white/50 border border-[rgba(42,24,16,0.08)] p-5">
+      <div className="flex items-center justify-between mb-2">
+        <p className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.18em] text-[#8B7355] uppercase">system health</p>
+        <span className={`font-[family-name:var(--font-motive)] text-[10px] uppercase ${health.status === "ok" ? "text-[#2A7810]" : "text-[#7C1C0B]"}`}>{health.status}</span>
+      </div>
+      {check("database", health.checks.database)}
+      {check("redis", health.checks.redis)}
+      <p className="font-[family-name:var(--font-motive)] text-[8px] text-[rgba(42,24,16,0.35)] mt-3">
+        {health.runtime.deployment_version} · checked {fmt(health.runtime.checked_at)}
+      </p>
     </div>
   );
 }
@@ -681,10 +721,15 @@ interface TrackingEvent {
   data: unknown;
   created_at: string;
 }
+interface JourneySummary {
+  sessions: number;
+  actions: Record<string, number>;
+}
 
 function JourneyView({ adminKey }: { adminKey: string }) {
   const [search, setSearch] = useState("");
   const [events, setEvents] = useState<TrackingEvent[] | null>(null);
+  const [summary, setSummary] = useState<JourneySummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -705,6 +750,7 @@ function JourneyView({ adminKey }: { adminKey: string }) {
       if (!res.ok) throw new Error("failed");
       const data = await res.json();
       setEvents(data.events);
+      setSummary(data.summary ?? null);
     } catch {
       setError("could not load events");
     } finally {
@@ -745,24 +791,31 @@ function JourneyView({ adminKey }: { adminKey: string }) {
       {events && events.length > 0 && (
         <div>
           <p className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.18em] text-[#8B7355] mb-4 uppercase">
-            {events.length} events · {events[0]?.name || events[0]?.phone || "—"}
+            {events.length} events · {summary?.sessions ?? 0} sessions · {events[0]?.name || events[0]?.phone || "—"}
           </p>
-          <div className="border border-[rgba(42,24,16,0.08)] bg-white/50">
-            {events.map((evt) => (
-              <div key={evt.id} className="flex gap-4 px-4 py-3 border-b border-[rgba(42,24,16,0.05)] last:border-0">
-                <span className="font-[family-name:var(--font-motive)] text-[9px] text-[#8B7355] flex-shrink-0 w-28 pt-0.5">
-                  {new Date(evt.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
-                </span>
-                <span
-                  className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.12em] uppercase flex-shrink-0 w-16 pt-0.5"
-                  style={{ color: ACTION_COLOR[evt.action] ?? "#2A1810" }}
-                >
-                  {evt.action}
-                </span>
-                <span className="font-[family-name:var(--font-things)] text-[#2A1810] text-[13px] flex-1 min-w-0">
-                  {evt.page}
-                  {evt.element ? <span className="text-[#8B7355] ml-1">→ {evt.element}</span> : null}
-                </span>
+          <div className="flex flex-col gap-3">
+            {Array.from(new Map(events.map(evt => [evt.session_id, events.filter(item => item.session_id === evt.session_id)])).entries()).map(([sessionId, sessionEvents]) => (
+              <div key={sessionId} className="border border-[rgba(42,24,16,0.08)] bg-white/50">
+                <p className="px-4 py-2 border-b border-[rgba(42,24,16,0.08)] font-[family-name:var(--font-motive)] text-[9px] tracking-[0.12em] text-[#8B7355] uppercase">
+                  session {sessionId.slice(0, 12)} · {sessionEvents.length} events
+                </p>
+                {sessionEvents.map((evt) => (
+                  <div key={evt.id} className="flex gap-4 px-4 py-3 border-b border-[rgba(42,24,16,0.05)] last:border-0">
+                    <span className="font-[family-name:var(--font-motive)] text-[9px] text-[#8B7355] flex-shrink-0 w-28 pt-0.5">
+                      {evt.created_at ? new Date(evt.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}
+                    </span>
+                    <span
+                      className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.12em] uppercase flex-shrink-0 w-24 pt-0.5"
+                      style={{ color: ACTION_COLOR[evt.action] ?? "#2A1810" }}
+                    >
+                      {evt.action}
+                    </span>
+                    <span className="font-[family-name:var(--font-things)] text-[#2A1810] text-[13px] flex-1 min-w-0">
+                      {evt.page}
+                      {evt.element ? <span className="text-[#8B7355] ml-1">→ {evt.element}</span> : null}
+                    </span>
+                  </div>
+                ))}
               </div>
             ))}
           </div>
@@ -829,11 +882,12 @@ function DropoffFunnel({ funnel }: { funnel: Analytics["funnel"] }) {
   );
 }
 
-function OverviewView({ analytics: a, submissions }: { analytics: Analytics; submissions: Submission[] }) {
+function OverviewView({ analytics: a, submissions, health }: { analytics: Analytics; submissions: Submission[]; health: Observability | null }) {
   const t = a.totals;
   const r = a.rates;
   return (
     <div className="flex flex-col gap-6">
+      <SystemHealth health={health} />
       {/* Row 1: core counts */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Stat label="total users" value={t.all_submissions} sub={delta(t.week_delta)} />
@@ -1128,7 +1182,7 @@ function UsersView({ submissions, adminKey, onRetry, onDelete, onBulkDelete, onR
                     <tr key={`${s.id}-detail`} className="border-b border-[rgba(42,24,16,0.08)]">
                       <td colSpan={9} className="p-0">
                         <UserDetail s={s} adminKey={adminKey}
-                          onRetry={id => { setExpanded(null); void id; }}
+                          onRetry={onRetry}
                           onRequestPassword={onRequestPassword}
                           onFlagsChanged={onFlagsChanged}
                         />
@@ -1161,6 +1215,20 @@ function AnalyticsView({ analytics: a }: { analytics: Analytics }) {
         <Stat label="instagram provided" value={t.instagram_verified} sub={`${Math.round(t.instagram_verified / Math.max(t.complete, 1) * 100)}% of complete`} />
         <Stat label="this vs last week" value={t.week_delta >= 0 ? `+${t.week_delta}` : `${t.week_delta}`} color={t.week_delta >= 0 ? "#2A7810" : "#7C1C0B"} />
       </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Stat label="app events · 30d" value={a.engagement.tracking_events_30d} />
+        <Stat label="app sessions · 30d" value={a.engagement.tracking_sessions_30d} />
+        <Stat label="chat messages · 30d" value={a.engagement.messages_30d} />
+        <Stat label="chat users · 30d" value={a.engagement.active_chat_users_30d} />
+      </div>
+
+      {a.engagement.top_actions.length > 0 && (
+        <div className="bg-white/50 border border-[rgba(42,24,16,0.08)] p-5">
+          <p className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.18em] text-[#8B7355] mb-4 uppercase">top app actions · 30 days</p>
+          <BarChart data={a.engagement.top_actions as Record<string, unknown>[]} labelKey="action" valueKey="count" color="#2A7810" />
+        </div>
+      )}
 
       {/* City */}
       {a.cities.length > 0 && (
@@ -1276,11 +1344,12 @@ function AdminPageInner() {
 
   const [error, setError] = useState("");
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [observability, setObservability] = useState<Observability | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
-  const [autoRefresh, setAutoRefresh] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const autoRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [usersRefreshing, setUsersRefreshing] = useState(false);
+  const [usersLastRefresh, setUsersLastRefresh] = useState<Date | null>(null);
 
   // Cached action password — once user enters correctly for any
   // destructive action this session, we re-use it for the rest
@@ -1328,6 +1397,37 @@ function AdminPageInner() {
     }
   }, [logout]);
 
+  const fetchUsers = useCallback(async (k: string, silent = false): Promise<boolean | null> => {
+    if (!silent) setUsersRefreshing(true);
+    try {
+      const res = await adminFetch(`${API_URL}/api/v1/admin/submissions?limit=500`, {}, { key: k });
+      if (res.status === 401) { setError("invalid key"); logout(); return false; }
+      if (!res.ok) { setError("could not refresh users"); return null; }
+      const data = await res.json();
+      setSubmissions(data.submissions || []);
+      setUsersLastRefresh(new Date());
+      setError("");
+      return true;
+    } catch {
+      if (!silent) setError("could not reach backend");
+      return null;
+    } finally {
+      setUsersRefreshing(false);
+    }
+  }, [logout]);
+
+  const fetchObservability = useCallback(async (k: string): Promise<boolean | null> => {
+    try {
+      const res = await adminFetch(`${API_URL}/health/observability`, {}, { key: k });
+      if (res.status === 401) { setError("invalid key"); logout(); return false; }
+      if (!res.ok) return null;
+      setObservability(await res.json());
+      return true;
+    } catch {
+      return null;
+    }
+  }, [logout]);
+
   // AdminShell (app/components/AdminShell.tsx) owns the login gate — this
   // page only ever mounts once adminKey is known-valid, so it just loads
   // its own data once on mount instead of re-verifying the key itself.
@@ -1337,12 +1437,30 @@ function AdminPageInner() {
   }, [adminKey]);
 
   useEffect(() => {
-    if (autoRef.current) clearInterval(autoRef.current);
-    if (autoRefresh) {
-      autoRef.current = setInterval(() => fetchData(adminKey, true), 60000);
-    }
-    return () => { if (autoRef.current) clearInterval(autoRef.current); };
-  }, [autoRefresh, fetchData, adminKey]);
+    queueMicrotask(() => { void fetchObservability(adminKey); });
+  }, [adminKey, fetchObservability]);
+
+  const usersTabOpen = tab === "users" || tab === "testing" || tab === "accounts";
+
+  useEffect(() => {
+    if (!usersTabOpen) return;
+
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") void fetchUsers(adminKey, true);
+    };
+    refreshIfVisible();
+    const interval = window.setInterval(refreshIfVisible, 10 * 60 * 1000);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+    };
+  }, [usersTabOpen, fetchUsers, adminKey]);
+
+  const handleRefresh = useCallback(() => {
+    if (usersTabOpen) void fetchUsers(adminKey);
+    else void fetchData(adminKey);
+  }, [usersTabOpen, fetchUsers, fetchData, adminKey]);
 
   async function exportCSV() {
     // Fetch with header auth + trigger download via a synthetic anchor.
@@ -1458,23 +1576,17 @@ function AdminPageInner() {
           )}
         </div>
         <div className="flex items-center gap-4">
-          {lastRefresh && (
+          {(usersTabOpen ? usersLastRefresh : lastRefresh) && (
             <span className="font-[family-name:var(--font-motive)] text-[9px] text-[rgba(42,24,16,0.35)] hidden md:block">
-              refreshed {lastRefresh.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+              refreshed {(usersTabOpen ? usersLastRefresh : lastRefresh)!.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
             </span>
           )}
           <button
-            onClick={() => setAutoRefresh(v => !v)}
-            className={`font-[family-name:var(--font-motive)] text-[9px] tracking-[0.1em] px-2.5 py-1 border transition-colors ${autoRefresh ? "bg-[#2A1810] text-[#F5F0E8] border-[#2A1810]" : "border-[rgba(42,24,16,0.18)] text-[#8B7355]"}`}
-          >
-            auto-refresh
-          </button>
-          <button
-            onClick={() => fetchData(adminKey)}
-            disabled={refreshing}
+            onClick={handleRefresh}
+            disabled={usersTabOpen ? usersRefreshing : refreshing}
             className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.1em] px-2.5 py-1 border border-[rgba(42,24,16,0.18)] text-[#8B7355] hover:text-[#2A1810] transition-colors disabled:opacity-40"
           >
-            {refreshing ? "refreshing..." : "refresh"}
+            {(usersTabOpen ? usersRefreshing : refreshing) ? "refreshing..." : "refresh"}
           </button>
           <button
             onClick={exportCSV}
@@ -1499,10 +1611,10 @@ function AdminPageInner() {
 
       {/* Content */}
       <main className="px-6 py-6 max-w-5xl mx-auto">
-        {analytics && tab === "overview" && <OverviewView analytics={analytics} submissions={submissions} />}
+        {analytics && tab === "overview" && <OverviewView analytics={analytics} submissions={submissions} health={observability} />}
         {tab === "users" && (
           <UsersView mode="users" submissions={submissions} adminKey={adminKey}
-            onRetry={() => fetchData(adminKey, true)}
+            onRetry={() => { void fetchUsers(adminKey, true); }}
             onDelete={deleteSubmission}
             onBulkDelete={bulkDelete}
             onRequestPassword={requestPassword}
@@ -1512,7 +1624,7 @@ function AdminPageInner() {
         )}
         {tab === "testing" && (
           <UsersView mode="testing" submissions={submissions} adminKey={adminKey}
-            onRetry={() => fetchData(adminKey, true)}
+            onRetry={() => { void fetchUsers(adminKey, true); }}
             onDelete={deleteSubmission}
             onBulkDelete={bulkDelete}
             onRequestPassword={requestPassword}

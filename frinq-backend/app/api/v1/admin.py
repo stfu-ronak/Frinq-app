@@ -6,6 +6,7 @@ import csv
 import hmac
 import io
 import json
+from collections import Counter
 from datetime import datetime, timezone
 from time import time
 from typing import Any
@@ -20,9 +21,12 @@ import asyncio
 
 from app.api.deps import get_pool
 from app.api.deps import require_admin as _require_admin
+from app.api.v1.events import EventPayload, _EVENT_COLUMNS, serialize_event
 from app.config import settings
 from app.core.ai.insights import generate_insights
-from app.core.ai.model_config import InvalidModelConfigError, get_all_model_configs, set_model_config
+from app.core.ai import failover
+from app.core.ai.full_summary import generate_full_summary
+from app.core.ai.model_config import InvalidModelConfigError, get_active_model_config, get_all_model_configs, set_model_config
 from app.core.ai.model_pricing import MODEL_INFO, compute_cost, effort_supported, get_model_info, is_known_model, resolve_model_id
 from app.core.ai.openai_client import generate_deep_report
 from app.core.quiz_config import InvalidQuizConfigError, get_active_quiz_config, set_quiz_config
@@ -585,6 +589,58 @@ async def resend_whatsapp(
 
 # ─── Analytics ────────────────────────────────────────────────────────────────
 
+# ── Events ────────────────────────────────────────────────────────────────────
+
+@router.get("/events", dependencies=[Depends(_require_admin)])
+async def list_events(pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any]:
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""SELECT {_EVENT_COLUMNS} FROM events
+                ORDER BY starts_at ASC, sort_order ASC, created_at ASC"""
+        )
+    return {"events": [serialize_event(row) for row in rows]}
+
+
+@router.post("/events", dependencies=[Depends(_require_admin)])
+async def create_event(payload: EventPayload, pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any]:
+    values = payload.model_dump()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"""INSERT INTO events
+                (image_url, name, quote, details, registration_url, starts_at, ends_at, sort_order, status)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                RETURNING {_EVENT_COLUMNS}""",
+            values["image_url"], values["name"], values["quote"], values["details"],
+            values["registration_url"], values["starts_at"], values["ends_at"],
+            values["sort_order"], values["status"],
+        )
+    return {"event": serialize_event(row)}
+
+
+@router.patch("/events/{event_id}", dependencies=[Depends(_require_admin)])
+async def update_event(
+    event_id: UUID,
+    payload: EventPayload,
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> dict[str, Any]:
+    values = payload.model_dump()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"""UPDATE events SET
+                image_url = $2, name = $3, quote = $4, details = $5,
+                registration_url = $6, starts_at = $7, ends_at = $8,
+                sort_order = $9, status = $10, updated_at = now()
+                WHERE id = $1
+                RETURNING {_EVENT_COLUMNS}""",
+            event_id, values["image_url"], values["name"], values["quote"], values["details"],
+            values["registration_url"], values["starts_at"], values["ends_at"],
+            values["sort_order"], values["status"],
+        )
+    if row is None:
+        raise HTTPException(status_code=404, detail="event not found")
+    return {"event": serialize_event(row)}
+
+
 @router.get("/analytics", dependencies=[Depends(_require_admin)])
 async def get_analytics(pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any]:
     global _analytics_cache, _analytics_cache_ts
@@ -676,6 +732,31 @@ async def get_analytics(pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any
                WHERE answers->>'instagram' IS NOT NULL AND answers->>'instagram' != ''"""
         ) or 0
 
+        # App and community engagement (last 30 days)
+        tracking_events_30d = await conn.fetchval(
+            """SELECT COUNT(*) FROM tracking_events
+               WHERE created_at > now() - interval '30 days'"""
+        ) or 0
+        tracking_sessions_30d = await conn.fetchval(
+            """SELECT COUNT(DISTINCT session_id) FROM tracking_events
+               WHERE created_at > now() - interval '30 days'"""
+        ) or 0
+        messages_30d = await conn.fetchval(
+            """SELECT COUNT(*) FROM messages
+               WHERE deleted_at IS NULL AND created_at > now() - interval '30 days'"""
+        ) or 0
+        active_chat_users_30d = await conn.fetchval(
+            """SELECT COUNT(DISTINCT user_id) FROM messages
+               WHERE deleted_at IS NULL AND user_id IS NOT NULL
+                 AND created_at > now() - interval '30 days'"""
+        ) or 0
+        top_actions = await conn.fetch(
+            """SELECT action, COUNT(*) as count
+               FROM tracking_events
+               WHERE created_at > now() - interval '30 days'
+               GROUP BY action ORDER BY count DESC LIMIT 20"""
+        )
+
         # Funnel: infer page completion from which answer keys exist
         funnel_fields = [
             ("name",         "answers->>'name' IS NOT NULL AND answers->>'name' != ''"),
@@ -725,6 +806,15 @@ async def get_analytics(pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any
         },
         "timing": {
             "avg_ai_seconds": round(float(avg_seconds), 1) if avg_seconds else None,
+        },
+        "engagement": {
+            "tracking_events_30d": int(tracking_events_30d),
+            "tracking_sessions_30d": int(tracking_sessions_30d),
+            "messages_30d": int(messages_30d),
+            "active_chat_users_30d": int(active_chat_users_30d),
+            "top_actions": [
+                {"action": r["action"], "count": int(r["count"])} for r in top_actions
+            ],
         },
         "daily_last_30": [
             {"day": str(r["day"]), "submissions": int(r["submissions"]), "completions": int(r["completions"])}
@@ -783,13 +873,21 @@ async def get_user_journey(
             "page": row["page"],
             "action": row["action"],
             "element": row["element"],
-            "data": dict(row["data"]) if row["data"] else None,
             "created_at": row["created_at"].isoformat() if row["created_at"] else None,
         }
         for row in rows
     ]
+    action_counts = Counter(event["action"] for event in events)
+    session_count = len({event["session_id"] for event in events if event["session_id"]})
 
-    return {"events": events, "count": len(events)}
+    return {
+        "events": events,
+        "count": len(events),
+        "summary": {
+            "sessions": session_count,
+            "actions": dict(action_counts),
+        },
+    }
 
 
 # ─── Voice clips ──────────────────────────────────────────────────────────────
@@ -1909,7 +2007,7 @@ class AiTestRequest(BaseModel):
 
     model_config = {"protected_namespaces": ()}
 
-    step: str = Field(pattern="^(insights|deep_report)$")
+    step: str = Field(pattern="^(summary|insights|deep_report)$")
     provider: str = Field(pattern="^(openai|claude|gemini)$")
     model_id: str
     effort: str | None = None
@@ -1967,7 +2065,11 @@ async def test_ai_connection(
     recorder = _make_admin_usage_recorder(pool, body.step, config)
     started = time()
     try:
-        if body.step == "insights":
+        if body.step == "summary":
+            result = await generate_full_summary(
+                dict(_AI_TEST_ANSWERS), model_config=config, usage_recorder=recorder,
+            )
+        elif body.step == "insights":
             result = await generate_insights(
                 dict(_AI_TEST_ANSWERS), model_config=config, usage_recorder=recorder,
             )
@@ -2020,6 +2122,21 @@ async def get_ai_config(pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any
             }
             for model_id, info in MODEL_INFO.items()
         ],
+    }
+
+
+@router.get("/ai-runtime", dependencies=[Depends(_require_admin)])
+async def get_ai_runtime(pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any]:
+    """Return the active logical route without provider keys or raw output."""
+    async with pool.acquire() as conn:
+        primary = await get_active_model_config(conn, "insights")
+        fallback = await get_active_model_config(conn, "deep_report")
+    state = await failover.get_status(primary["provider"], primary["model_id"])
+    return {
+        "logical_generation": "summary_and_vibe_card",
+        "primary": {"provider": primary["provider"], "model_id": primary["model_id"], "effort": primary["effort"]},
+        "fallback": {"provider": fallback["provider"], "model_id": fallback["model_id"], "effort": fallback["effort"]},
+        "route": state,
     }
 
 

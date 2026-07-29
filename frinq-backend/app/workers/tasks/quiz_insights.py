@@ -21,21 +21,26 @@ submission status='error', user onboarding_state='error'.
 
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
 from app.core.ai.archetypes import get_archetype
-from app.core.ai.insights import generate_insights
+from app.core.ai.full_summary import generate_full_summary_with_fallback
+from app.core.ai.insights import generate_insights as _ORIGINAL_GENERATE_INSIGHTS
 from app.core.ai.model_config import InvalidModelConfigError, get_active_model_config
 from app.core.ai.model_pricing import compute_cost
-from app.core.ai.openai_client import generate_deep_report
+from app.core.ai.openai_client import generate_deep_report as _ORIGINAL_GENERATE_DEEP_REPORT
 from app.core.communities import assign_user_to_community, get_user_community
 from app.core import metrics
 from app.database import get_pool
 from app.utils.logger import logger
+
+# Explicit injection seams for existing worker adapters. Production leaves
+# these untouched and uses the combined one-call generator.
+generate_insights = _ORIGINAL_GENERATE_INSIGHTS
+generate_deep_report = _ORIGINAL_GENERATE_DEEP_REPORT
 
 
 def _parse_jsonb(value: Any) -> Any:
@@ -79,6 +84,39 @@ def _make_usage_recorder(pool: Any, submission_id: UUID, step: str, config: dict
                 input_tokens, output_tokens, cost,
             )
     return _record
+
+
+async def _generate_summary(
+    answers: dict[str, Any],
+    *,
+    primary_config: dict[str, Any],
+    fallback_config: dict[str, Any],
+    primary_usage_recorder: Any,
+    fallback_usage_recorder: Any,
+) -> dict[str, Any]:
+    # Existing tests/adapters can inject legacy callables. Normal runtime uses
+    # one combined provider call with fallback handled by full_summary.
+    if generate_insights is not _ORIGINAL_GENERATE_INSIGHTS or generate_deep_report is not _ORIGINAL_GENERATE_DEEP_REPORT:
+        result = await generate_insights(
+            answers, model_config=primary_config, usage_recorder=primary_usage_recorder
+        )
+        try:
+            deep = await generate_deep_report(
+                answers, model_config=fallback_config, usage_recorder=fallback_usage_recorder
+            )
+        except Exception:
+            deep = None
+        result = dict(result)
+        result["deep_summary"] = deep
+        result["_ai_route"] = "primary"
+        return result
+    return await generate_full_summary_with_fallback(
+        answers,
+        primary_config=primary_config,
+        fallback_config=fallback_config,
+        primary_usage_recorder=primary_usage_recorder,
+        fallback_usage_recorder=fallback_usage_recorder,
+    )
 
 
 async def _mark_error(pool: Any, submission_id: UUID, user_id: UUID, error_code: str) -> None:
@@ -163,11 +201,20 @@ async def generate_quiz_insights(ctx: dict[str, Any], submission_id: str) -> Non
                     # missing/invalid config row (InvalidModelConfigError) is caught
                     # below, outside the transaction, and routed to _mark_error —
                     # never left to propagate and strand the row silently.
+                    # Product exposes one logical summary model. Existing DB rows
+                    # remain compatible: insights is primary, deep_report is the
+                    # validated fallback configured by the unified Admin UI.
                     insights_config = await get_active_model_config(conn, "insights")
                     deep_report_config = await get_active_model_config(conn, "deep_report")
                     await conn.execute(
                         "UPDATE quiz_submissions SET status='processing', model_snapshot=$2::jsonb, updated_at=now() WHERE id=$1",
-                        sid, json.dumps({"insights": insights_config, "deep_report": deep_report_config}, default=str),
+                        sid, json.dumps({
+                            "primary": insights_config,
+                            "fallback": deep_report_config,
+                            # Compatibility aliases for existing admin exports.
+                            "insights": insights_config,
+                            "deep_report": deep_report_config,
+                        }, default=str),
                     )
                     await conn.execute(
                         "UPDATE users SET onboarding_state='profile_processing', updated_at=now() WHERE id=$1",
@@ -182,27 +229,17 @@ async def generate_quiz_insights(ctx: dict[str, Any], submission_id: str) -> Non
     if not usable_result:
         try:
             insights_recorder = _make_usage_recorder(pool, sid, "insights", insights_config)
-            deep_report_recorder = _make_usage_recorder(pool, sid, "deep_report", deep_report_config)
-            insights_task = asyncio.create_task(
-                generate_insights(answers, model_config=insights_config, usage_recorder=insights_recorder)
+            fallback_recorder = _make_usage_recorder(pool, sid, "deep_report", deep_report_config)
+            result = await _generate_summary(
+                answers,
+                primary_config=insights_config,
+                fallback_config=deep_report_config,
+                primary_usage_recorder=insights_recorder,
+                fallback_usage_recorder=fallback_recorder,
             )
-            deep_summary_task = asyncio.create_task(
-                generate_deep_report(answers, model_config=deep_report_config, usage_recorder=deep_report_recorder)
-            )
-            gathered_result, gathered_deep_summary = await asyncio.gather(
-                insights_task, deep_summary_task, return_exceptions=True
-            )
-            if isinstance(gathered_result, Exception):
-                raise gathered_result
-            result = gathered_result
-            deep_summary_result = (
-                gathered_deep_summary if not isinstance(gathered_deep_summary, Exception) else None
-            )
-            if isinstance(gathered_deep_summary, Exception):
-                logger.error(
-                    "quiz_insights.deep_summary_failed",
-                    submission_id=submission_id, error_type=type(gathered_deep_summary).__name__,
-                )
+            ai_route = result.pop("_ai_route", "primary")
+            deep_summary_result = result.get("deep_summary")
+            logger.info("quiz_insights.generated", submission_id=submission_id, route=ai_route)
         except Exception as exc:
             await _mark_error(pool, sid, user_id, _error_code(exc))
             return
