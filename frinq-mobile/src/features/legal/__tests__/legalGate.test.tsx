@@ -33,44 +33,30 @@ beforeEach(() => {
 });
 
 describe('LegalAcceptanceScreen — preauth mode', () => {
-  it('disables Continue until both checkboxes are checked and versions have loaded', async () => {
-    const onContinue = jest.fn();
-    const { getByRole, getByText } = render(
-      <LegalAcceptanceScreen mode={{ kind: 'preauth', onContinue }} />,
+  it('uses the reference Accept action once current legal versions load', async () => {
+    const { getByRole } = render(
+      <LegalAcceptanceScreen mode={{ kind: 'preauth', onContinue: jest.fn() }} />,
     );
     await waitFor(() => expect(mockFetchCurrentLegal).toHaveBeenCalled());
-
-    const continueBtn = getByRole('button', { name: 'Continue' });
-    expect(continueBtn.props.accessibilityState.disabled).toBe(true);
-
-    fireEvent.press(getByText('I confirm I am 18 years of age or older.'));
-    expect(continueBtn.props.accessibilityState.disabled).toBe(true); // still needs the second checkbox
-
-    fireEvent(getByRole('link', { name: 'Terms of Service' }), 'press'); // sanity: link is reachable, doesn't toggle checkbox
-    fireEvent.press(getByRole('checkbox', { name: /agree to the/i }));
-    await waitFor(() => expect(continueBtn.props.accessibilityState.disabled).toBe(false));
+    expect(getByRole('button', { name: 'Accept' }).props.accessibilityState.disabled).toBe(false);
   });
 
   it('stays disabled if fetching current legal versions fails', async () => {
     mockFetchCurrentLegal.mockRejectedValueOnce(new Error('network'));
-    const { getByRole, getByText } = render(
+    const { getByRole } = render(
       <LegalAcceptanceScreen mode={{ kind: 'preauth', onContinue: jest.fn() }} />,
     );
-    fireEvent.press(getByText('I confirm I am 18 years of age or older.'));
-    fireEvent.press(getByRole('checkbox', { name: /agree to the/i }));
     await waitFor(() => expect(mockFetchCurrentLegal).toHaveBeenCalled());
-    expect(getByRole('button', { name: 'Continue' }).props.accessibilityState.disabled).toBe(true);
+    expect(getByRole('button', { name: 'Accept' }).props.accessibilityState.disabled).toBe(true);
   });
 
   it('saves a pending acceptance and hands off, without calling the API directly', async () => {
     const onContinue = jest.fn();
-    const { getByRole, getByText } = render(
+    const { getByRole } = render(
       <LegalAcceptanceScreen mode={{ kind: 'preauth', onContinue }} />,
     );
     await waitFor(() => expect(mockFetchCurrentLegal).toHaveBeenCalled());
-    fireEvent.press(getByText('I confirm I am 18 years of age or older.'));
-    fireEvent.press(getByRole('checkbox', { name: /agree to the/i }));
-    fireEvent.press(getByRole('button', { name: 'Continue' }));
+    fireEvent.press(getByRole('button', { name: 'Accept' }));
 
     await waitFor(() => expect(onContinue).toHaveBeenCalled());
     expect(mockSavePendingAcceptance).toHaveBeenCalledWith({ termsVersion: 'v2', privacyVersion: 'v2', locale: 'en-IN' });
@@ -82,13 +68,11 @@ describe('LegalAcceptanceScreen — returning-user mode', () => {
   it('posts acceptance immediately and calls onAccepted on success', async () => {
     mockAcceptLegal.mockResolvedValue(true);
     const onAccepted = jest.fn();
-    const { getByRole, getByText } = render(
+    const { getByRole } = render(
       <LegalAcceptanceScreen mode={{ kind: 'returning', onAccepted }} />,
     );
     await waitFor(() => expect(mockFetchCurrentLegal).toHaveBeenCalled());
-    fireEvent.press(getByText('I confirm I am 18 years of age or older.'));
-    fireEvent.press(getByRole('checkbox', { name: /agree to the/i }));
-    fireEvent.press(getByRole('button', { name: 'Continue' }));
+    fireEvent.press(getByRole('button', { name: 'Accept' }));
 
     await waitFor(() => expect(onAccepted).toHaveBeenCalled());
     // Platform.OS resolves to 'ios' under the RN Jest preset by default.
@@ -103,13 +87,11 @@ describe('LegalAcceptanceScreen — returning-user mode', () => {
   it('shows an error and does NOT call onAccepted when the server rejects it', async () => {
     mockAcceptLegal.mockResolvedValue(false);
     const onAccepted = jest.fn();
-    const { getByRole, getByText, findByText } = render(
+    const { getByRole, findByText } = render(
       <LegalAcceptanceScreen mode={{ kind: 'returning', onAccepted }} />,
     );
     await waitFor(() => expect(mockFetchCurrentLegal).toHaveBeenCalled());
-    fireEvent.press(getByText('I confirm I am 18 years of age or older.'));
-    fireEvent.press(getByRole('checkbox', { name: /agree to the/i }));
-    fireEvent.press(getByRole('button', { name: 'Continue' }));
+    fireEvent.press(getByRole('button', { name: 'Accept' }));
 
     await findByText("Couldn't save, try again");
     expect(onAccepted).not.toHaveBeenCalled();

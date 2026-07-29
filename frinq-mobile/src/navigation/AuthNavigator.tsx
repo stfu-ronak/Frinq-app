@@ -1,9 +1,9 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { LandingScreen } from '../features/auth/screens/LandingScreen';
+import { ReferenceIntroScreen } from '../features/auth/screens/ReferenceIntroScreen';
 import { DudesIntroScreen } from '../features/auth/screens/DudesIntroScreen';
 import { LocationPermissionScreen } from '../features/auth/screens/LocationPermissionScreen';
-import { QuizIntroScreen } from '../features/auth/screens/QuizIntroScreen';
 import { NameScreen } from '../features/auth/screens/NameScreen';
 import { PhoneScreen } from '../features/auth/screens/PhoneScreen';
 import { OtpScreen, OtpRouteParams } from '../features/auth/screens/OtpScreen';
@@ -12,16 +12,21 @@ import { LegalDocumentScreen, LegalDocumentRouteParams } from '../features/legal
 
 export type AuthStackParamList = {
   Landing: undefined;
+  ReferenceIntro: undefined;
   Legal: undefined;
   DudesIntro: undefined;
   LocationPermission: undefined;
-  QuizIntro: undefined;
   Name: undefined;
   Phone: undefined;
 } & OtpRouteParams &
   LegalDocumentRouteParams;
 
 const Stack = createNativeStackNavigator<AuthStackParamList>();
+
+export function nextLandingRoute({ hasPendingAcceptance, hasName }: { hasPendingAcceptance: boolean; hasName: boolean }): 'ReferenceIntro' | 'Name' | 'Phone' {
+  if (!hasPendingAcceptance) return 'ReferenceIntro';
+  return hasName ? 'Phone' : 'Name';
+}
 
 /** Pre-auth flow: Landing (tap to begin) -> Legal acceptance -> the duck
  *  illustration intro -> location-permission (skippable, never gates
@@ -35,12 +40,12 @@ export function AuthNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="Landing">
       <Stack.Screen name="Landing" component={LandingScreen} />
-      <Stack.Screen name="Legal">
-        {({ navigation }) => <LegalAcceptanceScreen mode={{ kind: 'preauth', onContinue: () => navigation.navigate('DudesIntro') }} />}
-      </Stack.Screen>
+      <Stack.Screen name="ReferenceIntro" component={ReferenceIntroScreen} />
       <Stack.Screen name="DudesIntro" component={DudesIntroScreen} />
       <Stack.Screen name="LocationPermission" component={LocationPermissionScreen} />
-      <Stack.Screen name="QuizIntro" component={QuizIntroScreen} />
+      <Stack.Screen name="Legal">
+        {({ navigation }) => <LegalAcceptanceScreen mode={{ kind: 'preauth', onContinue: () => navigation.navigate('Name') }} />}
+      </Stack.Screen>
       <Stack.Screen name="Name" component={NameScreen} />
       <Stack.Screen name="Phone" component={PhoneScreen} />
       <Stack.Screen name="Otp" component={OtpScreen} />

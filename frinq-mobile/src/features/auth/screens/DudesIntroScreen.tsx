@@ -1,28 +1,28 @@
 import React from 'react';
-import { Image } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { SimpleStepFrame } from '../../quiz/components/SimpleStepFrame';
+import { ReferenceJourneyFrame } from '../../../design/components/ReferenceJourneyFrame';
+import { BrandHeading } from '../../../design/components/Text';
+import { PrimaryButton } from '../../../design/components/PrimaryButton';
+import { spacing } from '../../../design/tokens/spacing';
 
-/** Pre-auth duck-illustration intro, between Legal acceptance and the quiz's
- *  own s0 intro — matches the "lets find your frinq" design mockup. Purely
- *  decorative/motivational; carries no data, just a tap-through. */
+/** Reference 5 duck introduction. */
 export function DudesIntroScreen() {
   const navigation = useNavigation<any>();
   return (
-    <SimpleStepFrame
-      stepId="dudes-intro"
-      onBack={() => navigation.goBack()}
-      heading="lets find your frinq"
-      continueLabel="let's go"
-      onContinue={() => navigation.navigate('LocationPermission')}
-    >
-      <Image
-        source={require('../../../assets/images/dudes1.png')}
-        style={{ width: '100%', height: 260, marginTop: 24 }}
-        resizeMode="contain"
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-      />
-    </SimpleStepFrame>
+    <ReferenceJourneyFrame onBack={() => navigation.goBack()}>
+      <View style={styles.body}>
+        <BrandHeading style={styles.heading}>lets find your frinq</BrandHeading>
+        <Image source={require('../../../../Public/Assets/dudes 1.png')} style={styles.art} resizeMode="contain" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+        <PrimaryButton label="Let's go" onPress={() => navigation.navigate('LocationPermission')} style={styles.cta} />
+      </View>
+    </ReferenceJourneyFrame>
   );
 }
+
+const styles = StyleSheet.create({
+  body: { flex: 1, alignItems: 'center', paddingTop: 104, paddingBottom: spacing.xl },
+  heading: { textAlign: 'center', fontSize: 44, lineHeight: 57 },
+  art: { width: '100%', height: 300, marginTop: spacing.xxxl, flex: 1 },
+  cta: { alignSelf: 'stretch', marginTop: spacing.xl },
+});

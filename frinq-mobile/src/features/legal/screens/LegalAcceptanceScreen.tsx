@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Platform } from 'react-native';
-import { Screen } from '../../../design/components/Screen';
+import { ReferenceJourneyFrame } from '../../../design/components/ReferenceJourneyFrame';
 import { BrandHeading, BodyText } from '../../../design/components/Text';
 import { PrimaryButton } from '../../../design/components/PrimaryButton';
-import { spacing, touchTarget } from '../../../design/tokens/spacing';
-import { color } from '../../../design/tokens/colors';
+import { spacing } from '../../../design/tokens/spacing';
 import { useSession } from '../../../services/session/sessionContext';
 import { fetchCurrentLegal, acceptLegal } from '../../auth/authService';
 import { savePendingAcceptance } from '../pendingAcceptance';
@@ -16,17 +15,13 @@ type Mode =
   | { kind: 'preauth'; onContinue: () => void }
   | { kind: 'returning'; onAccepted: () => void };
 
-/** Age + Terms/Privacy consent gate. Two separate unchecked controls (never
- *  pre-checked). Pre-auth: saves a pending acceptance and hands off to Phone.
- *  Returning user (stale server-side acceptance): posts immediately and
- *  re-triggers boot resolution — never lets a stale version continue quietly. */
+/** Reference 17. The single Accept action is the affirmative consent action;
+ * the linked policy text remains available before consent is saved. */
 export function LegalAcceptanceScreen({ mode }: { mode: Mode }) {
   const navigation = useNavigation<any>();
   const { apiClient } = useSession();
   const [termsVersion, setTermsVersion] = useState<string | null>(null);
   const [privacyVersion, setPrivacyVersion] = useState<string | null>(null);
-  const [ageConfirmed, setAgeConfirmed] = useState(false);
-  const [legalAgreed, setLegalAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,23 +29,20 @@ export function LegalAcceptanceScreen({ mode }: { mode: Mode }) {
     let cancelled = false;
     fetchCurrentLegal(apiClient)
       .then((legal) => {
-        if (cancelled) return;
-        setTermsVersion(legal.terms_version);
-        setPrivacyVersion(legal.privacy_version);
+        if (!cancelled) {
+          setTermsVersion(legal.terms_version);
+          setPrivacyVersion(legal.privacy_version);
+        }
       })
-      .catch(() => {
-        // Stay on screen — continue is disabled until versions load.
-      });
-    return () => {
-      cancelled = true;
-    };
+      .catch(() => undefined);
+    return () => { cancelled = true; };
   }, [apiClient]);
 
-  const canContinue = ageConfirmed && legalAgreed && !!termsVersion && !!privacyVersion && !submitting;
+  const canAccept = !!termsVersion && !!privacyVersion && !submitting;
 
-  async function handleContinue() {
-    if (!canContinue || !termsVersion || !privacyVersion) return;
-    const locale = 'en-IN'; // TODO(Task 41): derive from device locale
+  async function handleAccept() {
+    if (!canAccept || !termsVersion || !privacyVersion) return;
+    const locale = 'en-IN';
     const source = Platform.OS === 'ios' ? 'ios' : 'android';
 
     if (mode.kind === 'returning') {
@@ -71,94 +63,37 @@ export function LegalAcceptanceScreen({ mode }: { mode: Mode }) {
   }
 
   return (
-    <Screen scroll>
-      <View style={{ paddingTop: spacing.xxl }}>
-        <BodyText variant="overline" tone="secondary">
-          before we start
-        </BodyText>
-        <BrandHeading variant="display" style={{ marginTop: spacing.sm, marginBottom: spacing.xl }}>
-          a couple of things first
-        </BrandHeading>
-
-        <Checkbox
-          checked={ageConfirmed}
-          onToggle={() => setAgeConfirmed((v) => !v)}
-          label="I confirm I am 18 years of age or older."
-        />
-        <Checkbox
-          checked={legalAgreed}
-          onToggle={() => setLegalAgreed((v) => !v)}
-          label={
-            <BodyText variant="body">
-              I agree to the{' '}
-              <BodyText
-                variant="body"
-                tone="error"
-                onPress={() => navigation.navigate('LegalDocument', { doc: 'terms' })}
-                accessibilityRole="link"
-              >
-                Terms of Service
-              </BodyText>{' '}
-              and{' '}
-              <BodyText
-                variant="body"
-                tone="error"
-                onPress={() => navigation.navigate('LegalDocument', { doc: 'privacy' })}
-                accessibilityRole="link"
-              >
-                Privacy Policy
-              </BodyText>
-              .
-            </BodyText>
-          }
-        />
-
-        {!!error && (
-          <BodyText variant="caption" tone="error" accessibilityLiveRegion="polite" style={{ marginTop: spacing.md }}>
-            {error}
-          </BodyText>
-        )}
-
-        <PrimaryButton
-          label={submitting ? 'Saving…' : 'Continue'}
-          onPress={handleContinue}
-          disabled={!canContinue}
-          busy={submitting}
-          style={{ marginTop: spacing.xl, alignSelf: 'flex-start' }}
-        />
+    <ReferenceJourneyFrame scroll>
+      <View style={styles.body}>
+        <Image source={require('../../../../Public/Assets/Privacy.png')} style={styles.icon} resizeMode="contain" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+        <BrandHeading style={styles.heading}>your privacy matters</BrandHeading>
+        <BodyText tone="secondary" style={styles.copy}>your data is protected and used only to make Frinq work for you. please review our terms and privacy policy before you continue.</BodyText>
+        <BodyText tone="secondary" style={styles.age}>By accepting, you confirm that you are 18 or older.</BodyText>
+        <View style={styles.links}>
+          <PressableScale accessibilityRole="link" accessibilityLabel="Terms of Service" onPress={() => navigation.navigate('LegalDocument', { doc: 'terms' })} haptic={false}>
+            <BodyText tone="secondary">Terms of Service</BodyText>
+          </PressableScale>
+          <BodyText tone="secondary"> · </BodyText>
+          <PressableScale accessibilityRole="link" accessibilityLabel="Privacy Policy" onPress={() => navigation.navigate('LegalDocument', { doc: 'privacy' })} haptic={false}>
+            <BodyText tone="secondary">Privacy Policy</BodyText>
+          </PressableScale>
+        </View>
       </View>
-    </Screen>
+      {!!error && <BodyText variant="caption" tone="error" accessibilityLiveRegion="polite" style={styles.error}>{error}</BodyText>}
+      <PrimaryButton label={submitting ? 'Saving…' : 'Accept'} onPress={handleAccept} disabled={!canAccept} busy={submitting} style={styles.cta} />
+      <BodyText tone="secondary" style={styles.reject}>change or reject</BodyText>
+    </ReferenceJourneyFrame>
   );
 }
 
-function Checkbox({ checked, onToggle, label }: { checked: boolean; onToggle: () => void; label: React.ReactNode }) {
-  return (
-    <PressableScale
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked }}
-      onPress={onToggle}
-      haptic={false}
-      style={{ flexDirection: 'row', alignItems: 'flex-start', minHeight: touchTarget.min, marginBottom: spacing.md }}
-    >
-      <View
-        style={{
-          width: 24,
-          height: 24,
-          marginRight: spacing.sm,
-          borderWidth: 1,
-          borderColor: color.border.default,
-          backgroundColor: checked ? color.state.selected : 'transparent',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        {checked && (
-          <BodyText variant="bodyStrong" tone="onMaroon">
-            ✓
-          </BodyText>
-        )}
-      </View>
-      <View style={{ flex: 1 }}>{typeof label === 'string' ? <BodyText variant="body">{label}</BodyText> : label}</View>
-    </PressableScale>
-  );
-}
+const styles = StyleSheet.create({
+  body: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: spacing.xxxl },
+  icon: { width: 76, height: 76, marginBottom: spacing.xl },
+  heading: { textAlign: 'center', fontSize: 42, lineHeight: 55, marginBottom: spacing.lg },
+  copy: { maxWidth: 296, textAlign: 'center', fontSize: 17, lineHeight: 26 },
+  age: { maxWidth: 296, textAlign: 'center', marginTop: spacing.xl },
+  links: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', marginTop: spacing.md },
+  error: { marginBottom: spacing.sm, textAlign: 'center' },
+  cta: { alignSelf: 'stretch', marginTop: spacing.md },
+  reject: { textAlign: 'center', marginTop: spacing.md, marginBottom: spacing.xs },
+});
