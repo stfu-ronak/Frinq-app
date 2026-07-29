@@ -59,17 +59,27 @@ const SUBMISSION = 'sub-1';
 function driveStep(screen: ReturnType<typeof render>, step: QuizStep) {
   switch (step.kind) {
     case 'intro':
-      fireEvent.press(screen.getByRole('button', { name: step.ctaLabel }));
+      fireEvent.press(screen.getByRole('button', { name: step.id === 'ready' ? 'Hell yeah! 🔥' : step.ctaLabel }));
       return;
     case 'text':
-      fireEvent.changeText(screen.getByLabelText(step.prompt), 'Test Answer');
-      fireEvent.press(screen.getByRole('button', { name: 'continue' }));
+      if (step.id === 'city') {
+        fireEvent.changeText(screen.getByLabelText('City'), 'Mumbai');
+        fireEvent.press(screen.getByRole('button', { name: 'Continue city' }));
+      } else {
+        fireEvent.changeText(screen.getByLabelText(step.prompt), 'Test Answer');
+        fireEvent.press(screen.getByRole('button', { name: 'continue' }));
+      }
       return;
     case 'date':
-      fireEvent.changeText(screen.getByLabelText('day'), '14');
-      fireEvent.changeText(screen.getByLabelText('month'), '03');
-      fireEvent.changeText(screen.getByLabelText('year'), '1999');
-      fireEvent.press(screen.getByRole('button', { name: 'continue' }));
+      if (step.id === 'age') {
+        fireEvent.changeText(screen.getByLabelText('Birthday'), '14/03/1999');
+        fireEvent.press(screen.getByRole('button', { name: 'Continue birthday' }));
+      } else {
+        fireEvent.changeText(screen.getByLabelText('day'), '14');
+        fireEvent.changeText(screen.getByLabelText('month'), '03');
+        fireEvent.changeText(screen.getByLabelText('year'), '1999');
+        fireEvent.press(screen.getByRole('button', { name: 'continue' }));
+      }
       return;
     case 'singleChoiceCard':
       fireEvent.press(screen.getByText(step.options[0].label));
@@ -102,9 +112,9 @@ function driveStep(screen: ReturnType<typeof render>, step: QuizStep) {
       fireEvent.press(screen.getByRole('button', { name: 'continue' }));
       return;
     case 'socialVerification':
-      fireEvent.changeText(screen.getByLabelText('your LinkedIn profile'), 'linkedin.com/in/test');
-      fireEvent.changeText(screen.getByLabelText('your Instagram profile'), '@test');
-      fireEvent.press(screen.getByRole('button', { name: 'continue' }));
+      fireEvent.changeText(screen.getByLabelText(step.id === 'social_verification' ? 'LinkedIn profile' : 'your LinkedIn profile'), 'linkedin.com/in/test');
+      fireEvent.changeText(screen.getByLabelText(step.id === 'social_verification' ? 'Instagram profile' : 'your Instagram profile'), '@test');
+      fireEvent.press(screen.getByRole('button', { name: step.id === 'social_verification' ? 'Continue social verification' : 'continue' }));
       return;
   }
 }
@@ -134,8 +144,8 @@ describe('quiz journey: city through last_question', () => {
     const draft = repo.load(USER);
     expect(draft).not.toBeNull();
     for (const key of ANSWER_KEYS) {
-      // Name is collected before OTP and flushed into the authenticated draft.
-      if (key === 'name') continue;
+      // Name is pre-OTP; this journey begins at city, after the identity pages.
+      if (key === 'name' || key === 'gender' || key === 'pronoun') continue;
       expect(draft!.answers[key]).toBeDefined();
     }
   });
@@ -152,8 +162,8 @@ describe('quiz journey: city through last_question', () => {
       </QuizProvider>,
     );
 
-    fireEvent.changeText(screen.getByLabelText('where do you live?'), 'Mumbai');
-    fireEvent.press(screen.getByRole('button', { name: 'continue' })); // -> age
+    fireEvent.changeText(screen.getByLabelText('City'), 'Mumbai');
+    fireEvent.press(screen.getByRole('button', { name: 'Continue city' })); // -> age
     mockRouteState.stepId = 'age';
     screen.rerender(
       <QuizProvider submissionId={SUBMISSION} userId={USER} repo={repo} partialSave={partialSave} onQuizComplete={jest.fn()}>

@@ -192,7 +192,6 @@ export const ONBOARDING_PREFIX: readonly QuizStep[] = [
     linkedinAnswerKey: 'social_linkedin', instagramAnswerKey: 'social_instagram',
   },
   { id: 'ready', kind: 'intro', section: 'intro', heading: 'are you ready?', ctaLabel: 'continue' },
-  { id: 'nahh', kind: 'intro', section: 'intro', heading: 'we want to understand the real you. let’s dive in.', body: 'let’s begin.', ctaLabel: 'continue' },
 ];
 
 /** The compiled-in content steps, i.e. the part `setContentSteps` replaces.

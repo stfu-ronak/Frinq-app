@@ -8,6 +8,7 @@ import {
   SingleChoiceListTemplate, MultiChoiceTagsTemplate, RapidFireTemplate, OpinionsTemplate,
   PreferencesTemplate, VoiceOrTextTemplate, SocialVerificationTemplate,
 } from './templates';
+import { isReferenceOnboardingStep, ReferenceOnboardingTemplate } from './templates/ReferenceOnboardingTemplate';
 import { QuizScreenFrame } from '../components/QuizScreenFrame';
 import { SnapSlider } from '../components/SnapSlider';
 import { BootSplash } from '../../../navigation/placeholders';
@@ -113,6 +114,27 @@ export function QuizStepScreen() {
         title="Couldn't submit your answers"
         message="Something went wrong finishing your quiz. Check your connection and try again."
         onRetry={() => void finalize()}
+      />
+    );
+  }
+
+  if (isReferenceOnboardingStep(step.id)) {
+    return (
+      <ReferenceOnboardingTemplate
+        step={step}
+        value={answer}
+        answers={state.answers}
+        onAnswer={(nextValue) => {
+          if (step.id === 'social_verification' && step.kind === 'socialVerification' && typeof nextValue === 'object' && nextValue !== null) {
+            const links = nextValue as { linkedin?: unknown; instagram?: unknown };
+            send({ type: 'ANSWER', key: step.linkedinAnswerKey, value: typeof links.linkedin === 'string' ? links.linkedin : '' });
+            send({ type: 'ANSWER', key: step.instagramAnswerKey, value: typeof links.instagram === 'string' ? links.instagram : '' });
+            return;
+          }
+          if (answerKey) send({ type: 'ANSWER', key: answerKey, value: nextValue });
+        }}
+        onContinue={advanceOrFinish}
+        onBack={goBack}
       />
     );
   }
