@@ -160,4 +160,49 @@ describe('EditProfileScreen', () => {
 
     expect(await findByText(/network error/i)).toBeTruthy();
   });
+
+  it('editing only gender sends gender alone — never an unchanged display_name (would falsely trip the rate limit)', async () => {
+    const updated = { ...USER, gender: 'non_binary' };
+    const request = jest.fn().mockResolvedValueOnce(USER).mockResolvedValueOnce(updated);
+    mockUseSession.mockReturnValue({ apiClient: { request } });
+
+    const { findByLabelText, findByRole } = renderWithClient(<EditProfileScreen />);
+    fireEvent.press(await findByLabelText('Non binary'));
+    fireEvent.press(await findByRole('button', { name: 'save' }));
+
+    await waitFor(() => expect(mockGoBack).toHaveBeenCalledTimes(1));
+    expect(request).toHaveBeenLastCalledWith({ path: '/api/v1/users/me', method: 'PATCH', body: { gender: 'non_binary' } });
+  });
+
+  it('editing age and area together sends both in one combined PATCH', async () => {
+    const updated = { ...USER, age: 30, ncr_zone: 'noida' };
+    const request = jest.fn().mockResolvedValueOnce(USER).mockResolvedValueOnce(updated);
+    mockUseSession.mockReturnValue({ apiClient: { request } });
+
+    const { findByLabelText, findByRole } = renderWithClient(<EditProfileScreen />);
+    fireEvent.changeText(await findByLabelText('age'), '30');
+    fireEvent.press(await findByLabelText('Noida'));
+    fireEvent.press(await findByRole('button', { name: 'save' }));
+
+    await waitFor(() => expect(mockGoBack).toHaveBeenCalledTimes(1));
+    expect(request).toHaveBeenLastCalledWith({ path: '/api/v1/users/me', method: 'PATCH', body: { age: 30, ncr_zone: 'noida' } });
+  });
+
+  it('locks the display-name field and shows the next-eligible date within the 3-month cooldown', async () => {
+    const recentlyChanged = { ...USER, display_name_updated_at: new Date().toISOString() };
+    mockUseSession.mockReturnValue({ apiClient: { request: jest.fn().mockResolvedValue(recentlyChanged) } });
+
+    const { findByLabelText } = renderWithClient(<EditProfileScreen />);
+    const nameField = await findByLabelText('display name');
+    expect(nameField.props.editable).toBe(false);
+  });
+
+  it('leaves the display-name field editable once the cooldown has passed', async () => {
+    const longAgo = { ...USER, display_name_updated_at: '2020-01-01T00:00:00Z' };
+    mockUseSession.mockReturnValue({ apiClient: { request: jest.fn().mockResolvedValue(longAgo) } });
+
+    const { findByLabelText } = renderWithClient(<EditProfileScreen />);
+    const nameField = await findByLabelText('display name');
+    expect(nameField.props.editable).not.toBe(false);
+  });
 });

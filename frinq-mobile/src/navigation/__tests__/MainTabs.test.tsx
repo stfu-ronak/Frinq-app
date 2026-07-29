@@ -73,14 +73,15 @@ describe('MainTabs', () => {
     expect(await findByTestId('screen-community')).toBeTruthy();
   });
 
-  it('switches to Profile and Settings tabs', async () => {
-    const { findByTestId, getByRole, findByText } = renderTabs();
+  it('switches to Profile, and reaches Settings via the gear icon (no Settings tab)', async () => {
+    const { findByTestId, getByRole, findByText, findByLabelText, queryByRole } = renderTabs();
     await findByTestId('screen-community');
 
     fireEvent.press(getByRole('button', { name: 'Profile' }));
     expect(await findByText('Ada')).toBeTruthy(); // real ProfileScreen content
+    expect(queryByRole('button', { name: 'Settings' })).toBeNull(); // no 3rd tab
 
-    fireEvent.press(getByRole('button', { name: 'Settings' }));
+    fireEvent.press(await findByLabelText('settings'));
     expect(await findByText('settings')).toBeTruthy(); // real SettingsScreen content
   });
 
@@ -90,7 +91,6 @@ describe('MainTabs', () => {
 
     expect(getByRole('button', { name: 'Community' }).props.accessibilityState).toMatchObject({ selected: true });
     expect(getByRole('button', { name: 'Profile' }).props.accessibilityState).toMatchObject({ selected: false });
-    expect(getByRole('button', { name: 'Settings' }).props.accessibilityState).toMatchObject({ selected: false });
 
     fireEvent.press(getByRole('button', { name: 'Profile' }));
     expect(getByRole('button', { name: 'Community' }).props.accessibilityState).toMatchObject({ selected: false });
@@ -101,7 +101,8 @@ describe('MainTabs', () => {
     const { findByTestId, getByRole, findByLabelText, findByText } = renderTabs();
     await findByTestId('screen-community');
 
-    fireEvent.press(getByRole('button', { name: 'Settings' }));
+    fireEvent.press(getByRole('button', { name: 'Profile' }));
+    fireEvent.press(await findByLabelText('settings'));
     fireEvent.press(await findByLabelText('legal'));
     fireEvent.press(await findByLabelText('view Community Rules in app'));
 

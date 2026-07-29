@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Native pre-JS launch background: same cream as BootSplash (JS layer, see
+     src/navigation/placeholders.tsx) plus the app logo centered, so there is
+     no blank/white flash and no "just a color" gap before the JS boot splash
+     takes over. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/windowBackground" />
+    <item android:width="120dp" android:height="120dp" android:gravity="center">
+        <bitmap android:src="@drawable/launch_logo" android:gravity="center" />
+    </item>
+</layer-list>

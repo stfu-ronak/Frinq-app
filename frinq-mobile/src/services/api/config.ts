@@ -1,15 +1,17 @@
-import { Platform } from 'react-native';
-
 /**
  * API base URL. Local dev only for now — production identity/config (real
- * api.frinq.in origin, per-environment overrides) lands in Task 41. Android
- * emulators can't reach the host's `localhost` directly; `10.0.2.2` is the
- * documented emulator alias for the host loopback. iOS simulator shares the
- * host network namespace, so `localhost` works as-is. A physical device needs
- * the host's LAN IP — not handled yet, deliberately: physical-device local dev
- * isn't a Task 30 requirement.
+ * api.frinq.in origin, per-environment overrides) lands in Task 41.
+ *
+ * Android (both emulator AND a real device over USB) reaches the dev
+ * backend via `localhost:8000` — requires running
+ * `adb reverse tcp:8000 tcp:8000` once per launch, which maps the device's
+ * own localhost:8000 to the host machine's, over the USB/adb link. This
+ * works identically for an emulator or a real device (adb reverse isn't
+ * emulator-only), so one dev URL covers both — no `10.0.2.2` special-casing,
+ * no LAN-IP/Wi-Fi requirement. iOS simulator shares the host network
+ * namespace, so `localhost` already works there without any reverse mapping.
  */
-const DEV_BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
+const DEV_BASE_URL = 'http://localhost:8000';
 
 export const API_BASE_URL = __DEV__ ? DEV_BASE_URL : 'https://api.frinq.in';
 

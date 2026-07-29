@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { adminFetch, loadAdminKey, saveAdminKey, clearAdminKey } from "@/app/lib/adminFetch";
+import { adminFetch } from "@/app/lib/adminFetch";
+import { useAdminAuth } from "@/app/components/AdminShell";
 import PasswordModal from "@/app/components/PasswordModal";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -68,8 +69,7 @@ function fmtTime(iso: string | null): string {
 }
 
 export default function RsvpDashboard() {
-  const [adminKey, setAdminKey] = useState(() => loadAdminKey());
-  const [keyInput, setKeyInput] = useState("");
+  const { adminKey, logout } = useAdminAuth();
   const [data, setData] = useState<Inbox | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -107,7 +107,7 @@ export default function RsvpDashboard() {
     try {
       const res = await adminFetch(`${API_URL}/api/v1/admin/whatsapp/inbox`,
         { cache: "no-store" }, { key: adminKey });
-      if (res.status === 401) { clearAdminKey(); setAdminKey(""); setData(null); return; }
+      if (res.status === 401) { logout(); setData(null); return; }
       if (!res.ok) { setError(`Error ${res.status}`); return; }
       const json = (await res.json()) as Inbox & { error?: string | null };
       setData(json);
@@ -117,7 +117,7 @@ export default function RsvpDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [adminKey]);
+  }, [adminKey, logout]);
 
   const loadCampaign = useCallback(async () => {
     if (!adminKey) return;
@@ -207,34 +207,6 @@ export default function RsvpDashboard() {
     }
   }
 
-  if (!adminKey) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-50 p-6">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            saveAdminKey(keyInput.trim());
-            setAdminKey(keyInput.trim());
-          }}
-          className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-stone-200 p-6 space-y-4"
-        >
-          <h1 className="text-lg font-semibold text-stone-900">RSVP Dashboard</h1>
-          <p className="text-sm text-stone-500">Enter your admin key to continue.</p>
-          <input
-            type="password"
-            value={keyInput}
-            onChange={(e) => setKeyInput(e.target.value)}
-            placeholder="Admin key"
-            className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-400"
-          />
-          <button type="submit" className="w-full rounded-lg bg-stone-900 text-white py-2 text-sm font-medium hover:bg-stone-800">
-            Open dashboard
-          </button>
-        </form>
-      </div>
-    );
-  }
-
   const counts = data?.counts ?? {};
   const cards = [
     { key: "rsvp_yes", ...STATUS.rsvp_yes, n: counts.rsvp_yes ?? 0 },
@@ -260,12 +232,6 @@ export default function RsvpDashboard() {
             </button>
             <button onClick={() => { load(); loadCampaign(); }} className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm hover:bg-stone-100">
               Refresh
-            </button>
-            <button
-              onClick={() => { clearAdminKey(); setAdminKey(""); }}
-              className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-500 hover:bg-stone-100"
-            >
-              Sign out
             </button>
           </div>
         </header>

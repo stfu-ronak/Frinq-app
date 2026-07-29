@@ -4,9 +4,9 @@
     <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
         <!-- Customize your theme here. -->
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
-        <!-- Matches BootSplash's cream background (src/navigation/placeholders.tsx)
+        <!-- Matches BootSplash's cream background + logo (src/navigation/placeholders.tsx)
              so there's no color flash between the native window and the JS boot splash. -->
-        <item name="android:windowBackground">@color/windowBackground</item>
+        <item name="android:windowBackground">@drawable/launch_screen</item>
     </style>
 
 </resources>

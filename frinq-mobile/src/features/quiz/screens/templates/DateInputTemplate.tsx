@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View } from 'react-native';
 import { QuizScreenFrame } from '../../components/QuizScreenFrame';
+import { SimpleStepFrame } from '../../components/SimpleStepFrame';
 import { TextField } from '../../../../design/components/TextField';
 import { BodyText } from '../../../../design/components/Text';
 import { spacing } from '../../../../design/tokens/spacing';
@@ -41,20 +42,22 @@ export function DateInputTemplate({ step, value, onChange, onContinue, onBack }:
     const p = parts(value);
     p[i] = v.replace(/\D/g, '');
     onChange(p.join('/'));
+    // Editing any field clears the error latch — otherwise a stale `touched`
+    // from a prior Continue-press re-shows the error on every keystroke of a
+    // half-typed date (e.g. flashing "not a real date" while typing "3" of "03").
+    setTouched(false);
   }
 
-  return (
-    <QuizScreenFrame
-      stepId={step.id}
-      section={step.section}
-      onBack={onBack}
-      continueLabel="continue"
-      onContinue={() => { setTouched(true); if (result.valid) onContinue(); }}
-      continueDisabled={!allFieldsFilled}
-    >
-      <BodyText variant="subheading" style={{ marginBottom: spacing.lg }}>
-        {step.prompt}
-      </BodyText>
+  const handleContinue = () => { setTouched(true); if (result.valid) onContinue(); };
+  const isSimple = step.chrome === 'simple';
+
+  const fields = (
+    <>
+      {!isSimple && (
+        <BodyText variant="subheading" style={{ marginBottom: spacing.lg }}>
+          {step.prompt}
+        </BodyText>
+      )}
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
         <TextField label="day" value={day} onChangeText={(v) => setPart(0, v)} keyboardType="number-pad" maxLength={2} placeholder="14" containerStyle={{ flex: 1 }} />
         <TextField label="month" value={month} onChangeText={(v) => setPart(1, v)} keyboardType="number-pad" maxLength={2} placeholder="03" containerStyle={{ flex: 1 }} />
@@ -65,6 +68,33 @@ export function DateInputTemplate({ step, value, onChange, onContinue, onBack }:
           {ERROR_COPY[result.reason] ?? "that doesn't look like a real date"}
         </BodyText>
       )}
+    </>
+  );
+
+  if (isSimple) {
+    return (
+      <SimpleStepFrame
+        stepId={step.id}
+        onBack={onBack}
+        heading={step.prompt}
+        onContinue={handleContinue}
+        continueDisabled={!allFieldsFilled}
+      >
+        {fields}
+      </SimpleStepFrame>
+    );
+  }
+
+  return (
+    <QuizScreenFrame
+      stepId={step.id}
+      section={step.section}
+      onBack={onBack}
+      continueLabel="continue"
+      onContinue={handleContinue}
+      continueDisabled={!allFieldsFilled}
+    >
+      {fields}
     </QuizScreenFrame>
   );
 }

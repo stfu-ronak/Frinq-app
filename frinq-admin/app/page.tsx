@@ -1,7 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, Fragment } from "react";
-import { adminFetch, loadAdminKey, saveAdminKey, clearAdminKey } from "@/app/lib/adminFetch";
+import { useState, useEffect, useCallback, useRef, Fragment, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { adminFetch } from "@/app/lib/adminFetch";
+import { useAdminAuth, NAV_HEIGHT_PX } from "@/app/components/AdminShell";
+import { AccountsView } from "@/app/components/AccountsView";
 import PasswordModal from "@/app/components/PasswordModal";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -128,6 +131,8 @@ interface Submission {
   whatsapp_sent_at: string | null;
   followup_sent_at: string | null;
   created_at: string | null; completed_at: string | null; error_msg: string | null;
+  model_snapshot: { insights?: { provider: string; model_id: string; effort: string | null }; deep_report?: { provider: string; model_id: string; effort: string | null } } | null;
+  ai_cost_usd: number | null;
 }
 interface Analytics {
   totals: {
@@ -543,6 +548,13 @@ function UserDetail({ s, adminKey, onRetry, onRequestPassword, onFlagsChanged }:
       {s.headline && (
         <div className="mb-5 p-4 bg-white/70 border border-[rgba(42,24,16,0.1)]">
           <p className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.2em] text-[#8B7355] mb-2 uppercase">ai profile</p>
+          {s.model_snapshot?.insights && (
+            <p className="font-[family-name:var(--font-motive)] text-[9px] text-[rgba(42,24,16,0.4)] mb-2">
+              generated with {s.model_snapshot.insights.provider}/{s.model_snapshot.insights.model_id}
+              {s.model_snapshot.insights.effort ? ` (${s.model_snapshot.insights.effort})` : ""}
+              {s.ai_cost_usd != null && ` · $${s.ai_cost_usd.toFixed(4)} total`}
+            </p>
+          )}
           <p className="font-[family-name:var(--font-things)] text-[#2A1810] text-[15px] mb-1">{s.headline}</p>
           {s.spirit_animal && <p className="font-[family-name:var(--font-things)] text-[#7C1C0B] text-[13px] mb-2">{s.spirit_animal}</p>}
           {s.tags.length > 0 && (
@@ -652,7 +664,11 @@ function UserDetail({ s, adminKey, onRetry, onRequestPassword, onFlagsChanged }:
 
 // ─── Views ────────────────────────────────────────────────────────────────────
 
-type Tab = "overview" | "users" | "testing" | "analytics" | "insights" | "funnel" | "journey";
+type Tab = "overview" | "users" | "testing" | "accounts" | "analytics" | "insights" | "funnel" | "journey";
+const ALL_TABS: Tab[] = ["overview", "users", "testing", "accounts", "analytics", "insights", "funnel", "journey"];
+function isTab(v: string | null): v is Tab {
+  return !!v && (ALL_TABS as string[]).includes(v);
+}
 
 interface TrackingEvent {
   id: number;
@@ -1248,23 +1264,23 @@ function FunnelView({ analytics: a }: { analytics: Analytics }) {
 
 // ─── Main admin page ──────────────────────────────────────────────────────────
 
-export default function AdminPage() {
-  const [key, setKey] = useState(() => loadAdminKey());
-  const [authed, setAuthed] = useState(false);
-  const [loading, setLoading] = useState(false);
+function AdminPageInner() {
+  const { adminKey, logout } = useAdminAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const rawTab = searchParams.get("tab");
+  const tab: Tab = isTab(rawTab) ? rawTab : "overview";
+  const setTab = useCallback((t: Tab) => {
+    router.replace(`/?tab=${t}`, { scroll: false });
+  }, [router]);
+
   const [error, setError] = useState("");
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [tab, setTab] = useState<Tab>("overview");
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const autoRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const savedKey = useRef("");
-  // Mirrors savedKey.current for the JSX below — refs can't be read during
-  // render, only from callbacks/effects, so anything passed as a rendered
-  // prop needs the state copy instead.
-  const [adminKey, setAdminKey] = useState("");
 
   // Cached action password — once user enters correctly for any
   // destructive action this session, we re-use it for the rest
@@ -1292,13 +1308,17 @@ export default function AdminPage() {
         adminFetch(`${API_URL}/api/v1/admin/analytics`, {}, { key: k }),
         adminFetch(`${API_URL}/api/v1/admin/submissions?limit=500`, {}, { key: k }),
       ]);
-      if (aRes.status === 401) { setError("invalid key"); return false; }
+      // A previously-valid key can be revoked server-side mid-session — bounce
+      // to the shared login gate the same way moderation/rsvps already do,
+      // instead of silently looking "still authed" on this page only.
+      if (aRes.status === 401) { setError("invalid key"); logout(); return false; }
       if (!aRes.ok || !sRes.ok) { setError("connection failed"); return null; }
       const aData = await aRes.json();
       const sData = await sRes.json();
       setAnalytics(aData);
       setSubmissions(sData.submissions || []);
       setLastRefresh(new Date());
+      setError("");
       return true;
     } catch {
       if (!silent) setError("could not reach backend");
@@ -1306,51 +1326,23 @@ export default function AdminPage() {
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [logout]);
 
-  async function login(e: React.FormEvent) {
-    e.preventDefault();
-    if (!key.trim()) return;
-    setLoading(true);
-    setError("");
-    const ok = await fetchData(key);
-    if (ok) { saveAdminKey(key); savedKey.current = key; setAdminKey(key); setAuthed(true); }
-    setLoading(false);
-  }
-
-  function signOut() {
-    clearAdminKey();
-    savedKey.current = "";
-    setAdminKey("");
-    setAuthed(false);
-    setKey("");
-  }
-
-  // Auto-login once from a sessionStorage-persisted key (survives reloads
-  // within the same tab, cleared on tab close — never localStorage). Runs
-  // once on mount; login() above handles the manual-entry path.
+  // AdminShell (app/components/AdminShell.tsx) owns the login gate — this
+  // page only ever mounts once adminKey is known-valid, so it just loads
+  // its own data once on mount instead of re-verifying the key itself.
   useEffect(() => {
-    const stored = loadAdminKey();
-    if (!stored) return;
-    (async () => {
-      setLoading(true);
-      const ok = await fetchData(stored);
-      if (ok) { savedKey.current = stored; setAdminKey(stored); setAuthed(true); }
-      else if (ok === false) clearAdminKey();
-      // ok === null (transient error) — leave the stored key alone, the
-      // login form just shows with it pre-filled for a manual retry.
-      setLoading(false);
-    })();
+    queueMicrotask(() => { fetchData(adminKey); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [adminKey]);
 
   useEffect(() => {
     if (autoRef.current) clearInterval(autoRef.current);
-    if (autoRefresh && authed) {
-      autoRef.current = setInterval(() => fetchData(savedKey.current, true), 60000);
+    if (autoRefresh) {
+      autoRef.current = setInterval(() => fetchData(adminKey, true), 60000);
     }
     return () => { if (autoRef.current) clearInterval(autoRef.current); };
-  }, [autoRefresh, authed, fetchData]);
+  }, [autoRefresh, fetchData, adminKey]);
 
   async function exportCSV() {
     // Fetch with header auth + trigger download via a synthetic anchor.
@@ -1358,7 +1350,7 @@ export default function AdminPage() {
     // admin key to browser history and to the new tab's URL bar.
     try {
       const res = await adminFetch(`${API_URL}/api/v1/admin/export/csv`,
-        {}, { key: savedKey.current });
+        {}, { key: adminKey });
       if (!res.ok) { setError(`export failed (${res.status})`); return; }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -1378,13 +1370,13 @@ export default function AdminPage() {
   // Asks for action password (cached after first entry).
   const deleteSubmission = useCallback(async (id: string) => {
     if (!id) {
-      await fetchData(savedKey.current, true);
+      await fetchData(adminKey, true);
       return;
     }
     const pwd = await requestPassword();
     if (!pwd) return;
     const res = await adminFetch(`${API_URL}/api/v1/admin/submissions/${id}`,
-      { method: "DELETE" }, { key: savedKey.current, pwd });
+      { method: "DELETE" }, { key: adminKey, pwd });
     if (res.ok) {
       setSubmissions((prev) => prev.filter((s) => s.id !== id));
     } else if (res.status === 403) {
@@ -1392,7 +1384,7 @@ export default function AdminPage() {
       setActionPassword("");
       alert("wrong action password");
     }
-  }, [fetchData, requestPassword]);
+  }, [fetchData, requestPassword, adminKey]);
 
   // Bulk-delete (called from testing tab toolbar). Password-gated too.
   const bulkDelete = useCallback(async (ids: string[]) => {
@@ -1400,39 +1392,19 @@ export default function AdminPage() {
     if (!pwd) return;
     const res = await adminFetch(`${API_URL}/api/v1/admin/submissions/bulk-delete`,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) },
-      { key: savedKey.current, pwd });
+      { key: adminKey, pwd });
     if (res.ok) {
       setSubmissions((prev) => prev.filter((s) => !ids.includes(s.id)));
     } else if (res.status === 403) {
       setActionPassword("");
       alert("wrong action password");
     }
-  }, [requestPassword]);
+  }, [requestPassword, adminKey]);
 
   // Locally merge a flags PATCH so the UI updates instantly without a refetch.
   const handleFlagsChanged = useCallback((id: string, patch: Partial<Submission>) => {
     setSubmissions((prev) => prev.map((s) => s.id === id ? { ...s, ...patch } : s));
   }, []);
-
-  if (!authed) {
-    return (
-      <div style={{ position: "fixed", inset: 0, background: "#F5F0E8", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem" }}>
-        <div style={{ maxWidth: 360, width: "100%" }}>
-          <p className="font-[family-name:var(--font-things)] text-[#2A1810] text-2xl mb-1">frinq admin</p>
-          <p className="font-[family-name:var(--font-motive)] text-[#8B7355] text-[11px] tracking-[0.1em] mb-8">enter your admin key to continue</p>
-          <form onSubmit={login} className="flex flex-col gap-4">
-            <input type="password" className="frinq-input" placeholder="admin key" value={key} onChange={e => setKey(e.target.value)} autoFocus />
-            {error && <p className="font-[family-name:var(--font-motive)] text-[11px] text-[#7C1C0B]">{error}</p>}
-            <button type="submit" disabled={loading}
-              className="inline-flex items-center gap-3 text-[11px] font-[family-name:var(--font-motive)] tracking-[0.14em] text-[#2A1810] hover:text-[#7C1C0B] transition-colors group disabled:opacity-40">
-              {loading ? "connecting..." : "enter"}
-              {!loading && <svg width="20" height="8" viewBox="0 0 20 8" fill="none" className="transition-transform group-hover:translate-x-1"><path d="M0 4H18M18 4L14.5 1M18 4L14.5 7" stroke="currentColor" strokeWidth="1" /></svg>}
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
 
   // Counts split test vs real so the tab labels reflect what's actually shown.
   // A row is "test" if its phone matches NEXT_PUBLIC_TEST_PHONES OR admin
@@ -1445,23 +1417,43 @@ export default function AdminPage() {
     { id: "overview", label: "overview" },
     { id: "users", label: `users (${realCount}${approvedCount > 0 ? ` · ${approvedCount} ✓` : ""})` },
     { id: "testing", label: `testing (${testCount})` },
+    { id: "accounts", label: "accounts" },
     { id: "analytics", label: "analytics" },
     { id: "insights", label: "insights" },
     { id: "funnel", label: "funnel" },
     { id: "journey", label: "user journey" },
   ];
 
+  // Which sub-tabs render together, grouped by AdminShell's top-level nav
+  // item — "analytics"/"users"/"journey" in its NAV_ITEMS map to these same
+  // groupings (see app/components/AdminShell.tsx).
+  const TAB_GROUPS: Record<Tab, Tab[]> = {
+    overview: ["overview", "analytics", "insights", "funnel"],
+    analytics: ["overview", "analytics", "insights", "funnel"],
+    insights: ["overview", "analytics", "insights", "funnel"],
+    funnel: ["overview", "analytics", "insights", "funnel"],
+    users: ["users", "testing", "accounts"],
+    testing: ["users", "testing", "accounts"],
+    accounts: ["users", "testing", "accounts"],
+    journey: ["journey"],
+  };
+
   const drops = analytics?.totals.drop_off || 0;
 
   return (
-    <div style={{ position: "fixed", inset: 0, overflowY: "auto", overflowX: "hidden", background: "#F5F0E8" }}>
-      {/* Header */}
-      <header className="border-b border-[rgba(42,24,16,0.1)] px-6 py-4 flex items-center justify-between sticky top-0 bg-[#F5F0E8] z-20">
+    <div>
+      {/* Sub-header: page-specific info + refresh/export controls (not
+          global nav — that lives in AdminShell above this) */}
+      <header className="border-b border-[rgba(42,24,16,0.1)] px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <span className="font-[family-name:var(--font-things)] text-[#2A1810] text-lg">frinq admin</span>
           {drops > 0 && (
             <span className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.1em] px-2 py-0.5 bg-[rgba(124,28,11,0.08)] text-[#7C1C0B] rounded-full">
               {drops} dropped
+            </span>
+          )}
+          {error && (
+            <span className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.1em] px-2 py-0.5 bg-[rgba(124,28,11,0.08)] text-[#7C1C0B] rounded-full">
+              {error}
             </span>
           )}
         </div>
@@ -1478,7 +1470,7 @@ export default function AdminPage() {
             auto-refresh
           </button>
           <button
-            onClick={() => fetchData(savedKey.current)}
+            onClick={() => fetchData(adminKey)}
             disabled={refreshing}
             className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.1em] px-2.5 py-1 border border-[rgba(42,24,16,0.18)] text-[#8B7355] hover:text-[#2A1810] transition-colors disabled:opacity-40"
           >
@@ -1490,18 +1482,14 @@ export default function AdminPage() {
           >
             export CSV
           </button>
-          <button
-            onClick={signOut}
-            className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.1em] px-2.5 py-1 border border-[rgba(42,24,16,0.18)] text-[#8B7355] hover:text-[#2A1810] transition-colors"
-          >
-            sign out
-          </button>
         </div>
       </header>
 
-      {/* Tab nav */}
-      <div className="border-b border-[rgba(42,24,16,0.1)] px-6 flex gap-0 overflow-x-auto sticky top-[57px] bg-[#F5F0E8] z-10">
-        {TABS.map(t => (
+      {/* Sub-tab nav: only the sub-tabs belonging to the current top-level
+          section (Analytics vs Users vs Journey) — the top-level switch
+          itself is AdminShell's nav bar above. */}
+      <div style={{ top: NAV_HEIGHT_PX }} className="border-b border-[rgba(42,24,16,0.1)] px-6 flex gap-0 overflow-x-auto sticky bg-[#F5F0E8] z-10">
+        {TABS.filter(t => TAB_GROUPS[tab].includes(t.id)).map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`font-[family-name:var(--font-motive)] text-[10px] tracking-[0.14em] px-4 py-3 border-b-2 transition-colors whitespace-nowrap ${tab === t.id ? "text-[#2A1810] border-[#2A1810]" : "text-[#8B7355] border-transparent hover:text-[#2A1810]"}`}>
             {t.label}
@@ -1514,7 +1502,7 @@ export default function AdminPage() {
         {analytics && tab === "overview" && <OverviewView analytics={analytics} submissions={submissions} />}
         {tab === "users" && (
           <UsersView mode="users" submissions={submissions} adminKey={adminKey}
-            onRetry={() => fetchData(savedKey.current, true)}
+            onRetry={() => fetchData(adminKey, true)}
             onDelete={deleteSubmission}
             onBulkDelete={bulkDelete}
             onRequestPassword={requestPassword}
@@ -1524,12 +1512,18 @@ export default function AdminPage() {
         )}
         {tab === "testing" && (
           <UsersView mode="testing" submissions={submissions} adminKey={adminKey}
-            onRetry={() => fetchData(savedKey.current, true)}
+            onRetry={() => fetchData(adminKey, true)}
             onDelete={deleteSubmission}
             onBulkDelete={bulkDelete}
             onRequestPassword={requestPassword}
             onWrongPassword={() => setActionPassword("")}
             onFlagsChanged={handleFlagsChanged}
+          />
+        )}
+        {tab === "accounts" && (
+          <AccountsView adminKey={adminKey}
+            onRequestPassword={requestPassword}
+            onWrongPassword={() => setActionPassword("")}
           />
         )}
         {analytics && tab === "analytics" && <AnalyticsView analytics={analytics} />}
@@ -1544,5 +1538,14 @@ export default function AdminPage() {
         onCancel={() => { pwdModal?.resolve(null); setPwdModal(null); }}
       />
     </div>
+  );
+}
+
+// useSearchParams() requires a Suspense boundary (Next.js App Router).
+export default function AdminPage() {
+  return (
+    <Suspense fallback={null}>
+      <AdminPageInner />
+    </Suspense>
   );
 }

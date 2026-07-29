@@ -36,6 +36,7 @@ export function SettingsScreen() {
       </BrandHeading>
 
       <View style={styles.list}>
+        <NavRow label="edit profile" onPress={() => navigation.navigate('EditProfile')} />
         <NavRow label="community notifications" onPress={() => navigation.navigate('CommunitySettings')} />
         <NavRow label="notifications" onPress={() => navigation.navigate('Notifications')} />
         <NavRow label="privacy & analytics" onPress={() => navigation.navigate('PrivacySettings')} />

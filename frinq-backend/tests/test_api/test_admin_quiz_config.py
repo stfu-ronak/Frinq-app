@@ -53,3 +53,15 @@ async def test_put_admin_quiz_config_saves_new_version(client, fake_pool: FakePo
 
     followup = await client.get("/api/v1/admin/quiz-config", headers=_ADMIN_HEADERS)
     assert followup.json()["steps"] == new_steps
+
+
+async def test_put_admin_quiz_config_does_not_require_action_password(client, fake_pool: FakePool):
+    new_steps = [
+        {"id": "custom_q2", "kind": "text", "section": "custom", "answerKey": "custom_q2", "prompt": "what feels easy?"},
+    ]
+    fake_pool.store.fetchval_handler = lambda query, args: 1
+    fake_pool.store.fetchrow_handler = lambda query, args: {"version": 2, "steps": new_steps}
+    res = await client.put(
+        "/api/v1/admin/quiz-config", json={"steps": new_steps}, headers={"Authorization": _ADMIN_HEADERS["Authorization"]},
+    )
+    assert res.status_code == 200

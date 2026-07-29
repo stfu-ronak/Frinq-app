@@ -28,7 +28,6 @@
 	<true/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
-	  <!-- Do not change NSAllowsArbitraryLoads to true, or you will risk app rejection! -->
 		<key>NSAllowsArbitraryLoads</key>
 		<false/>
 		<key>NSAllowsLocalNetworking</key>
@@ -36,10 +35,6 @@
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Frinq uses your microphone only when you choose to record a spoken answer during the quiz. Recording stops the moment you leave that screen.</string>
-	<!-- Export compliance: the app only uses standard HTTPS/TLS for network transport
-	     and standard OS-provided (Keychain/CryptoKit-equivalent) encryption for local
-	     storage — both qualify for Apple's exemption, so no annual self-classification
-	     report is needed. Revisit if any custom/proprietary cryptography is ever added. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>UILaunchStoryboardName</key>
@@ -61,5 +56,19 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>VastagoGrotesk-Black.otf</string>
+		<string>VastagoGrotesk-Bold.otf</string>
+		<string>VastagoGrotesk-ExtraLight.otf</string>
+		<string>VastagoGrotesk-Heavy.otf</string>
+		<string>VastagoGrotesk-Light.otf</string>
+		<string>VastagoGrotesk-Medium.otf</string>
+		<string>VastagoGrotesk-Regular.otf</string>
+		<string>VastagoGrotesk-SemiBold.otf</string>
+		<string>VastagoGrotesk-Thin.otf</string>
+		<string>Borel-Regular.ttf</string>
+		<string>Urbanist-Regular.ttf</string>
+	</array>
 </dict>
 </plist>

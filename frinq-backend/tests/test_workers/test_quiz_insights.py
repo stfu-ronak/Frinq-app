@@ -19,15 +19,34 @@ class _NoopTransaction:
         return False
 
 
+_DEFAULT_MODEL_CONFIGS: dict[str, dict[str, Any]] = {
+    "insights": {
+        "step": "insights", "provider": "openai", "model_id": "gpt-5.5",
+        "effort": "medium", "updated_at": datetime.now(timezone.utc), "updated_by": "test",
+    },
+    "deep_report": {
+        "step": "deep_report", "provider": "openai", "model_id": "gpt-5.5",
+        "effort": "medium", "updated_at": datetime.now(timezone.utc), "updated_by": "test",
+    },
+}
+
+
 class _FakeQuizInsightsConnection:
     """In-memory quiz_submissions row + users.onboarding_state + community
     membership, mutated by the real SQL the task issues — mirrors the
     _FakeSessionConnection pattern used for session tests."""
 
-    def __init__(self, submission: dict[str, Any], user_states: dict[Any, str]) -> None:
+    def __init__(
+        self,
+        submission: dict[str, Any],
+        user_states: dict[Any, str],
+        model_configs: dict[str, dict[str, Any]] | None = None,
+    ) -> None:
         self.submission = submission
         self.user_states = user_states
         self.communities: dict[Any, dict[str, Any]] = {}
+        self.model_configs = model_configs if model_configs is not None else dict(_DEFAULT_MODEL_CONFIGS)
+        self.usage_log_inserts: list[tuple[Any, ...]] = []
 
     def transaction(self) -> _NoopTransaction:
         return _NoopTransaction()
@@ -36,6 +55,10 @@ class _FakeQuizInsightsConnection:
         q = query.strip()
         if q.startswith("SELECT id, user_id, answers, status, share_card"):
             return dict(self.submission)
+        if q.startswith("SELECT step, provider, model_id, effort, updated_at, updated_by"):
+            (step,) = args
+            config = self.model_configs.get(step)
+            return dict(config) if config is not None else None
         if q.startswith("SELECT archetype_slug, user_id, muted, joined_at"):
             (user_id,) = args
             membership = self.communities.get(user_id)
@@ -56,6 +79,8 @@ class _FakeQuizInsightsConnection:
         q = query.strip()
         if q.startswith("UPDATE quiz_submissions SET status='processing'"):
             self.submission["status"] = "processing"
+            if len(args) >= 2:
+                self.submission["model_snapshot"] = args[1]
         elif q.startswith("UPDATE users SET onboarding_state='profile_processing'"):
             (user_id,) = args
             self.user_states[user_id] = "profile_processing"
@@ -82,6 +107,8 @@ class _FakeQuizInsightsConnection:
         elif q.startswith("UPDATE users SET onboarding_state='error'"):
             (user_id,) = args
             self.user_states[user_id] = "error"
+        elif q.startswith("INSERT INTO ai_usage_log"):
+            self.usage_log_inserts.append(args)
         return "OK"
 
 
@@ -145,10 +172,10 @@ async def test_success_activates_user_and_assigns_one_community(
     pool = _FakeQuizInsightsPool(conn)
     monkeypatch.setattr(quiz_insights_module, "get_pool", lambda: pool)
 
-    async def _fake_insights(answers: dict[str, Any]) -> dict[str, Any]:
+    async def _fake_insights(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         return _ai_result("quiet-storm")
 
-    async def _fake_deep_report(answers: dict[str, Any]) -> dict[str, Any]:
+    async def _fake_deep_report(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         return {"mirror": "..."}
 
     monkeypatch.setattr(quiz_insights_module, "generate_insights", _fake_insights)
@@ -171,10 +198,10 @@ async def test_invalid_archetype_fails_without_activation(
     pool = _FakeQuizInsightsPool(conn)
     monkeypatch.setattr(quiz_insights_module, "get_pool", lambda: pool)
 
-    async def _fake_insights(answers: dict[str, Any]) -> dict[str, Any]:
+    async def _fake_insights(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         return _ai_result("not-a-real-archetype")
 
-    async def _fake_deep_report(answers: dict[str, Any]) -> dict[str, Any]:
+    async def _fake_deep_report(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         return {}
 
     monkeypatch.setattr(quiz_insights_module, "generate_insights", _fake_insights)
@@ -196,11 +223,11 @@ async def test_rerun_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
 
     call_count = {"n": 0}
 
-    async def _fake_insights(answers: dict[str, Any]) -> dict[str, Any]:
+    async def _fake_insights(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         call_count["n"] += 1
         return _ai_result("quiet-storm")
 
-    async def _fake_deep_report(answers: dict[str, Any]) -> dict[str, Any]:
+    async def _fake_deep_report(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         return {}
 
     monkeypatch.setattr(quiz_insights_module, "generate_insights", _fake_insights)
@@ -228,11 +255,11 @@ async def test_processing_status_skips_to_avoid_double_charge(
 
     call_count = {"n": 0}
 
-    async def _fake_insights(answers: dict[str, Any]) -> dict[str, Any]:
+    async def _fake_insights(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         call_count["n"] += 1
         return _ai_result("quiet-storm")
 
-    async def _fake_deep_report(answers: dict[str, Any]) -> dict[str, Any]:
+    async def _fake_deep_report(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         call_count["n"] += 1
         return {}
 
@@ -266,10 +293,10 @@ async def test_unexpected_final_commit_failure_is_sanitized_and_recoverable(
     pool = _FakeQuizInsightsPool(conn)
     monkeypatch.setattr(quiz_insights_module, "get_pool", lambda: pool)
 
-    async def _fake_insights(answers: dict[str, Any]) -> dict[str, Any]:
+    async def _fake_insights(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         return _ai_result("quiet-storm")
 
-    async def _fake_deep_report(answers: dict[str, Any]) -> dict[str, Any]:
+    async def _fake_deep_report(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         return {}
 
     monkeypatch.setattr(quiz_insights_module, "generate_insights", _fake_insights)
@@ -308,11 +335,11 @@ async def test_existing_done_result_assigns_without_second_model_call(
 
     call_count = {"n": 0}
 
-    async def _fake_insights(answers: dict[str, Any]) -> dict[str, Any]:
+    async def _fake_insights(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         call_count["n"] += 1
         return result
 
-    async def _fake_deep_report(answers: dict[str, Any]) -> dict[str, Any]:
+    async def _fake_deep_report(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         call_count["n"] += 1
         return {}
 
@@ -324,3 +351,235 @@ async def test_existing_done_result_assigns_without_second_model_call(
     assert call_count["n"] == 0
     assert conn.communities[user_id]["archetype_slug"] == "quiet-storm"
     assert conn.user_states[user_id] == "active"
+
+
+async def test_model_snapshot_is_written_once_at_job_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    submission = _submission_row(user_id)
+    conn = _FakeQuizInsightsConnection(submission, {})
+    pool = _FakeQuizInsightsPool(conn)
+    monkeypatch.setattr(quiz_insights_module, "get_pool", lambda: pool)
+
+    seen_configs: dict[str, dict[str, Any]] = {}
+
+    async def _fake_insights(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        seen_configs["insights"] = kwargs["model_config"]
+        return _ai_result("quiet-storm")
+
+    async def _fake_deep_report(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        seen_configs["deep_report"] = kwargs["model_config"]
+        return {}
+
+    monkeypatch.setattr(quiz_insights_module, "generate_insights", _fake_insights)
+    monkeypatch.setattr(quiz_insights_module, "generate_deep_report", _fake_deep_report)
+
+    await generate_quiz_insights({}, str(submission["id"]))
+
+    assert seen_configs["insights"]["model_id"] == "gpt-5.5"
+    assert seen_configs["deep_report"]["model_id"] == "gpt-5.5"
+    snapshot = json.loads(conn.submission["model_snapshot"])
+    assert snapshot["insights"]["model_id"] == "gpt-5.5"
+    assert snapshot["deep_report"]["model_id"] == "gpt-5.5"
+
+
+async def test_admin_switch_mid_flight_does_not_affect_the_in_flight_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The single most important guarantee of the model-config feature: a job
+    that has already snapshotted its config (i.e. is already past the
+    'processing' write) must keep using that snapshot for its ENTIRE run, even
+    if an admin PATCHes ai_model_config while the job's AI calls are still in
+    flight. A job started AFTER the switch must use the new config.
+
+    Simulated here by having the fake generate_insights callable itself flip
+    conn.model_configs mid-call — standing in for "the admin fires a PATCH
+    while this job's slow provider call is still outstanding."""
+    user_id = uuid4()
+    submission = _submission_row(user_id)
+    conn = _FakeQuizInsightsConnection(submission, {})
+    pool = _FakeQuizInsightsPool(conn)
+    monkeypatch.setattr(quiz_insights_module, "get_pool", lambda: pool)
+
+    async def _fake_insights(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        # Simulate an admin PATCH landing while this job's own insights call
+        # is still outstanding.
+        conn.model_configs["insights"] = {
+            "step": "insights", "provider": "claude", "model_id": "claude-opus-5",
+            "effort": "high", "updated_at": datetime.now(timezone.utc), "updated_by": "admin",
+        }
+        return _ai_result("quiet-storm")
+
+    async def _fake_deep_report(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        return {}
+
+    monkeypatch.setattr(quiz_insights_module, "generate_insights", _fake_insights)
+    monkeypatch.setattr(quiz_insights_module, "generate_deep_report", _fake_deep_report)
+
+    await generate_quiz_insights({}, str(submission["id"]))
+
+    # The in-flight job's own snapshot (and its ai_usage_log row) must reflect
+    # the OLD config, never the switch that happened mid-call.
+    snapshot = json.loads(conn.submission["model_snapshot"])
+    assert snapshot["insights"]["model_id"] == "gpt-5.5"
+
+    # A brand-new job (new submission) started after the switch must read the
+    # NEW config — the live-config table itself was genuinely updated.
+    second_user_id = uuid4()
+    second_submission = _submission_row(second_user_id)
+    conn.submission, conn.user_states = second_submission, conn.user_states
+    # Reuse the same connection/pool (same live ai_model_config table) for a
+    # second, independent submission row.
+    second_conn = _FakeQuizInsightsConnection(
+        second_submission, conn.user_states, model_configs=conn.model_configs,
+    )
+    second_pool = _FakeQuizInsightsPool(second_conn)
+    monkeypatch.setattr(quiz_insights_module, "get_pool", lambda: second_pool)
+
+    later_configs: dict[str, dict[str, Any]] = {}
+
+    async def _fake_insights_2(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        later_configs["insights"] = kwargs["model_config"]
+        return _ai_result("quiet-storm")
+
+    monkeypatch.setattr(quiz_insights_module, "generate_insights", _fake_insights_2)
+
+    await generate_quiz_insights({}, str(second_submission["id"]))
+
+    assert later_configs["insights"]["model_id"] == "claude-opus-5"
+    assert later_configs["insights"]["provider"] == "claude"
+
+
+async def test_usage_recorder_logs_cost_against_the_snapshotted_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    submission = _submission_row(user_id)
+    conn = _FakeQuizInsightsConnection(submission, {}, model_configs={
+        "insights": {
+            "step": "insights", "provider": "claude", "model_id": "claude-opus-5",
+            "effort": "high", "updated_at": datetime.now(timezone.utc), "updated_by": "admin",
+        },
+        "deep_report": dict(_DEFAULT_MODEL_CONFIGS["deep_report"]),
+    })
+    pool = _FakeQuizInsightsPool(conn)
+    monkeypatch.setattr(quiz_insights_module, "get_pool", lambda: pool)
+
+    async def _fake_insights(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        await kwargs["usage_recorder"](1_000_000, 500_000)
+        return _ai_result("quiet-storm")
+
+    async def _fake_deep_report(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        return {}
+
+    monkeypatch.setattr(quiz_insights_module, "generate_insights", _fake_insights)
+    monkeypatch.setattr(quiz_insights_module, "generate_deep_report", _fake_deep_report)
+
+    await generate_quiz_insights({}, str(submission["id"]))
+
+    assert len(conn.usage_log_inserts) == 1
+    (sid, step, provider, model_id, effort, input_tokens, output_tokens, cost) = conn.usage_log_inserts[0]
+    assert step == "insights"
+    assert provider == "claude"
+    assert model_id == "claude-opus-5"
+    assert input_tokens == 1_000_000
+    assert output_tokens == 500_000
+    # claude-opus-5: $5.00/$25.00 per MTok -> 1*5.00 + 0.5*25.00 = 17.50
+    assert cost == pytest.approx(17.50)
+
+
+async def test_usage_recorder_falls_back_to_zero_cost_for_unknown_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A snapshot can reference a model that's since been retired from
+    model_pricing.py's catalog (an old ai_usage_log row, or a config that was
+    live before a code deploy dropped a model). The recorder must still log
+    the usage row rather than lose it or crash — just with cost 0.0."""
+    user_id = uuid4()
+    submission = _submission_row(user_id)
+    conn = _FakeQuizInsightsConnection(submission, {}, model_configs={
+        "insights": {
+            "step": "insights", "provider": "openai", "model_id": "gpt-4-retired-model",
+            "effort": None, "updated_at": datetime.now(timezone.utc), "updated_by": "admin",
+        },
+        "deep_report": dict(_DEFAULT_MODEL_CONFIGS["deep_report"]),
+    })
+    pool = _FakeQuizInsightsPool(conn)
+    monkeypatch.setattr(quiz_insights_module, "get_pool", lambda: pool)
+
+    async def _fake_insights(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        await kwargs["usage_recorder"](1000, 500)
+        return _ai_result("quiet-storm")
+
+    async def _fake_deep_report(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        return {}
+
+    monkeypatch.setattr(quiz_insights_module, "generate_insights", _fake_insights)
+    monkeypatch.setattr(quiz_insights_module, "generate_deep_report", _fake_deep_report)
+
+    await generate_quiz_insights({}, str(submission["id"]))
+
+    assert len(conn.usage_log_inserts) == 1
+    cost = conn.usage_log_inserts[0][-1]
+    assert cost == 0.0
+    # The generation itself must still complete normally — an unknown model
+    # for cost purposes is not a generation failure.
+    assert conn.submission["status"] == "done"
+
+
+async def test_deep_report_failure_still_records_insights_usage_and_completes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """generate_insights succeeding while generate_deep_report raises is an
+    existing, expected outcome (the submission still completes with
+    deep_summary=None) — this phase's usage-recording must not regress that:
+    the insights call's usage row must still be written even though its
+    sibling task failed."""
+    user_id = uuid4()
+    submission = _submission_row(user_id)
+    conn = _FakeQuizInsightsConnection(submission, {})
+    pool = _FakeQuizInsightsPool(conn)
+    monkeypatch.setattr(quiz_insights_module, "get_pool", lambda: pool)
+
+    async def _fake_insights(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        await kwargs["usage_recorder"](500, 200)
+        return _ai_result("quiet-storm")
+
+    async def _fake_deep_report(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("provider timeout")
+
+    monkeypatch.setattr(quiz_insights_module, "generate_insights", _fake_insights)
+    monkeypatch.setattr(quiz_insights_module, "generate_deep_report", _fake_deep_report)
+
+    await generate_quiz_insights({}, str(submission["id"]))
+
+    assert conn.submission["status"] == "done"
+    assert conn.submission["deep_summary"] is None
+    assert len(conn.usage_log_inserts) == 1
+    assert conn.usage_log_inserts[0][1] == "insights"
+
+
+async def test_missing_model_config_marks_submission_error_not_stuck_processing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If ai_model_config is missing a row for a step (e.g. a partially
+    applied migration), get_active_model_config raises InvalidModelConfigError.
+    This must be caught and routed through the normal error path — never left
+    to propagate out of the task and strand the submission silently."""
+    user_id = uuid4()
+    submission = _submission_row(user_id)
+    conn = _FakeQuizInsightsConnection(submission, {}, model_configs={})
+    pool = _FakeQuizInsightsPool(conn)
+    monkeypatch.setattr(quiz_insights_module, "get_pool", lambda: pool)
+
+    async def _fake_insights(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("must not be called — config read fails first")
+
+    monkeypatch.setattr(quiz_insights_module, "generate_insights", _fake_insights)
+
+    await generate_quiz_insights({}, str(submission["id"]))
+
+    assert conn.submission["status"] == "error"
+    assert conn.submission["error_msg"] == "InvalidModelConfigError"
+    assert conn.user_states[user_id] == "error"

@@ -6,7 +6,7 @@ import { getStep, nextStep, previousStep } from '../domain/quizDefinition';
 import {
   IntroTemplate, TextInputTemplate, DateInputTemplate, SingleChoiceCardTemplate,
   SingleChoiceListTemplate, MultiChoiceTagsTemplate, RapidFireTemplate, OpinionsTemplate,
-  PreferencesTemplate, VoiceOrTextTemplate,
+  PreferencesTemplate, VoiceOrTextTemplate, SocialVerificationTemplate,
 } from './templates';
 import { QuizScreenFrame } from '../components/QuizScreenFrame';
 import { SnapSlider } from '../components/SnapSlider';
@@ -254,6 +254,20 @@ export function QuizStepScreen() {
           value={(answer as string) ?? ''}
           onChange={(v) => send({ type: 'ANSWER', key: step.answerKey, value: v })}
           onContinue={advanceOrFinish}
+          onBack={previousStep(step.id) ? goBack : undefined}
+        />
+      );
+
+    case 'socialVerification':
+      return (
+        <SocialVerificationTemplate
+          step={step}
+          linkedin={(state.answers[step.linkedinAnswerKey] as string) ?? ''}
+          instagram={(state.answers[step.instagramAnswerKey] as string) ?? ''}
+          onChangeLinkedin={(v) => send({ type: 'ANSWER', key: step.linkedinAnswerKey, value: v })}
+          onChangeInstagram={(v) => send({ type: 'ANSWER', key: step.instagramAnswerKey, value: v })}
+          onContinue={advanceOrFinish}
+          onSkip={advanceOrFinish}
           onBack={previousStep(step.id) ? goBack : undefined}
         />
       );

@@ -83,5 +83,7 @@ def validate_production_settings(settings: object) -> list[str]:
         errors.append("OPENAI_API_KEY must be set when INSIGHTS_PROVIDER=openai in production")
     elif provider in ("claude", "anthropic") and not getattr(settings, "ANTHROPIC_API_KEY", ""):
         errors.append("ANTHROPIC_API_KEY must be set when INSIGHTS_PROVIDER=claude in production")
+    elif provider == "gemini" and not getattr(settings, "GEMINI_API_KEY", ""):
+        errors.append("GEMINI_API_KEY must be set when INSIGHTS_PROVIDER=gemini in production")
 
     return errors

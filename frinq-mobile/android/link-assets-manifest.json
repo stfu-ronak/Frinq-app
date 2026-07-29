@@ -1,0 +1,49 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "src/assets/fonts/Borel-Regular.ttf",
+      "sha1": "f45b5ab6a5c6191d75356d4afa1a4b50c553c00b"
+    },
+    {
+      "path": "src/assets/fonts/Urbanist-Regular.ttf",
+      "sha1": "d2e596224a2ea7c2c7eb9f6edbb79664d6f3c1da"
+    },
+    {
+      "path": "src/assets/fonts/VastagoGrotesk-Black.otf",
+      "sha1": "f4e8bd9890373441a00ff01ece289010876b3739"
+    },
+    {
+      "path": "src/assets/fonts/VastagoGrotesk-Bold.otf",
+      "sha1": "955cff64d3e0fb24535f9e7de80dd3e98c99194f"
+    },
+    {
+      "path": "src/assets/fonts/VastagoGrotesk-ExtraLight.otf",
+      "sha1": "8a75be77b09c8c4e3e24c7b5ec046a1a2e078585"
+    },
+    {
+      "path": "src/assets/fonts/VastagoGrotesk-Heavy.otf",
+      "sha1": "e7c5372fbf62ccc33c1161291731c8a00c8f6797"
+    },
+    {
+      "path": "src/assets/fonts/VastagoGrotesk-Light.otf",
+      "sha1": "dc41e4944f2eba6f613e334e35e395d3335a197d"
+    },
+    {
+      "path": "src/assets/fonts/VastagoGrotesk-Medium.otf",
+      "sha1": "9b56be985f5519d8f64fcbc7c649b6b4cee658de"
+    },
+    {
+      "path": "src/assets/fonts/VastagoGrotesk-Regular.otf",
+      "sha1": "9d82d7b81b26ef635e8e559fe03d2d72cca74261"
+    },
+    {
+      "path": "src/assets/fonts/VastagoGrotesk-SemiBold.otf",
+      "sha1": "51e3b5ed15b719beb31f99c0159670ac756da150"
+    },
+    {
+      "path": "src/assets/fonts/VastagoGrotesk-Thin.otf",
+      "sha1": "30efed4417b63332b8ab38aa3db801980c5befa2"
+    }
+  ]
+}

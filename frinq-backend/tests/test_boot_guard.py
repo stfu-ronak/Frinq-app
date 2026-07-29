@@ -121,6 +121,16 @@ async def test_production_rejects_missing_ai_key_for_active_provider(
         await _enter_and_exit_lifespan()
 
 
+async def test_production_rejects_missing_gemini_key_for_active_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_all_valid(monkeypatch)
+    monkeypatch.setattr(settings, "INSIGHTS_PROVIDER", "gemini")
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
+    with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
+        await _enter_and_exit_lifespan()
+
+
 async def test_production_rejects_default_admin_actor_id(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_all_valid(monkeypatch)
     monkeypatch.setattr(settings, "ADMIN_ACTOR_ID", "admin")

@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, View, ViewStyle } from 'react-native';
+import Svg, { Circle } from 'react-native-svg';
 import { color } from '../tokens/colors';
-import { radius, spacing } from '../tokens/spacing';
 import { BodyText } from './Text';
 
 type Props = {
@@ -10,26 +10,69 @@ type Props = {
   style?: ViewStyle;
 };
 
-/** Presentational countdown bar for rapid-fire. The screen owns the interval
- *  (and pauses it in the background); this just reflects secondsLeft. Shows a
- *  numeric readout so timing is not conveyed by the bar (color) alone. */
+const SIZE = 120;
+const STROKE = 6;
+const RADIUS = (SIZE - STROKE) / 2;
+const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+
+function formatClock(seconds: number): string {
+  const s = Math.max(0, seconds);
+  const mm = Math.floor(s / 60).toString().padStart(2, '0');
+  const ss = Math.floor(s % 60).toString().padStart(2, '0');
+  return `${mm}:${ss}`;
+}
+
+/** Circular countdown ring, matching the new design's Rapid Fire screen
+ *  (a shrinking ring around a centered "Remaining / MM:SS" readout). The
+ *  screen owns the interval; this just reflects secondsLeft. The numeric
+ *  readout — not the ring's angle alone — carries the actual value for
+ *  accessibility/color-independence. */
 export function RapidFireTimer({ secondsLeft, total, style }: Props) {
   const pct = total > 0 ? Math.max(0, Math.min(secondsLeft, total)) / total : 0;
+  const dashOffset = CIRCUMFERENCE * (1 - pct);
+
   return (
-    <View style={[styles.wrap, style]} accessible accessibilityRole="timer" accessibilityLabel={`${secondsLeft} seconds left`}>
-      <View style={styles.track}>
-        <View style={[styles.fill, { width: `${pct * 100}%` }]} />
+    <View
+      style={[styles.wrap, style]}
+      accessible
+      accessibilityRole="timer"
+      accessibilityLabel={`${secondsLeft} seconds left`}
+    >
+      <Svg
+        width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}
+        accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
+      >
+        <Circle
+          cx={SIZE / 2}
+          cy={SIZE / 2}
+          r={RADIUS}
+          stroke={color.border.subtle}
+          strokeWidth={STROKE}
+          fill="none"
+        />
+        <Circle
+          cx={SIZE / 2}
+          cy={SIZE / 2}
+          r={RADIUS}
+          stroke={color.state.selected}
+          strokeWidth={STROKE}
+          fill="none"
+          strokeDasharray={`${CIRCUMFERENCE} ${CIRCUMFERENCE}`}
+          strokeDashoffset={dashOffset}
+          strokeLinecap="round"
+          rotation={-90}
+          origin={`${SIZE / 2}, ${SIZE / 2}`}
+        />
+      </Svg>
+      <View style={styles.readout} pointerEvents="none">
+        <BodyText variant="overline" tone="secondary">remaining</BodyText>
+        <BodyText variant="title">{formatClock(secondsLeft)}</BodyText>
       </View>
-      <BodyText variant="caption" tone="secondary" style={styles.readout}>
-        {secondsLeft}s
-      </BodyText>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { flexDirection: 'row', alignItems: 'center' },
-  track: { flex: 1, height: 6, borderRadius: radius.pill, backgroundColor: color.border.subtle, overflow: 'hidden' },
-  fill: { height: '100%', backgroundColor: color.state.selected, borderRadius: radius.pill },
-  readout: { marginLeft: spacing.sm, minWidth: 28, textAlign: 'right' },
+  wrap: { width: SIZE, height: SIZE, alignItems: 'center', justifyContent: 'center' },
+  readout: { position: 'absolute', alignItems: 'center' },
 });

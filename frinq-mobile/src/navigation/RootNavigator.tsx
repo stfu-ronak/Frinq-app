@@ -9,7 +9,7 @@ import { MainTabs } from './MainTabs';
 import { LegalGateNavigator } from './LegalGateNavigator';
 import { ProcessingScreen } from '../features/vibe-report/screens/ProcessingScreen';
 import { ErrorState } from '../design/components/ErrorState';
-import { BootSplash, Placeholder } from './placeholders';
+import { AppLaunchSplash, Placeholder } from './placeholders';
 
 export type RootScreen =
   | 'splash'
@@ -82,7 +82,7 @@ interface ScreenCallbacks {
 
 function renderScreen(screen: RootScreen, cb: ScreenCallbacks) {
   switch (screen) {
-    case 'splash': return <BootSplash />;
+    case 'splash': return <AppLaunchSplash />;
     case 'auth': return <AuthNavigator />;
     case 'quiz': return <QuizNavigator onQuizComplete={cb.onQuizComplete} />;
     case 'main': return <MainTabs />;

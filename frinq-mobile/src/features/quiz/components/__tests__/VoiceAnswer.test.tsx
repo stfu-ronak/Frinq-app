@@ -127,4 +127,23 @@ describe('VoiceAnswer', () => {
 
     resolveUpload!();
   });
+
+  it('reports onStatusChange(true) once a recording is saved, and (false) on re-record', async () => {
+    mockRequestAndStart.mockResolvedValue('Granted');
+    mockStop.mockResolvedValue({ fileUri: 'file:///cache/clip.m4a', durationSec: 4 });
+    mockUploadVoiceClip.mockResolvedValue(undefined);
+    const onStatusChange = jest.fn();
+
+    const { findByLabelText, findByText } = render(
+      <VoiceAnswer submissionId="sub-1" questionKey="story" onStatusChange={onStatusChange} />,
+    );
+    expect(onStatusChange).toHaveBeenCalledWith(false); // initial idle phase
+
+    fireEvent.press(await findByLabelText('record a voice answer'));
+    fireEvent.press(await findByLabelText('stop recording'));
+    await waitFor(() => expect(onStatusChange).toHaveBeenCalledWith(true));
+
+    fireEvent.press(await findByText('re-record'));
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith(false));
+  });
 });

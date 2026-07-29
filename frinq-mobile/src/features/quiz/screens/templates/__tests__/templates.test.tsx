@@ -10,16 +10,28 @@ import { RapidFireTemplate } from '../RapidFireTemplate';
 import { OpinionsTemplate } from '../OpinionsTemplate';
 import { PreferencesTemplate } from '../PreferencesTemplate';
 import { VoiceOrTextTemplate } from '../VoiceOrTextTemplate';
+import { SocialVerificationTemplate } from '../SocialVerificationTemplate';
 import { SnapSlider } from '../../../components/SnapSlider';
 import { QuizScreenFrame } from '../../../components/QuizScreenFrame';
 import {
   IntroStep, TextStep, DateStep, SingleChoiceCardStep, SingleChoiceListStep,
   MultiChoiceTagsStep, RapidFireStep, OpinionsStep, PreferencesStep, VoiceOrTextStep,
-  SliderStep,
+  SocialVerificationStep, SliderStep,
 } from '../../../domain/quizDefinition';
 
 jest.mock('../../../../../services/session/sessionContext', () => ({
   useSession: () => ({ apiClient: { request: jest.fn() } }),
+}));
+
+// VoiceAnswer's own recording/upload behavior is covered by its dedicated
+// test file — here it's mocked down to just the onStatusChange contract
+// VoiceOrTextTemplate actually depends on.
+let mockVoiceAnswerStatus: ((hasSavedRecording: boolean) => void) | undefined;
+jest.mock('../../../components/VoiceAnswer', () => ({
+  VoiceAnswer: (props: { onStatusChange?: (v: boolean) => void }) => {
+    mockVoiceAnswerStatus = props.onStatusChange;
+    return null;
+  },
 }));
 
 describe('IntroTemplate', () => {
@@ -78,6 +90,23 @@ describe('DateInputTemplate', () => {
     fireEvent.press(getByRole('button', { name: 'continue' }));
     expect(onContinue).toHaveBeenCalled();
   });
+
+  it('does not re-show a stale error while mid-edit after a prior invalid Continue press', () => {
+    // Regression for: touched latched true on Continue and never reset, so
+    // editing month down to a single digit ("3" before "03") re-triggered the
+    // error on every keystroke instead of only after a completed attempt.
+    const onChange = jest.fn();
+    const { getByRole, getByLabelText, queryByText, rerender } = render(
+      <DateInputTemplate step={step} value="14/99/1999" onChange={onChange} onContinue={jest.fn()} />,
+    );
+    fireEvent.press(getByRole('button', { name: 'continue' }));
+    expect(queryByText(/real date/)).toBeTruthy();
+
+    fireEvent.changeText(getByLabelText('month'), '3');
+    expect(onChange).toHaveBeenCalledWith('14/3/1999');
+    rerender(<DateInputTemplate step={step} value="14/3/1999" onChange={onChange} onContinue={jest.fn()} />);
+    expect(queryByText(/real date/)).toBeNull();
+  });
 });
 
 describe('SingleChoiceCardTemplate', () => {
@@ -102,6 +131,26 @@ describe('SingleChoiceCardTemplate', () => {
     fireEvent(input, 'submitEditing');
     expect(onSelect).toHaveBeenCalledWith('something else');
   });
+
+  it('renders a Continue button (disabled until a card or custom text is provided) when allowCustom is set', () => {
+    // Regression: typing into the custom field had no on-screen way to submit
+    // besides the keyboard's "done" action.
+    const onSelect = jest.fn();
+    const { getByRole, getByLabelText } = render(
+      <SingleChoiceCardTemplate step={step} value="" onSelect={onSelect} />,
+    );
+    expect(getByRole('button', { name: 'continue' }).props.accessibilityState.disabled).toBe(true);
+    fireEvent.changeText(getByLabelText('other'), 'something else');
+    expect(getByRole('button', { name: 'continue' }).props.accessibilityState.disabled).toBe(false);
+    fireEvent.press(getByRole('button', { name: 'continue' }));
+    expect(onSelect).toHaveBeenCalledWith('something else');
+  });
+
+  it('does not render a Continue button when allowCustom is not set', () => {
+    const noCustomStep: SingleChoiceCardStep = { ...step, allowCustom: false };
+    const { queryByRole } = render(<SingleChoiceCardTemplate step={noCustomStep} value="" onSelect={jest.fn()} />);
+    expect(queryByRole('button', { name: 'continue' })).toBeNull();
+  });
 });
 
 describe('SingleChoiceListTemplate', () => {
@@ -115,6 +164,31 @@ describe('SingleChoiceListTemplate', () => {
     const { getByText } = render(<SingleChoiceListTemplate step={step} value="" onSelect={onSelect} />);
     fireEvent.press(getByText('Option B'));
     expect(onSelect).toHaveBeenCalledWith('b');
+  });
+
+  it('simple chrome: selecting only highlights, Continue commits the pending value', () => {
+    const simpleStep: SingleChoiceListStep = { ...step, chrome: 'simple' };
+    const onSelect = jest.fn();
+    const { getByText, getByRole } = render(
+      <SingleChoiceListTemplate step={simpleStep} value="" onSelect={onSelect} />,
+    );
+    expect(getByRole('button', { name: 'continue' }).props.accessibilityState.disabled).toBe(true);
+    fireEvent.press(getByText('Option B'));
+    expect(onSelect).not.toHaveBeenCalled(); // selecting alone doesn't advance in simple chrome
+    expect(getByRole('button', { name: 'continue' }).props.accessibilityState.disabled).toBe(false);
+    fireEvent.press(getByRole('button', { name: 'continue' }));
+    expect(onSelect).toHaveBeenCalledWith('b');
+  });
+
+  it('box variant renders tall options with an "or" divider between them', () => {
+    const boxStep: SingleChoiceListStep = { ...step, chrome: 'simple', variant: 'box' };
+    const onSelect = jest.fn();
+    const { getByText, queryByText } = render(
+      <SingleChoiceListTemplate step={boxStep} value="" onSelect={onSelect} />,
+    );
+    expect(queryByText('or')).toBeTruthy();
+    fireEvent.press(getByText('Option A'));
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });
 
@@ -132,6 +206,29 @@ describe('MultiChoiceTagsTemplate', () => {
     rerender(<MultiChoiceTagsTemplate step={step} value={['a']} onChange={jest.fn()} onContinue={jest.fn()} />);
     expect(getByRole('button', { name: 'continue' }).props.accessibilityState.disabled).toBe(false);
   });
+
+  it('layout "list" renders full-width rows instead of wrapping chips', () => {
+    const listStep: MultiChoiceTagsStep = { ...step, layout: 'list' };
+    const onChange = jest.fn();
+    const { getByText } = render(
+      <MultiChoiceTagsTemplate step={listStep} value={[]} onChange={onChange} onContinue={jest.fn()} />,
+    );
+    fireEvent.press(getByText('b'));
+    expect(onChange).toHaveBeenCalledWith(['b']);
+  });
+
+  it('allowCustom folds "anything else" text into the answer array alongside chip selections', () => {
+    const customStep: MultiChoiceTagsStep = { ...step, allowCustom: true };
+    const onChange = jest.fn();
+    const { getByLabelText, rerender } = render(
+      <MultiChoiceTagsTemplate step={customStep} value={['a']} onChange={onChange} onContinue={jest.fn()} />,
+    );
+    fireEvent.changeText(getByLabelText('anything else?'), 'my own thing');
+    expect(onChange).toHaveBeenCalledWith(['a', 'my own thing']);
+    rerender(<MultiChoiceTagsTemplate step={customStep} value={['a', 'my own thing']} onChange={onChange} onContinue={jest.fn()} />);
+    fireEvent.changeText(getByLabelText('anything else?'), '');
+    expect(onChange).toHaveBeenLastCalledWith(['a']);
+  });
 });
 
 describe('RapidFireTemplate', () => {
@@ -143,12 +240,21 @@ describe('RapidFireTemplate', () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
 
-  it('calls onComplete with both chosen answers after answering each pair', () => {
+  it('tapping a side only highlights it; Next commits the choice and advances', () => {
     const onComplete = jest.fn();
-    const { getByText } = render(<RapidFireTemplate step={step} onComplete={onComplete} />);
+    const { getByText, getByRole } = render(<RapidFireTemplate step={step} onComplete={onComplete} />);
     fireEvent.press(getByText('A1'));
+    expect(onComplete).not.toHaveBeenCalled(); // selecting alone doesn't advance
+    expect(getByRole('button', { name: 'Next' }).props.accessibilityState.disabled).toBe(false);
+    fireEvent.press(getByRole('button', { name: 'Next' }));
     fireEvent.press(getByText('B2'));
+    fireEvent.press(getByRole('button', { name: 'Next' }));
     expect(onComplete).toHaveBeenCalledWith(['A1', 'B2']);
+  });
+
+  it('Next is disabled until a side is chosen', () => {
+    const { getByRole } = render(<RapidFireTemplate step={step} onComplete={jest.fn()} />);
+    expect(getByRole('button', { name: 'Next' }).props.accessibilityState.disabled).toBe(true);
   });
 
   it('auto-picks a side when the timer runs out', () => {
@@ -268,5 +374,63 @@ describe('VoiceOrTextTemplate', () => {
     expect(getByRole('button', { name: 'continue' }).props.accessibilityState.disabled).toBe(true);
     rerender(<VoiceOrTextTemplate step={step} submissionId="sub-1" value="a story" onChange={jest.fn()} onContinue={jest.fn()} />);
     expect(getByRole('button', { name: 'continue' }).props.accessibilityState.disabled).toBe(false);
+  });
+
+  it('enables continue for a voice-only answer, with no typed text at all', () => {
+    // Regression: a saved recording never fed into `valid`, so a voice-only
+    // answer had no way to proceed.
+    mockVoiceAnswerStatus = undefined;
+    const { getByRole } = render(
+      <VoiceOrTextTemplate step={step} submissionId="sub-1" value="" onChange={jest.fn()} onContinue={jest.fn()} />,
+    );
+    expect(getByRole('button', { name: 'continue' }).props.accessibilityState.disabled).toBe(true);
+    act(() => mockVoiceAnswerStatus?.(true));
+    expect(getByRole('button', { name: 'continue' }).props.accessibilityState.disabled).toBe(false);
+  });
+});
+
+describe('SocialVerificationTemplate', () => {
+  const step: SocialVerificationStep = {
+    id: 'social_verification', kind: 'socialVerification', section: 'basics', chrome: 'simple', showSkip: true,
+    heading: 'social verification', linkedinAnswerKey: 'social_linkedin', instagramAnswerKey: 'social_instagram',
+  };
+
+  it('Skip advances with no content required in either field', () => {
+    const onSkip = jest.fn();
+    const { getByText } = render(
+      <SocialVerificationTemplate
+        step={step} linkedin="" instagram=""
+        onChangeLinkedin={jest.fn()} onChangeInstagram={jest.fn()}
+        onContinue={jest.fn()} onSkip={onSkip}
+      />,
+    );
+    fireEvent.press(getByText('skip'));
+    expect(onSkip).toHaveBeenCalled();
+  });
+
+  it('Continue also advances with no content required (both fields optional)', () => {
+    const onContinue = jest.fn();
+    const { getByRole } = render(
+      <SocialVerificationTemplate
+        step={step} linkedin="" instagram=""
+        onChangeLinkedin={jest.fn()} onChangeInstagram={jest.fn()}
+        onContinue={onContinue} onSkip={jest.fn()}
+      />,
+    );
+    fireEvent.press(getByRole('button', { name: 'continue' }));
+    expect(onContinue).toHaveBeenCalled();
+  });
+
+  it('typing into a field calls the matching onChange callback', () => {
+    const onChangeLinkedin = jest.fn();
+    const { getByLabelText } = render(
+      <SocialVerificationTemplate
+        step={step} linkedin="" instagram=""
+        onChangeLinkedin={onChangeLinkedin} onChangeInstagram={jest.fn()}
+        onContinue={jest.fn()} onSkip={jest.fn()}
+      />,
+    );
+    fireEvent.changeText(getByLabelText('your LinkedIn profile'), 'linkedin.com/in/me');
+    expect(onChangeLinkedin).toHaveBeenCalledWith('linkedin.com/in/me');
   });
 });

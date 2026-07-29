@@ -76,7 +76,7 @@ export function LegalAcceptanceScreen({ mode }: { mode: Mode }) {
         <BodyText variant="overline" tone="secondary">
           before we start
         </BodyText>
-        <BrandHeading variant="title" style={{ marginTop: spacing.sm, marginBottom: spacing.xl }}>
+        <BrandHeading variant="display" style={{ marginTop: spacing.sm, marginBottom: spacing.xl }}>
           a couple of things first
         </BrandHeading>
 

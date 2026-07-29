@@ -8,3 +8,4 @@ export { RapidFireTemplate } from './RapidFireTemplate';
 export { OpinionsTemplate } from './OpinionsTemplate';
 export { PreferencesTemplate } from './PreferencesTemplate';
 export { VoiceOrTextTemplate } from './VoiceOrTextTemplate';
+export { SocialVerificationTemplate } from './SocialVerificationTemplate';

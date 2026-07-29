@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { QuizScreenFrame } from '../../components/QuizScreenFrame';
 import { TextField } from '../../../../design/components/TextField';
 import { BodyText } from '../../../../design/components/Text';
@@ -21,11 +21,12 @@ type Props = {
  * own file, referenced by kind from the registry, not an inline template), so
  * Task 33 enhances it in place instead of adding a redundant StoryScreen.tsx.
  * The mic (VoiceAnswer) is additive: it uploads independently of the typed
- * answer and never affects Continue's validity, matching Task 31's original
- * text-only baseline contract.
+ * answer, but a saved recording is a valid answer on its own — Continue must
+ * enable for a voice-only response (no typed text), not just a typed one.
  */
 export function VoiceOrTextTemplate({ step, submissionId, value, onChange, onContinue, onBack }: Props) {
-  const valid = value.trim().length > 0;
+  const [hasRecording, setHasRecording] = useState(false);
+  const valid = value.trim().length > 0 || hasRecording;
   return (
     <QuizScreenFrame
       stepId={step.id}
@@ -43,7 +44,7 @@ export function VoiceOrTextTemplate({ step, submissionId, value, onChange, onCon
           {step.subtext}
         </BodyText>
       )}
-      <VoiceAnswer submissionId={submissionId} questionKey={step.answerKey} />
+      <VoiceAnswer submissionId={submissionId} questionKey={step.answerKey} onStatusChange={setHasRecording} />
       <TextField
         label={step.heading}
         hideLabel

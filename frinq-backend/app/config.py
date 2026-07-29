@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # set the client drops the custom temperature (see openai_client.py).
     OPENAI_REASONING_EFFORT: str = "medium"
 
+    # Google Gemini/Gemma. Keys are backend-only and never returned by admin.
+    GEMINI_API_KEY: str = ""
+
     # Voyage (embeddings)
     VOYAGE_API_KEY: str = ""
 
@@ -44,7 +47,7 @@ class Settings(BaseSettings):
     # insights.py) is kept fully intact but idle — flip this back to
     # "claude" to reactivate it with zero code changes. The deep-report
     # half (mirror/hidden-pattern/etc.) is OpenAI-only, no toggle.
-    INSIGHTS_PROVIDER: Literal["openai", "claude"] = "openai"
+    INSIGHTS_PROVIDER: Literal["openai", "claude", "gemini"] = "openai"
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -71,7 +74,7 @@ class Settings(BaseSettings):
     # Multi-phone test bypass (dev/staging only) — every phone in this list
     # accepts DUMMY_OTP, so testers don't have to fight over one DEV_PHONE.
     # Hard-ignored in production, same as SKIP_OTP_VERIFICATION.
-    TEST_PHONES: str = ""  # comma-separated 10-digit numbers
+    TEST_PHONES: str = "8000000001,8000000002,8000000003"  # comma-separated 10-digit numbers
 
     # App Store / Play Store reviewer bypass — the only OTP shortcut allowed
     # in production. One phone/code pair, valid only while

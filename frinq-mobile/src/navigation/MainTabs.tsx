@@ -19,23 +19,15 @@ import { SupportScreen } from '../features/legal/screens/SupportScreen';
 export type MainTabParamList = {
   Community: undefined;
   Profile: undefined;
-  Settings: undefined;
 };
 
-/** Profile stack — the Vibe card + full report are reachable from Profile
- *  (Task 34), not a tab of their own. */
+/** Profile stack — the Vibe card/report, Edit Profile, and the whole Settings
+ *  list all live here now (2026-07-27 design spec: Settings moved from its
+ *  own 3rd bottom tab to a gear icon on Profile — one stack, not two). */
 export type ProfileStackParamList = {
   ProfileHome: undefined;
   EditProfile: undefined;
   VibeReport: undefined;
-};
-
-/** Settings stack. `Account` is a small landing page before the destructive
- *  `DeleteAccount` flow — never one accidental tap from the main list.
- *  `Legal` is the hub (acceptance state + view-in-app/read-online); it and
- *  `Support` both still route into `LegalDocument` for the actual content,
- *  reusing the same screen the pre-auth legal gate uses. */
-export type SettingsStackParamList = {
   SettingsHome: undefined;
   CommunitySettings: undefined;
   Notifications: undefined;
@@ -49,7 +41,6 @@ export type SettingsStackParamList = {
 
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 const ProfileStack = createNativeStackNavigator<ProfileStackParamList>();
-const SettingsStack = createNativeStackNavigator<SettingsStackParamList>();
 
 function ProfileNavigator() {
   return (
@@ -57,27 +48,21 @@ function ProfileNavigator() {
       <ProfileStack.Screen name="ProfileHome" component={ProfileScreen} />
       <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} />
       <ProfileStack.Screen name="VibeReport" component={VibeReportScreen} />
+      <ProfileStack.Screen name="SettingsHome" component={SettingsScreen} />
+      <ProfileStack.Screen name="CommunitySettings" component={CommunitySettingsScreen} />
+      <ProfileStack.Screen name="Notifications" component={NotificationSettingsScreen} />
+      <ProfileStack.Screen name="PrivacySettings" component={PrivacySettingsScreen} />
+      <ProfileStack.Screen name="Legal" component={LegalHubScreen} />
+      <ProfileStack.Screen name="LegalDocument" component={LegalDocumentScreen} />
+      <ProfileStack.Screen name="Support" component={SupportScreen} />
+      <ProfileStack.Screen name="Account" component={AccountScreen} />
+      <ProfileStack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
     </ProfileStack.Navigator>
   );
 }
 
-function SettingsNavigator() {
-  return (
-    <SettingsStack.Navigator screenOptions={{ headerShown: false }}>
-      <SettingsStack.Screen name="SettingsHome" component={SettingsScreen} />
-      <SettingsStack.Screen name="CommunitySettings" component={CommunitySettingsScreen} />
-      <SettingsStack.Screen name="Notifications" component={NotificationSettingsScreen} />
-      <SettingsStack.Screen name="PrivacySettings" component={PrivacySettingsScreen} />
-      <SettingsStack.Screen name="Legal" component={LegalHubScreen} />
-      <SettingsStack.Screen name="LegalDocument" component={LegalDocumentScreen} />
-      <SettingsStack.Screen name="Support" component={SupportScreen} />
-      <SettingsStack.Screen name="Account" component={AccountScreen} />
-      <SettingsStack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
-    </SettingsStack.Navigator>
-  );
-}
-
-/** Three bottom tabs: Community, Profile, Settings. */
+/** Two bottom tabs: Community, Profile. Settings is reached via a gear icon
+ *  on Profile, not a tab of its own (2026-07-27 design spec). */
 export function MainTabs() {
   return (
     <Tabs.Navigator
@@ -89,7 +74,6 @@ export function MainTabs() {
     >
       <Tabs.Screen name="Community" component={CommunityScreen} />
       <Tabs.Screen name="Profile" component={ProfileNavigator} />
-      <Tabs.Screen name="Settings" component={SettingsNavigator} />
     </Tabs.Navigator>
   );
 }

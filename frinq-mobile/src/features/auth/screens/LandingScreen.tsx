@@ -34,7 +34,7 @@ export function LandingScreen() {
         <BrandHeading variant="display" tone="onMaroon">
           find your{'\n'}frinq.
         </BrandHeading>
-        <BodyText variant="body" tone="onMaroon" style={{ marginTop: spacing.lg, maxWidth: 280 }}>
+        <BodyText variant="intro" tone="onMaroon" style={{ marginTop: spacing.lg, maxWidth: 280 }}>
           Ten quiet minutes. We read the gaps between your answers and find the people who already
           get you.
         </BodyText>

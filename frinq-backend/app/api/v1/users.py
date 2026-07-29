@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import asyncpg
@@ -17,6 +17,11 @@ from app.utils.logger import logger
 
 router = APIRouter(prefix="/users", tags=["users"])
 
+# New design spec (2026-07-27): display_name may change at most once every
+# 3 months. Nullable display_name_updated_at (migration 017) means the very
+# first change is always allowed, regardless of account age.
+DISPLAY_NAME_COOLDOWN_DAYS = 90
+
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(account: CurrentAccount = Depends(get_current_account)) -> UserResponse:
@@ -32,6 +37,22 @@ async def patch_me(
     updates = body.model_dump(exclude_unset=True)
     if not updates:
         return UserResponse.model_validate({**account.row, "community_slug": account.community_slug})
+
+    if "display_name" in updates:
+        last_changed = account.row.get("display_name_updated_at")
+        if last_changed is not None:
+            if last_changed.tzinfo is None:
+                last_changed = last_changed.replace(tzinfo=timezone.utc)
+            next_eligible = last_changed + timedelta(days=DISPLAY_NAME_COOLDOWN_DAYS)
+            if datetime.now(tz=timezone.utc) < next_eligible:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={"code": "display_name_rate_limited", "next_eligible_at": next_eligible.isoformat()},
+                )
+        # Set alongside display_name in the SAME update — never a separate
+        # query, so a crash between the two can't record a name change
+        # without also starting its cooldown (or vice versa).
+        updates["display_name_updated_at"] = datetime.now(tz=timezone.utc)
 
     set_clauses: list[str] = []
     values: list[object] = []

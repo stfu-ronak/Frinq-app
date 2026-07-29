@@ -19,8 +19,23 @@ export function SingleChoiceCardTemplate({ step, value, onSelect, onBack }: Prop
   const isKnownOption = step.options.some((o) => o.value === value);
   const [customText, setCustomText] = useState(isKnownOption ? '' : value);
 
+  // Only steps with a custom-text field need a bottom Continue button: typing
+  // into that field has no tap target of its own to submit (the keyboard's
+  // "done" action isn't discoverable/reliable as the only way forward), which
+  // was leaving these screens with no way to proceed. Card taps elsewhere
+  // still advance immediately — adding a redundant button there would create
+  // the same "two ways to submit, only one works" confusion in reverse.
+  const canContinue = isKnownOption || customText.trim().length > 0;
+
   return (
-    <QuizScreenFrame stepId={step.id} section={step.section} onBack={onBack}>
+    <QuizScreenFrame
+      stepId={step.id}
+      section={step.section}
+      onBack={onBack}
+      continueLabel={step.allowCustom ? 'continue' : undefined}
+      onContinue={step.allowCustom ? () => onSelect(isKnownOption ? value : customText.trim()) : undefined}
+      continueDisabled={step.allowCustom ? !canContinue : undefined}
+    >
       <View style={{ gap: spacing.md }}>
         {step.options.map((opt) => (
           <ChoiceCard

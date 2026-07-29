@@ -42,7 +42,7 @@ function renderRoot(state: BootState) {
 describe('RootNavigator render gating', () => {
   it('renders only the boot splash while checking (no protected screens)', () => {
     const { getByTestId, queryByTestId } = renderRoot('checking');
-    expect(getByTestId('boot-splash')).toBeTruthy();
+    expect(getByTestId('app-launch-splash')).toBeTruthy();
     expect(queryByTestId('screen-community')).toBeNull();
     expect(queryByTestId('screen-profile')).toBeNull();
     expect(queryByTestId('screen-quiz')).toBeNull();
@@ -51,7 +51,7 @@ describe('RootNavigator render gating', () => {
   it('renders the banned terminal screen, not app content', () => {
     const { getByTestId, queryByTestId } = renderRoot('banned');
     expect(getByTestId('screen-banned')).toBeTruthy();
-    expect(queryByTestId('boot-splash')).toBeNull();
+    expect(queryByTestId('app-launch-splash')).toBeNull();
   });
 
   it('renders the suspended terminal screen', () => {

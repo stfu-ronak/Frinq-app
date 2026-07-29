@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { adminFetch, loadAdminKey, saveAdminKey, clearAdminKey } from "@/app/lib/adminFetch";
+import { adminFetch } from "@/app/lib/adminFetch";
+import { useAdminAuth } from "@/app/components/AdminShell";
+import { ChatBrowserView } from "@/app/components/ChatBrowserView";
 import PasswordModal from "@/app/components/PasswordModal";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -52,10 +54,11 @@ function fmt(iso: string): string {
   return new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+type Section = "reports" | "chat";
+
 export default function ModerationPage() {
-  const [adminKey, setAdminKey] = useState(() => loadAdminKey());
-  const [keyInput, setKeyInput] = useState("");
-  const [loginError, setLoginError] = useState("");
+  const { adminKey, logout } = useAdminAuth();
+  const [section, setSection] = useState<Section>("reports");
 
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -86,7 +89,7 @@ export default function ModerationPage() {
       const params = new URLSearchParams({ status: statusFilter });
       if (categoryFilter) params.set("reason", categoryFilter);
       const res = await adminFetch(`${API_URL}/api/v1/admin/reports?${params}`, {}, { key: adminKey });
-      if (res.status === 401) { clearAdminKey(); setAdminKey(""); return; }
+      if (res.status === 401) { logout(); return; }
       if (!res.ok) { setListError(`error ${res.status}`); return; }
       const data = await res.json();
       setReports(data.reports || []);
@@ -95,7 +98,7 @@ export default function ModerationPage() {
     } finally {
       setLoading(false);
     }
-  }, [adminKey, statusFilter, categoryFilter]);
+  }, [adminKey, statusFilter, categoryFilter, logout]);
 
   useEffect(() => {
     if (!adminKey) return;
@@ -153,45 +156,31 @@ export default function ModerationPage() {
 
   const visibleReports = reports.filter((r) => withinAge(r.created_at, ageFilter));
 
-  if (!adminKey) {
-    return (
-      <div style={{ position: "fixed", inset: 0, background: "#F5F0E8", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem" }}>
-        <div style={{ maxWidth: 360, width: "100%" }}>
-          <p className="font-[family-name:var(--font-things)] text-[#2A1810] text-2xl mb-1">moderation queue</p>
-          <p className="font-[family-name:var(--font-motive)] text-[#8B7355] text-[11px] tracking-[0.1em] mb-8">enter your admin key to continue</p>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!keyInput.trim()) return;
-              saveAdminKey(keyInput.trim());
-              setAdminKey(keyInput.trim());
-              setLoginError("");
-            }}
-            className="flex flex-col gap-4"
-          >
-            <input type="password" className="frinq-input" placeholder="admin key" value={keyInput}
-              onChange={(e) => setKeyInput(e.target.value)} autoFocus />
-            {loginError && <p className="font-[family-name:var(--font-motive)] text-[11px] text-[#7C1C0B]">{loginError}</p>}
-            <button type="submit"
-              className="inline-flex items-center gap-3 text-[11px] font-[family-name:var(--font-motive)] tracking-[0.14em] text-[#2A1810] hover:text-[#7C1C0B] transition-colors">
-              enter
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div style={{ position: "fixed", inset: 0, overflowY: "auto", overflowX: "hidden", background: "#F5F0E8" }}>
-      <header className="border-b border-[rgba(42,24,16,0.1)] px-6 py-4 flex items-center justify-between sticky top-0 bg-[#F5F0E8] z-20">
-        <span className="font-[family-name:var(--font-things)] text-[#2A1810] text-lg">moderation queue</span>
-        <button onClick={() => { clearAdminKey(); setAdminKey(""); }}
-          className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.1em] px-2.5 py-1 border border-[rgba(42,24,16,0.18)] text-[#8B7355] hover:text-[#2A1810] transition-colors">
-          sign out
-        </button>
+    <div>
+      <header className="border-b border-[rgba(42,24,16,0.1)] px-6 py-4 flex items-center justify-between">
+        <span className="font-[family-name:var(--font-things)] text-[#2A1810] text-lg">community</span>
       </header>
 
+      <div className="border-b border-[rgba(42,24,16,0.1)] px-6 flex gap-0">
+        {([["reports", "reports"], ["chat", "chat"]] as [Section, string][]).map(([id, label]) => (
+          <button key={id} onClick={() => setSection(id)}
+            className={`font-[family-name:var(--font-motive)] text-[10px] tracking-[0.14em] px-4 py-3 border-b-2 transition-colors whitespace-nowrap ${section === id ? "text-[#2A1810] border-[#2A1810]" : "text-[#8B7355] border-transparent hover:text-[#2A1810]"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {section === "chat" && (
+        <main className="px-6 py-6 max-w-3xl mx-auto">
+          <ChatBrowserView adminKey={adminKey}
+            onRequestPassword={requestPassword}
+            onWrongPassword={() => setActionPassword("")}
+          />
+        </main>
+      )}
+
+      {section === "reports" && (
       <main className="px-6 py-6 max-w-3xl mx-auto">
         <div className="flex flex-wrap gap-3 mb-6" role="group" aria-label="filters">
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as ReportStatus)}
@@ -325,6 +314,7 @@ export default function ModerationPage() {
           ))}
         </div>
       </main>
+      )}
 
       <PasswordModal
         open={!!pwdModal}

@@ -16,7 +16,7 @@ jest.mock('../src/services/push/pushService', () => ({}));
 test('shows the boot splash and no protected content while checking', async () => {
   // A resolver that never settles keeps boot in 'checking'.
   const { getByTestId, queryByTestId } = render(<App resolveBoot={() => new Promise<never>(() => {})} />);
-  await waitFor(() => expect(getByTestId('boot-splash')).toBeTruthy());
+  await waitFor(() => expect(getByTestId('app-launch-splash')).toBeTruthy());
   expect(queryByTestId('screen-community')).toBeNull();
   expect(queryByTestId('screen-profile')).toBeNull();
 });

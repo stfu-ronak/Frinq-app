@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from typing import Any, Final
+from typing import Any, Callable, Final
 
 import httpx
 
@@ -48,6 +48,23 @@ _SNAPSHOT_LIMITS: Final[dict[str, int]] = {
 }
 _NARRATIVE_LIMIT: Final[int] = 280
 
+DEEP_REPORT_JSON_SCHEMA: Final[dict[str, Any]] = {
+    "type": "object",
+    "properties": {
+        "report_quote": {"type": "string"},
+        "narrative": {"type": "array", "items": {"type": "string"}},
+        "signal_trait": {"type": "object"},
+        "mirror": {"type": "string"},
+        "first_impression": {"type": "string"},
+        "hidden_pattern": {"type": "string"},
+        "unspoken_need": {"type": "string"},
+        "closing_line": {"type": "string"},
+        "read_notes": {"type": "array", "items": {"type": "object"}},
+        "snapshot": {"type": "object"},
+    },
+    "required": ["report_quote", "narrative"],
+}
+
 
 def _get_semaphore() -> asyncio.Semaphore:
     global _semaphore
@@ -64,12 +81,18 @@ async def call_openai_json(
     temperature: float = 0.7,
     max_tokens: int = 1500,
     examples: list[tuple[str, str]] | None = None,
+    effort: str | None = None,
+    usage_recorder: Callable[[int, int], Any] | None = None,
 ) -> str:
     """Call OpenAI chat completions with JSON-object mode. Returns the raw
     text content (a JSON string). `examples` are (user, assistant) few-shot
     turns inserted between the system prompt and the real user message.
     Network/HTTP errors propagate — callers decide on retry policy, matching
     the contract of claude_client.call_with_cache.
+
+    `effort` overrides settings.OPENAI_REASONING_EFFORT when given explicitly
+    (the admin-configured per-step effort) — falls back to the global setting
+    when omitted, so existing callers that don't pass it keep working.
     """
     if not settings.OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY is not set.")
@@ -92,9 +115,12 @@ async def call_openai_json(
     # the default temperature (a custom value 400s). When effort is set we
     # send it and omit temperature; otherwise we keep the caller's temperature
     # for the older non-reasoning models.
-    effort = (settings.OPENAI_REASONING_EFFORT or "").strip()
-    if effort:
-        payload["reasoning_effort"] = effort
+    resolved_effort = (effort if effort is not None else settings.OPENAI_REASONING_EFFORT or "").strip()
+    # "none" is a real, selectable entry in model_pricing.py's effort_levels
+    # (meaning "no reasoning_effort configured") — it must omit the param
+    # entirely, not forward the literal string "none" to the API.
+    if resolved_effort and resolved_effort != "none":
+        payload["reasoning_effort"] = resolved_effort
     else:
         payload["temperature"] = temperature
     headers = {
@@ -119,12 +145,18 @@ async def call_openai_json(
     data = response.json()
 
     usage = data.get("usage") or {}
+    input_tokens = usage.get("prompt_tokens", 0)
+    output_tokens = usage.get("completion_tokens", 0)
     logger.info(
         "openai.call",
         model=payload["model"],
-        input_tokens=usage.get("prompt_tokens", 0),
-        output_tokens=usage.get("completion_tokens", 0),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )
+    if usage_recorder is not None:
+        result = usage_recorder(input_tokens, output_tokens)
+        if hasattr(result, "__await__"):
+            await result
     return data["choices"][0]["message"]["content"]
 
 
@@ -224,8 +256,13 @@ def _normalize_deep_report(data: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-async def generate_deep_report(answers: dict[str, Any]) -> dict[str, Any]:
-    """Generate the vibe-box 'know more' report fields via OpenAI.
+async def generate_deep_report(
+    answers: dict[str, Any],
+    *,
+    model_config: dict[str, Any] | None = None,
+    usage_recorder: Callable[[int, int], Any] | None = None,
+) -> dict[str, Any]:
+    """Generate the vibe-box 'know more' report fields.
 
     Replaces the old NVIDIA/Kimi generate_deep_summary(). Scrubs name/phone
     before sending, matching the PII discipline already used for the
@@ -235,6 +272,13 @@ async def generate_deep_report(answers: dict[str, Any]) -> dict[str, Any]:
     sliders) to the same descriptive phrases annotate_answers() already
     gives the hero-card prompt, so this call reasons over equivalent signal
     richness instead of raw quiz tokens.
+
+    `model_config` (provider/model_id/effort) is the admin-configured
+    snapshot for this generation — defaults to the OpenAI path with
+    settings.OPENAI_MODEL when omitted, so existing callers keep working
+    unchanged. Claude has no `examples` few-shot mechanism like
+    call_openai_json, so the one example pair is folded into the user
+    prompt text instead when routed there.
     """
     pii = PIIContext(
         name=str(answers.get("name") or "").strip() or None,
@@ -253,24 +297,67 @@ async def generate_deep_report(answers: dict[str, Any]) -> dict[str, Any]:
         "questionnaire": scrubbed_answers,
     }
 
-    content = await call_openai_json(
-        system=DEEP_REPORT_SYSTEM,
-        user=json.dumps(user_payload),
-        temperature=0.7,
-        # Generous ceiling: GPT-5 reasoning models spend part of this budget
-        # on hidden reasoning tokens BEFORE emitting the visible JSON. At the
-        # old 1800 cap, reasoning ate the whole budget and the answer came
-        # back empty (JSON parse failed). The report's own field caps keep the
-        # actual visible output small (~1.5k tokens), so the extra headroom is
-        # only ever consumed when the model genuinely needs to reason.
-        max_tokens=8000,
-        examples=[(DEEP_REPORT_EXAMPLE_USER, DEEP_REPORT_EXAMPLE_ASSISTANT)],
-    )
+    provider = (model_config or {}).get("provider", "openai")
+    model_id = (model_config or {}).get("model_id") or settings.OPENAI_MODEL
+    effort = (model_config or {}).get("effort")
+
+    if provider == "claude":
+        from app.core.ai.claude_client import call_with_cache
+
+        example_prefix = (
+            f"Example input:\n{DEEP_REPORT_EXAMPLE_USER}\n\n"
+            f"Example output:\n{DEEP_REPORT_EXAMPLE_ASSISTANT}\n\n"
+            "Now generate for this real input:\n"
+        )
+        content = await call_with_cache(
+            system=DEEP_REPORT_SYSTEM,
+            user=example_prefix + json.dumps(user_payload),
+            model=model_id,
+            temperature=0.7,
+            max_tokens=8000,
+            effort=effort,
+            usage_recorder=usage_recorder,
+        )
+    elif provider == "gemini":
+        from app.core.ai import gemini_client
+
+        example_prefix = (
+            f"Example input:\n{DEEP_REPORT_EXAMPLE_USER}\n\n"
+            f"Example output:\n{DEEP_REPORT_EXAMPLE_ASSISTANT}\n\n"
+            "Now generate for this real input:\n"
+        )
+        content = await gemini_client.call_gemini_json(
+            system=DEEP_REPORT_SYSTEM,
+            user=example_prefix + json.dumps(user_payload),
+            model=model_id,
+            schema=DEEP_REPORT_JSON_SCHEMA,
+            effort=effort,
+            usage_recorder=usage_recorder,
+        )
+    else:
+        content = await call_openai_json(
+            system=DEEP_REPORT_SYSTEM,
+            user=json.dumps(user_payload),
+            model=model_id,
+            temperature=0.7,
+            # Generous ceiling: GPT-5 reasoning models spend part of this budget
+            # on hidden reasoning tokens BEFORE emitting the visible JSON. At the
+            # old 1800 cap, reasoning ate the whole budget and the answer came
+            # back empty (JSON parse failed). The report's own field caps keep the
+            # actual visible output small (~1.5k tokens), so the extra headroom is
+            # only ever consumed when the model genuinely needs to reason.
+            max_tokens=8000,
+            examples=[(DEEP_REPORT_EXAMPLE_USER, DEEP_REPORT_EXAMPLE_ASSISTANT)],
+            effort=effort,
+            usage_recorder=usage_recorder,
+        )
 
     try:
         parsed = _extract_json(content)
     except json.JSONDecodeError as exc:
-        logger.error("openai.deep_report_parse_failed", error=str(exc), content=content)
-        raise ValueError(f"Failed to parse OpenAI deep-report output as JSON: {content}") from exc
+        # Model output can contain user-derived text. Keep it out of logs and
+        # exception messages; callers only need a stable failure type.
+        logger.error("openai.deep_report_parse_failed", error_type=type(exc).__name__)
+        raise ValueError("Failed to parse deep-report output as JSON") from exc
 
     return _normalize_deep_report(parsed)

@@ -16,7 +16,12 @@ export function IntroTemplate({ step, onContinue }: { step: IntroStep; onContinu
           {step.body}
         </BodyText>
       )}
-      <PrimaryButton label={step.ctaLabel} onPress={onContinue} style={{ marginTop: spacing.xxl, alignSelf: 'flex-start' }} />
+      <PrimaryButton
+        label={step.ctaLabel}
+        onPress={onContinue}
+        variant="secondary"
+        style={{ marginTop: spacing.xxl, alignSelf: 'flex-start' }}
+      />
     </Screen>
   );
 }

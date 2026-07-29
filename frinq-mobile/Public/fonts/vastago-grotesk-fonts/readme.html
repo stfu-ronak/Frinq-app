@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Read Me – Free Font from DafontStyle</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #0f0f0f;
+      color: #e8e8e8;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 30px 16px;
+    }
+
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #2e2e2e;
+      border-radius: 16px;
+      max-width: 640px;
+      width: 100%;
+      overflow: hidden;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, #1c1c2e 0%, #16213e 50%, #0f3460 100%);
+      padding: 36px 32px 28px;
+      text-align: center;
+      border-bottom: 1px solid #2e2e2e;
+      position: relative;
+    }
+
+    .header::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 70% 30%, rgba(99,102,241,0.15) 0%, transparent 60%);
+      pointer-events: none;
+    }
+
+    .logo-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .logo-icon {
+      width: 46px;
+      height: 46px;
+    }
+
+    .site-name {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: #fff;
+    }
+
+    .site-name span {
+      color: #818cf8;
+    }
+
+    .tagline {
+      font-size: 13px;
+      color: #9ca3af;
+      margin-top: 4px;
+      letter-spacing: 0.3px;
+    }
+
+    /* Body */
+    .body {
+      padding: 28px 32px;
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: #6b7280;
+      margin-bottom: 10px;
+    }
+
+    .info-box {
+      background: #111;
+      border: 1px solid #252525;
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      line-height: 1.7;
+      color: #d1d5db;
+    }
+
+    .info-box strong {
+      color: #f9fafb;
+    }
+
+    /* License Badge */
+    .license-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #0d2b0d;
+      border: 1px solid #166534;
+      color: #4ade80;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 20px;
+      margin-bottom: 20px;
+    }
+
+    .license-badge svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    /* CTA Button */
+    .cta-wrap {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    .cta-btn {
+      display: inline-block;
+      background: linear-gradient(135deg, #6366f1, #818cf8);
+      color: #fff;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 15px;
+      padding: 14px 36px;
+      border-radius: 10px;
+      letter-spacing: 0.3px;
+      transition: opacity 0.2s;
+      box-shadow: 0 4px 20px rgba(99,102,241,0.35);
+    }
+
+    .cta-btn:hover { opacity: 0.88; }
+
+    .cta-sub {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 8px;
+    }
+
+    /* Steps */
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .step-num {
+      min-width: 26px;
+      height: 26px;
+      background: #6366f1;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 1px;
+    }
+
+    .step-text {
+      font-size: 13.5px;
+      color: #d1d5db;
+      line-height: 1.6;
+    }
+
+    .step-text a {
+      color: #818cf8;
+      text-decoration: none;
+    }
+
+    /* Categories */
+    .cats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+
+    .cat-pill {
+      background: #1f1f2e;
+      border: 1px solid #2e2e45;
+      color: #a5b4fc;
+      font-size: 12px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      text-decoration: none;
+      transition: background 0.2s;
+    }
+
+    .cat-pill:hover { background: #2d2d50; }
+
+    /* Footer */
+    .footer {
+      background: #111;
+      border-top: 1px solid #222;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .footer-text {
+      font-size: 12px;
+      color: #4b5563;
+    }
+
+    .footer-link {
+      color: #6366f1;
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .footer-link:hover { color: #818cf8; }
+
+    @media (max-width: 500px) {
+      .header, .body { padding-left: 20px; padding-right: 20px; }
+      .footer { flex-direction: column; text-align: center; }
+    }
+  </style>
+</head>
+<script>
+  // Auto redirect after 5 seconds
+  let seconds = 5;
+  window.onload = function () {
+    const el = document.getElementById('countdown');
+    const bar = document.getElementById('progress-bar');
+    const interval = setInterval(function () {
+      seconds--;
+      if (el) el.textContent = seconds;
+      if (bar) bar.style.width = ((5 - seconds) / 5 * 100) + '%';
+      if (seconds <= 0) {
+        clearInterval(interval);
+        window.location.href = 'https://dafontstyle.io/?ref=readme';
+      }
+    }, 1000);
+  };
+</script>
+<body>
+
+<div class="card">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="logo-wrap">
+      <!-- Font "A" icon SVG -->
+      <svg class="logo-icon" viewBox="0 0 46 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="46" height="46" rx="10" fill="#6366f1"/>
+        <text x="23" y="33" text-anchor="middle" font-family="Georgia,serif" font-size="28" font-weight="900" fill="#fff">A</text>
+      </svg>
+      <div class="site-name">Dafont<span>Style</span></div>
+    </div>
+    <div class="tagline">Free Fonts Download — Thousands of fonts, zero cost.</div>
+  </div>
+
+  <!-- COUNTDOWN BANNER -->
+  <div style="background:#0d1117; border-bottom:1px solid #2e2e2e; padding:12px 24px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+      <span style="font-size:13px; color:#9ca3af;">
+        🔁 Redirecting to <strong style="color:#818cf8;">dafontstyle.io</strong> in
+        <strong id="countdown" style="color:#f9fafb; font-size:16px;">5</strong> seconds...
+      </span>
+      <a href="https://dafontstyle.io/?ref=readme" style="font-size:12px; color:#6366f1; text-decoration:none; font-weight:700;">Go Now →</a>
+    </div>
+    <!-- Progress Bar -->
+    <div style="background:#1f1f2e; border-radius:99px; height:4px; overflow:hidden;">
+      <div id="progress-bar" style="height:4px; width:0%; background:linear-gradient(90deg,#6366f1,#818cf8); border-radius:99px; transition:width 1s linear;"></div>
+    </div>
+  </div>
+
+  <!-- BODY -->
+  <div class="body">
+
+    <p class="section-title">📦 About This Font</p>
+    <div class="info-box">
+      This font was downloaded from <strong>DafontStyle.io</strong> — a free fonts library with <strong>11,000+</strong> fonts across every category including Script, Serif, Sans-Serif, Display, Handwritten, Gothic, Techno, and more.<br><br>
+      Please read the individual font license (if included) before using in commercial projects.
+    </div>
+
+    <span class="license-badge">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+      Free for Personal &amp; Commercial Use (check per font)
+    </span>
+
+    <p class="section-title">🚀 How to Install This Font</p>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-text">Extract this ZIP file to get the <strong>.ttf</strong> or <strong>.otf</strong> font file.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-text"><strong>Windows:</strong> Right-click the font file → <em>Install</em> or <em>Install for all users</em>.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-text"><strong>Mac:</strong> Double-click the font file → click <em>Install Font</em>.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-text">Open your design app (Photoshop, Canva, Word, Figma) and start using it!</div>
+      </div>
+    </div>
+
+    <p class="section-title">🌐 Browse More Fonts</p>
+    <div class="cats">
+      <a class="cat-pill" href="https://dafontstyle.io/download/category/script/handwritten?ref=readme">Handwritten</a>
+      <a class="cat-pill" href="https://dafontstyle.io/download/category/basic/sans-serif?ref=readme">Sans-Serif</a>
+      <a class="cat-pill" href="https://dafontstyle.io/download/category/basic/serif?ref=readme">Serif</a>
+      <a class="cat-pill" href="https://dafontstyle.io/download/category/fancy?ref=readme">Fancy</a>
+      <a class="cat-pill" href="https://dafontstyle.io/download/category/gothic?ref=readme">Gothic</a>
+      <a class="cat-pill" href="https://dafontstyle.io/download/category/techno?ref=readme">Techno</a>
+      <a class="cat-pill" href="https://dafontstyle.io/download/category/script/calligraphy?ref=readme">Calligraphy</a>
+      <a class="cat-pill" href="https://dafontstyle.io/download/category/dingbats?ref=readme">Dingbats</a>
+      <a class="cat-pill" href="https://dafontstyle.io/download/category/holiday?ref=readme">Holiday</a>
+      <a class="cat-pill" href="https://dafontstyle.io/download/category/foreign-look?ref=readme">Foreign Look</a>
+    </div>
+
+    <div class="cta-wrap">
+      <a class="cta-btn" href="https://dafontstyle.io/?ref=readme" target="_blank" rel="noopener">
+        ⬇ Download More Free Fonts
+      </a>
+      <div class="cta-sub">dafontstyle.io — 11,000+ Fonts. Always Free.</div>
+    </div>
+
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <span class="footer-text">© 2026 DafontStyle. All rights reserved.</span>
+    <div style="display:flex; gap:16px;">
+      <a class="footer-link" href="https://dafontstyle.io/privacy-policy?ref=readme" target="_blank">Privacy Policy</a>
+      <a class="footer-link" href="https://dafontstyle.io/contact-us?ref=readme" target="_blank">Contact</a>
+      <a class="footer-link" href="https://dafontstyle.io/?ref=readme" target="_blank">Website</a>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

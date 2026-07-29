@@ -92,7 +92,11 @@ async def dependencies() -> dict[str, Any]:
     # "ai configured" while every quiz reveal was failing on a missing/blank
     # OPENAI_API_KEY — the health page has to reflect the provider in use.
     ai_provider = (settings.INSIGHTS_PROVIDER or "openai").strip().lower()
-    ai_key = settings.OPENAI_API_KEY if ai_provider == "openai" else settings.ANTHROPIC_API_KEY
+    ai_key = (
+        settings.OPENAI_API_KEY if ai_provider == "openai" else
+        settings.GEMINI_API_KEY if ai_provider == "gemini" else
+        settings.ANTHROPIC_API_KEY
+    )
     return {
         "ai": {"provider": ai_provider, "configured": _configured(ai_key)},
         "otp_whatsapp": {"configured": _configured(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)},

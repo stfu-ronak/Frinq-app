@@ -22,6 +22,10 @@ export interface UserResponse {
   supabase_uid?: string | null;
   phone?: string | null;
   display_name?: string | null;
+  /** Last time display_name changed — server enforces a 3-month cooldown;
+   *  mobile reads this to pre-emptively disable the field / show the date
+   *  without a round-trip. */
+  display_name_updated_at?: string | null;
   gender?: string | null;
   age?: number | null;
   ncr_zone?: string | null;

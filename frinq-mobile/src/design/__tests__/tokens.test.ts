@@ -5,7 +5,7 @@ import { motion, duration } from '../tokens/motion';
 
 describe('color tokens', () => {
   it('pins the exact approved brand palette', () => {
-    expect(palette.maroon).toBe('#621507');
+    expect(palette.maroon).toBe('#621407');
     expect(palette.cream).toBe('#FFFBF7');
     expect(palette.peach).toBe('#FFE8D6');
     expect(palette.brown).toBe('#3C2110');

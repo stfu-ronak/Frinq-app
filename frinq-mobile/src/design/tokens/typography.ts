@@ -1,6 +1,8 @@
 /**
  * Type roles. Borel = expressive display/editorial headings; Vastago Grotesk =
  * all body/UI/controls (organization-licensed, owner-confirmed 2026-07-23).
+ * Urbanist = starting-page paragraph copy (splash/quote screens), added per
+ * the 2026-07-27 design spec (frinq-mobile/Public/Frinq-app.txt).
  *
  * Family names are the values React Native resolves after the fonts are linked
  * in Task 27 Step 2 (iOS PostScript name / Android file name). Vastago weights
@@ -14,6 +16,7 @@ export const fontFamily = {
   bodyMedium: 'VastagoGrotesk-Medium',
   bodySemiBold: 'VastagoGrotesk-SemiBold',
   bodyBold: 'VastagoGrotesk-Bold',
+  intro: 'Urbanist-Regular',
 } as const;
 
 /** role -> { fontFamily, fontSize, lineHeight }. Line heights are generous for
@@ -27,6 +30,8 @@ export const typeScale = {
   bodyStrong: { fontFamily: fontFamily.bodySemiBold, fontSize: 16, lineHeight: 24 },
   caption: { fontFamily: fontFamily.body, fontSize: 13, lineHeight: 18 },
   overline: { fontFamily: fontFamily.bodyMedium, fontSize: 11, lineHeight: 16 },
+  /** Starting-page paragraph copy (splash/quote screens) — new design spec role. */
+  intro: { fontFamily: fontFamily.intro, fontSize: 17, lineHeight: 24 },
 } as const;
 
 export type TypeRole = keyof typeof typeScale;

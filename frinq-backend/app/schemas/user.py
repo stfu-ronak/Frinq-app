@@ -98,6 +98,7 @@ class UserResponse(BaseModel):
     supabase_uid: UUID | None = None
     phone: str | None = None
     display_name: str | None = None
+    display_name_updated_at: datetime | None = None
     gender: Gender | None = None
     age: int | None = None
     ncr_zone: NCRZone | None = None

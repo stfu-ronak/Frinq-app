@@ -16,6 +16,7 @@
     "verify:release-artifact": "node scripts/verify-release-artifact.mjs",
     "verify:store-assets": "node scripts/verify-store-assets.mjs",
     "contracts:refresh": "node scripts/refresh-contracts-snapshot.mjs",
+    "link-fonts": "react-native-asset",
     "verify": "npm run typecheck && npm run lint && npm test -- --runInBand && npm run verify:config && npm run verify:no-webview && npm run verify:assets && npm run verify:contracts && npm run verify:store-assets",
     "android:debug": "react-native run-android",
     "android:release-check": "cd android && gradlew.bat lintRelease testReleaseUnitTest assembleRelease"

@@ -78,6 +78,8 @@ def _dev_bypass_allowed() -> bool:
     once live testing is done. The bypass only ever grants the single
     DEV_PHONE account, never arbitrary users."""
     env_ok = settings.APP_ENV != "production" or settings.ALLOW_TEST_OTP_IN_PROD
+    if settings.TEST_PHONES and settings.DEV_PHONE not in _test_phones():
+        return False
     return (
         env_ok
         and bool(settings.DUMMY_OTP)

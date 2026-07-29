@@ -15,7 +15,7 @@ from typing import Any, Final
 from anthropic import AsyncAnthropic
 
 from app.config import settings
-from app.core.ai import prompts
+from app.core.ai import gemini_client, prompts
 from app.core.ai.answer_maps import (
     CONNECTION_MAP,
     OPINION_QUESTIONS,
@@ -37,6 +37,19 @@ from app.utils.logger import logger
 # the real output modest, so the headroom is only used when actually reasoning.
 _MAX_TOKENS: Final[int] = 8000
 _TEMPERATURE: Final[float] = 0.9
+
+INSIGHTS_JSON_SCHEMA: Final[dict[str, Any]] = {
+    "type": "object",
+    "properties": {
+        "archetype": {"type": "string"},
+        "archetype_desc": {"type": "string"},
+        "headline": {"type": "string"},
+        "insights": {"type": "array", "items": {"type": "object"}},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "share_quote": {"type": "string"},
+    },
+    "required": ["archetype", "archetype_desc", "headline", "insights", "tags", "share_quote"],
+}
 
 MONTHS = [
     "january", "february", "march", "april", "may", "june",
@@ -322,28 +335,56 @@ async def generate_insights(
     answers: dict[str, Any],
     *,
     client: AsyncAnthropic | None = None,
+    model_config: dict[str, Any] | None = None,
+    usage_recorder: Any = None,
 ) -> dict[str, Any]:
-    """Return the full insights dict. Raises InsightsError on failure."""
+    """Return the full insights dict. Raises InsightsError on failure.
+
+    `model_config` (provider/model_id/effort) is the admin-configured
+    snapshot for this generation — defaults to settings.INSIGHTS_PROVIDER
+    when omitted, so existing callers (e.g. direct tests) keep working
+    unchanged.
+    """
     user_prompt = _build_insights_prompt(answers)
     last_error: Exception | None = None
+    provider = (model_config or {}).get("provider", settings.INSIGHTS_PROVIDER)
+    model_id = (model_config or {}).get("model_id") or (
+        CLAUDE_SONNET if provider == "claude" else
+        "gemini-3.5-flash-lite" if provider == "gemini" else settings.OPENAI_MODEL
+    )
+    effort = (model_config or {}).get("effort")
 
     for attempt in (1, 2):
         try:
-            if settings.INSIGHTS_PROVIDER == "claude":
+            if provider == "claude":
                 raw = await call_with_cache(
                     system=prompts.INSIGHTS_SYSTEM,
                     user=user_prompt,
-                    model=CLAUDE_SONNET,
+                    model=model_id,
                     temperature=_TEMPERATURE,
                     max_tokens=_MAX_TOKENS,
                     client=client,
+                    effort=effort,
+                    usage_recorder=usage_recorder,
+                )
+            elif provider == "gemini":
+                raw = await gemini_client.call_gemini_json(
+                    system=prompts.INSIGHTS_SYSTEM,
+                    user=user_prompt,
+                    model=model_id,
+                    schema=INSIGHTS_JSON_SCHEMA,
+                    effort=effort,
+                    usage_recorder=usage_recorder,
                 )
             else:
                 raw = await call_openai_json(
                     system=prompts.INSIGHTS_SYSTEM,
                     user=user_prompt,
+                    model=(model_config or {}).get("model_id"),
                     temperature=_TEMPERATURE,
                     max_tokens=_MAX_TOKENS,
+                    effort=effort,
+                    usage_recorder=usage_recorder,
                 )
             data = json.loads(_strip_fences(raw))
             _validate(data)

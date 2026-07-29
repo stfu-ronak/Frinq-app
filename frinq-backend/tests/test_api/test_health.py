@@ -113,6 +113,17 @@ async def test_dependencies_endpoint_reports_configuration_presence_never_secret
     assert "sk-real-key" not in res.text  # only a boolean, never the actual key
 
 
+async def test_dependencies_reports_gemini_configuration(monkeypatch: pytest.MonkeyPatch, client) -> None:
+    monkeypatch.setattr(settings, "INSIGHTS_PROVIDER", "gemini")
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "AIza-real-key")
+    monkeypatch.setattr(settings, "ADMIN_KEY", "test-admin-key")
+
+    res = await client.get("/health/dependencies", headers={"Authorization": "Bearer test-admin-key"})
+    assert res.status_code == 200
+    assert res.json()["ai"] == {"provider": "gemini", "configured": True}
+    assert "AIza-real-key" not in res.text
+
+
 async def test_dependencies_status_never_affects_readiness_or_liveness(
     monkeypatch: pytest.MonkeyPatch, client,
 ) -> None:

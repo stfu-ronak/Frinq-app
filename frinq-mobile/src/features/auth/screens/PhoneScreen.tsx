@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View } from 'react-native';
+import { Image, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Screen } from '../../../design/components/Screen';
 import { BrandHeading, BodyText } from '../../../design/components/Text';
@@ -58,7 +58,7 @@ export function PhoneScreen() {
         <BodyText variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>
           before we start
         </BodyText>
-        <BrandHeading variant="title" style={{ marginBottom: spacing.sm }}>
+        <BrandHeading variant="display" style={{ marginBottom: spacing.sm }}>
           what's your WhatsApp number?
         </BrandHeading>
         <BodyText variant="body" tone="secondary" style={{ marginBottom: spacing.xl }}>
@@ -66,6 +66,14 @@ export function PhoneScreen() {
         </BodyText>
 
         <PhoneField value={digits} onChangeText={setDigits} error={error} autoFocus />
+
+        <Image
+          source={require('../../../assets/images/telephone.png')}
+          style={{ width: 220, height: 176, alignSelf: 'center', marginTop: spacing.xxl }}
+          resizeMode="contain"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        />
 
         <PrimaryButton
           label={loading ? 'Sending…' : 'Continue'}

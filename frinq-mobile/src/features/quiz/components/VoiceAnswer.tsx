@@ -13,11 +13,19 @@ type Phase = 'idle' | 'requesting' | 'recording' | 'uploading' | 'success' | 'er
 type Props = {
   submissionId: string;
   questionKey: string;
+  /** Fires whenever a saved recording becomes available (`true`, phase =
+   *  'success') or stops being available (`false` — re-recording, cancelled,
+   *  or errored). The parent template needs this to let a voice-only answer
+   *  (no typed text) satisfy Continue — this was previously untracked, which
+   *  left voice-only answers with no way to proceed. */
+  onStatusChange?: (hasSavedRecording: boolean) => void;
 };
 
 /** Optional voice recording alongside a quiz text answer. Independent of the
- *  typed answer — uploading (or not) never affects Continue's validity. */
-export function VoiceAnswer({ submissionId, questionKey }: Props) {
+ *  typed answer for VALIDATION purposes — a saved recording is reported via
+ *  onStatusChange so the parent can treat it as an alternative to typed text,
+ *  but this component itself never reads or writes the typed answer. */
+export function VoiceAnswer({ submissionId, questionKey, onStatusChange }: Props) {
   const { apiClient } = useSession();
   const adapterRef = useRef<AudioRecorderAdapter | undefined>(undefined);
   if (!adapterRef.current) adapterRef.current = new AudioRecorderAdapter();
@@ -30,6 +38,11 @@ export function VoiceAnswer({ submissionId, questionKey }: Props) {
 
   const phaseRef = useRef<Phase>('idle');
   phaseRef.current = phase;
+
+  useEffect(() => {
+    onStatusChange?.(phase === 'success');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
 
   useEffect(() => {
     return () => {

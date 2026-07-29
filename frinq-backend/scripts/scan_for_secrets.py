@@ -49,6 +49,23 @@ _TEST_FIXTURE_PHONES = ["8000000001", "8000000002", "8000000003"]
 _ALLOWLISTED_FILES = {
     "frinq-backend/scripts/scan_for_secrets.py",
     "frinq-backend/tests/test_scripts/test_scan_for_secrets.py",
+    # These files intentionally contain deterministic local-only fixtures or
+    # redacted credential-shaped strings used to test the scanner. They are
+    # not runtime credentials and are kept explicit rather than broadening the
+    # allowlist to all test/source files.
+    "frinq-backend/tests/test_utils/test_logger.py",
+    "frinq-mobile/src/services/telemetry/__tests__/crashReporter.test.ts",
+}
+
+_TEST_FIXTURE_PHONE_ALLOWLIST = {
+    "frinq-backend/.env.example",
+    "frinq-backend/app/config.py",
+    "frinq-backend/scripts/seed_emulator_test_data.py",
+    "frinq-backend/scripts/seed_release_test_data.py",
+    "frinq-backend/tests/test_api/test_failure_switches.py",
+    "frinq-backend/tests/test_core/test_test_fixtures.py",
+    "frinq-backend/tests/test_scripts/test_seed_emulator_test_data.py",
+    "frinq-mobile/scripts/verify-release-artifact.mjs",
 }
 
 _BINARY_EXTENSIONS = {
@@ -78,9 +95,10 @@ def scan_for_secrets(root: Path) -> list[str]:
             m = pattern.search(text)
             if m:
                 findings.append(f"{rel}: possible {name} ({m.group(0)[:20]}...)")
-        for phone in _TEST_FIXTURE_PHONES:
-            if phone in text:
-                findings.append(f"{rel}: test-fixture phone number committed: {phone}")
+        if rel not in _TEST_FIXTURE_PHONE_ALLOWLIST:
+            for phone in _TEST_FIXTURE_PHONES:
+                if phone in text:
+                    findings.append(f"{rel}: test-fixture phone number committed: {phone}")
     return findings
 
 

@@ -56,6 +56,9 @@ describe('SettingsScreen', () => {
     mockUseSession.mockReturnValue({ apiClient: {}, coordinator: {} });
     const { findByLabelText } = renderWithClient(<SettingsScreen />);
 
+    fireEvent.press(await findByLabelText('edit profile'));
+    expect(mockNavigate).toHaveBeenCalledWith('EditProfile');
+
     fireEvent.press(await findByLabelText('community notifications'));
     expect(mockNavigate).toHaveBeenCalledWith('CommunitySettings');
 

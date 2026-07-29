@@ -1,0 +1,71 @@
+Frinq-app 
+
+Font
+1. Borel - Headings
+2. Urbanist - Phara (starting pages)()
+3. Vastgo Grotesk - Text phara
+
+Color 
+1. "621407" - maroon
+2. "545454" - Gray
+3. "FFFBF7" - White
+----------------------------------------------------
+pages seq- First time User
+
+Frinq
+Frinq quote page
+Frinq with dudes 1 png image
+Location permission
+Privacy permission
+Phone number 
+Verify OTP
+Name
+Welcome "Name" 
+gender - Male/Female/Prefer not to say
+Pronounce 
+Live -"Location"
+Birthday
+Social verification "adding the linkdin link and Instagram handle" - have Skip option.
+ 
+Quiz with different type of Questions "MCQ /Rapid fire/Slider/Text (Voice)"
+Vibe Card
+
+Frinq app inside- Community "joined the Community given based on the Vibe card"
+Profile -Name (Showing full name)(Can change 1 time every 3 month)/Phone number (Cannot change)/Gender (showing Gender with (Pronounce)) (Can be edited)/Age (Can be edited)/Area (Can be edited)/Community (Can not be changed)     
+Setting tab - Put this in the Profile tab top and when press open the setting page with all Edit profile option/ legal/support /logout/ delte acc. ,etc
+
+--------------------------------------------------
+page seq - 2nd time user (come back next day)
+
+Frinq app inside- Community "joined the Community given based on the Vibe card"
+Profile -Name (Showing full name)(Can change 1 time every 3 month)/Phone number (Cannot change)/Gender (showing Gender with (Pronounce)) (Can be edited)/Age (Can be edited)/Area (Can be edited)/Community (Can not be changed)     
+Setting tab - Put this in the Profile tab top and when press open the setting page with all Edit profile option/ legal/support /logout/ delte acc. ,etc
+
+---------------------------------------------------
+page seq - 2nd time user (come back 30 days later of not login/opening the app- the cache is cleared)
+Frinq 
+Frinq
+Frinq quote page
+Frinq with dudes 1 png image
+Location permission
+Privacy permission
+Phone number 
+Verify OTP
+
+Frinq app inside- Community "joined the Community given based on the Vibe card"
+Profile -Name (Showing full name)(Can change 1 time every 3 month)/Phone number (Cannot change)/Gender (showing Gender with (Pronounce)) (Can be edited)/Age (Can be edited)/Area (Can be edited)/Community (Can not be changed)     
+Setting tab - Put this in the Profile tab top and when press open the setting page with all Edit profile option/ legal/support /logout/ delte acc. ,etc
+
+----------------------------------------------------
+Path for the UI Design - F:\Project\Test\FrinqFull\Frinq\frinq-mobile\Public\Assets\Frinq UI
+path for the Few new Assets for the new Design- F:\Project\Test\FrinqFull\Frinq\frinq-mobile\Public\Assets
+
+----------------------------------------------------
+Current Issues and Current UI - F:\Project\Test\FrinqFull\Frinq\Current
+1. lacking many starting pages - gender /pronounce/
+2. DOB page issue - when put 3 in the month show incorrect need 03 to be put by user 
+3. In the MCQ with text option lack Continue Button "showed in image F:\Project\Test\FrinqFull\Frinq\Current\13_ No continue button issue.png"
+4. In pages of the MCQ where there are any options -like showen in the design UI the Continue should stay in the bottom of the phone and stay consistence to all the pages 
+5. Issue in Voice/text question when only Upload Voice can not continue. 
+6. the whole Question UI needs to be Upgraded as the given example design - F:\Project\Test\FrinqFull\Frinq\frinq-mobile\Public\Assets\Frinq UI
+

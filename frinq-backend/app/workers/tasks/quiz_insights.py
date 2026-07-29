@@ -29,6 +29,8 @@ from uuid import UUID
 
 from app.core.ai.archetypes import get_archetype
 from app.core.ai.insights import generate_insights
+from app.core.ai.model_config import InvalidModelConfigError, get_active_model_config
+from app.core.ai.model_pricing import compute_cost
 from app.core.ai.openai_client import generate_deep_report
 from app.core.communities import assign_user_to_community, get_user_community
 from app.core import metrics
@@ -52,6 +54,31 @@ def _error_code(exc: Exception) -> str:
     ARQ's own crash logging is where full tracebacks belong; error_msg and
     our own logger.error calls must never carry that content."""
     return type(exc).__name__
+
+
+def _make_usage_recorder(pool: Any, submission_id: UUID, step: str, config: dict[str, Any]):
+    """Closure capturing the snapshotted provider/model/effort for one
+    generation step — each actual provider call (insights or deep_report)
+    inserts its own ai_usage_log row via this, computed against whatever
+    model was active when the job snapshotted it, never the current live
+    admin config."""
+    async def _record(input_tokens: int, output_tokens: int) -> None:
+        try:
+            cost = compute_cost(config["model_id"], input_tokens, output_tokens)
+        except ValueError:
+            # Unknown model_id (e.g. a stale snapshot from before a model was
+            # retired from model_pricing) — log the usage without a cost
+            # rather than losing the row or crashing the generation.
+            cost = 0.0
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO ai_usage_log
+                    (submission_id, step, provider, model_id, effort, input_tokens, output_tokens, cost_usd)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+                submission_id, step, config["provider"], config["model_id"], config["effort"],
+                input_tokens, output_tokens, cost,
+            )
+    return _record
 
 
 async def _mark_error(pool: Any, submission_id: UUID, user_id: UUID, error_code: str) -> None:
@@ -80,68 +107,88 @@ async def generate_quiz_insights(ctx: dict[str, Any], submission_id: str) -> Non
             enqueue_time = enqueue_time.replace(tzinfo=timezone.utc)
         metrics.quiz_job_wait_seconds.observe((datetime.now(timezone.utc) - enqueue_time).total_seconds())
 
-    async with pool.acquire() as conn:
-        async with conn.transaction():
-            row = await conn.fetchrow(
-                "SELECT id, user_id, answers, status, share_card, headline, spirit_animal, "
-                "spirit_desc, insights, tags, deep_summary FROM quiz_submissions "
-                "WHERE id = $1 FOR UPDATE",
-                sid,
-            )
-            if row is None:
-                logger.warning("quiz_insights.no_submission", submission_id=submission_id)
-                return
-            user_id: UUID | None = row["user_id"]
-            if user_id is None:
-                logger.warning("quiz_insights.unowned_submission", submission_id=submission_id)
-                return
-
-            if row["status"] == "done":
-                membership = await get_user_community(conn, user_id)
-                if membership is not None:
-                    return  # already fully processed — idempotent replay
-
-            if row["status"] == "processing":
-                # Another job for this submission is already mid-flight (e.g. a
-                # double-tapped /quiz/complete enqueued two jobs). The FOR UPDATE
-                # lock serialises us behind that job's first txn, so seeing
-                # 'processing' means "in flight, skip" — running the paid AI
-                # calls again would double-charge and can reclassify the user.
-                # ponytail: a hard-killed worker (no except runs) can strand a
-                # row in 'processing'; the user's own /quiz/retry resets to
-                # 'error' first, so it stays recoverable.
-                logger.info("quiz_insights.already_processing", submission_id=submission_id)
-                return
-
-            share_card = _parse_jsonb(row["share_card"])
-            usable_result = row["status"] == "done" and bool(share_card and share_card.get("archetype_slug"))
-
-            if usable_result:
-                result: dict[str, Any] = {
-                    "headline": row["headline"],
-                    "spirit_animal": row["spirit_animal"],
-                    "spirit_desc": row["spirit_desc"],
-                    "insights": _parse_jsonb(row["insights"]) or [],
-                    "tags": list(row["tags"] or []),
-                    "share_card": share_card,
-                }
-                deep_summary_result = _parse_jsonb(row["deep_summary"])
-            else:
-                await conn.execute(
-                    "UPDATE quiz_submissions SET status='processing', updated_at=now() WHERE id=$1",
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    "SELECT id, user_id, answers, status, share_card, headline, spirit_animal, "
+                    "spirit_desc, insights, tags, deep_summary FROM quiz_submissions "
+                    "WHERE id = $1 FOR UPDATE",
                     sid,
                 )
-                await conn.execute(
-                    "UPDATE users SET onboarding_state='profile_processing', updated_at=now() WHERE id=$1",
-                    user_id,
-                )
+                if row is None:
+                    logger.warning("quiz_insights.no_submission", submission_id=submission_id)
+                    return
+                user_id: UUID | None = row["user_id"]
+                if user_id is None:
+                    logger.warning("quiz_insights.unowned_submission", submission_id=submission_id)
+                    return
 
-            answers = _parse_jsonb(row["answers"]) or {}
+                if row["status"] == "done":
+                    membership = await get_user_community(conn, user_id)
+                    if membership is not None:
+                        return  # already fully processed — idempotent replay
+
+                if row["status"] == "processing":
+                    # Another job for this submission is already mid-flight (e.g. a
+                    # double-tapped /quiz/complete enqueued two jobs). The FOR UPDATE
+                    # lock serialises us behind that job's first txn, so seeing
+                    # 'processing' means "in flight, skip" — running the paid AI
+                    # calls again would double-charge and can reclassify the user.
+                    # ponytail: a hard-killed worker (no except runs) can strand a
+                    # row in 'processing'; the user's own /quiz/retry resets to
+                    # 'error' first, so it stays recoverable.
+                    logger.info("quiz_insights.already_processing", submission_id=submission_id)
+                    return
+
+                share_card = _parse_jsonb(row["share_card"])
+                usable_result = row["status"] == "done" and bool(share_card and share_card.get("archetype_slug"))
+
+                if usable_result:
+                    result: dict[str, Any] = {
+                        "headline": row["headline"],
+                        "spirit_animal": row["spirit_animal"],
+                        "spirit_desc": row["spirit_desc"],
+                        "insights": _parse_jsonb(row["insights"]) or [],
+                        "tags": list(row["tags"] or []),
+                        "share_card": share_card,
+                    }
+                    deep_summary_result = _parse_jsonb(row["deep_summary"])
+                else:
+                    # Snapshot the ACTIVE model config now, once, before any AI call —
+                    # this is what makes "admin switches model mid-flight" safe. This
+                    # job reads model_config only here; it never re-reads it, so a
+                    # later admin PATCH to ai_model_config cannot affect a job already
+                    # past this point, including across its own internal retries. A
+                    # missing/invalid config row (InvalidModelConfigError) is caught
+                    # below, outside the transaction, and routed to _mark_error —
+                    # never left to propagate and strand the row silently.
+                    insights_config = await get_active_model_config(conn, "insights")
+                    deep_report_config = await get_active_model_config(conn, "deep_report")
+                    await conn.execute(
+                        "UPDATE quiz_submissions SET status='processing', model_snapshot=$2::jsonb, updated_at=now() WHERE id=$1",
+                        sid, json.dumps({"insights": insights_config, "deep_report": deep_report_config}, default=str),
+                    )
+                    await conn.execute(
+                        "UPDATE users SET onboarding_state='profile_processing', updated_at=now() WHERE id=$1",
+                        user_id,
+                    )
+
+                answers = _parse_jsonb(row["answers"]) or {}
+    except InvalidModelConfigError as exc:
+        await _mark_error(pool, sid, user_id, _error_code(exc))
+        return
 
     if not usable_result:
         try:
-            insights_task = asyncio.create_task(generate_insights(answers))
-            deep_summary_task = asyncio.create_task(generate_deep_report(answers))
+            insights_recorder = _make_usage_recorder(pool, sid, "insights", insights_config)
+            deep_report_recorder = _make_usage_recorder(pool, sid, "deep_report", deep_report_config)
+            insights_task = asyncio.create_task(
+                generate_insights(answers, model_config=insights_config, usage_recorder=insights_recorder)
+            )
+            deep_summary_task = asyncio.create_task(
+                generate_deep_report(answers, model_config=deep_report_config, usage_recorder=deep_report_recorder)
+            )
             gathered_result, gathered_deep_summary = await asyncio.gather(
                 insights_task, deep_summary_task, return_exceptions=True
             )

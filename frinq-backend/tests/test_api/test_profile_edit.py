@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -94,6 +95,57 @@ async def test_get_me_returns_only_authenticated_users_own_response(
     resp = await client.get("/api/v1/users/me")
     assert resp.status_code == 200
     assert resp.json()["id"] == str(current_account.id)
+
+
+async def test_display_name_change_within_3_month_cooldown_rejected(
+    client: AsyncClient, fake_pool: FakePool, user_row: dict[str, Any]
+) -> None:
+    # user_row is the same dict object CurrentAccount.row already references
+    # (conftest builds current_account from it before the test body runs) —
+    # mutating it here reaches the dependency-injected account directly.
+    user_row["display_name_updated_at"] = datetime.now(timezone.utc) - timedelta(days=10)
+    resp = await client.patch("/api/v1/users/me", json={"display_name": "New Name"})
+    assert resp.status_code == 409
+    assert "display_name_rate_limited" in resp.text
+
+
+async def test_display_name_change_after_cooldown_accepted(
+    client: AsyncClient, fake_pool: FakePool, user_row: dict[str, Any]
+) -> None:
+    user_row["display_name_updated_at"] = datetime.now(timezone.utc) - timedelta(days=91)
+    fake_pool.store.fetchrow_handler = _row_handler(user_row)
+    resp = await client.patch("/api/v1/users/me", json={"display_name": "New Name"})
+    assert resp.status_code == 200
+
+
+async def test_display_name_first_ever_change_accepted(
+    client: AsyncClient, fake_pool: FakePool, user_row: dict[str, Any]
+) -> None:
+    user_row["display_name_updated_at"] = None
+    fake_pool.store.fetchrow_handler = _row_handler(user_row)
+    resp = await client.patch("/api/v1/users/me", json={"display_name": "New Name"})
+    assert resp.status_code == 200
+
+
+async def test_display_name_change_sets_updated_at_in_the_same_update(
+    client: AsyncClient, fake_pool: FakePool, user_row: dict[str, Any]
+) -> None:
+    user_row["display_name_updated_at"] = None
+    fake_pool.store.fetchrow_handler = _row_handler(user_row)
+    await client.patch("/api/v1/users/me", json={"display_name": "New Name"})
+    query, args = fake_pool.store.queries[-1]
+    assert "display_name_updated_at" in query
+    assert "display_name" in query
+
+
+async def test_other_fields_unaffected_by_name_cooldown(
+    client: AsyncClient, fake_pool: FakePool, user_row: dict[str, Any]
+) -> None:
+    # Within the cooldown window, but this PATCH never touches display_name.
+    user_row["display_name_updated_at"] = datetime.now(timezone.utc) - timedelta(days=10)
+    fake_pool.store.fetchrow_handler = _row_handler(user_row)
+    resp = await client.patch("/api/v1/users/me", json={"gender": "non_binary"})
+    assert resp.status_code == 200
 
 
 async def test_get_me_requires_auth(fake_pool: FakePool) -> None:

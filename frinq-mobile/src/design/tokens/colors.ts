@@ -4,14 +4,17 @@
  * never arbitrary brand colors passed as props (primitives expose semantic
  * state instead). Enforced by src/design/__tests__/tokens.test.ts.
  *
- * Approved palette (2026-07-23 design spec):
- *   maroon #621507 · cream #FFFBF7 · peach #FFE8D6 · brown #3C2110
+ * Approved palette (2026-07-27 design spec, frinq-mobile/Public/Frinq-app.txt):
+ *   maroon #621407 · gray #545454 · white/cream #FFFBF7 · peach #FFE8D6 · brown #3C2110
+ * `cream` is the txt spec's "white" — kept under its existing name (a rename
+ * would touch every consumer for zero behavioral gain), not a second color.
  */
 export const palette = {
-  maroon: '#621507',
+  maroon: '#621407',
   cream: '#FFFBF7',
   peach: '#FFE8D6',
   brown: '#3C2110',
+  gray: '#545454',
   // Supporting shades derived for accessible text/state on the palette above.
   brownSecondary: '#5E4636', // secondary text on cream (>= 4.5:1)
   brownDisabled: '#9A8B7E', // disabled text/'-on-cream (>= 3:1, non-text)
@@ -38,6 +41,7 @@ export const color = {
   text: {
     primary: palette.brown, // on cream/peach
     secondary: palette.brownSecondary,
+    muted: palette.gray, // de-emphasized captions (new design spec)
     onMaroon: palette.cream, // on milestone/maroon surfaces
     onPeach: palette.brown,
     disabled: palette.brownDisabled,

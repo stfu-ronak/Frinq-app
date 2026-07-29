@@ -5,11 +5,21 @@ export async function fetchProfile(apiClient: ApiClient): Promise<UserResponse> 
   return apiClient.request<UserResponse>({ path: '/api/v1/users/me' });
 }
 
-export async function updateDisplayName(apiClient: ApiClient, name: string): Promise<UserResponse> {
+export interface ProfilePatch {
+  display_name?: string;
+  gender?: string;
+  age?: number;
+  ncr_zone?: string;
+}
+
+/** One combined PATCH for whatever fields changed — the endpoint already
+ *  accepts all of them in a single request, so EditProfileScreen never fires
+ *  more than one call regardless of how many fields are dirty. */
+export async function updateProfile(apiClient: ApiClient, patch: ProfilePatch): Promise<UserResponse> {
   return apiClient.request<UserResponse>({
     path: '/api/v1/users/me',
     method: 'PATCH',
-    body: { display_name: name },
+    body: patch,
   });
 }
 
@@ -36,6 +46,7 @@ const DISPLAY_NAME_ERRORS: Record<string, string> = {
   display_name_too_many_urls: "links aren't allowed in your name",
   display_name_reserved_term: "that name isn't available",
   display_name_blocked_term: "that name isn't allowed",
+  display_name_rate_limited: 'you can only change your name once every 3 months',
 };
 
 export function mapDisplayNameError(code: string): string {

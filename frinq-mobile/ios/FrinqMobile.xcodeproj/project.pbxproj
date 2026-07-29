@@ -11,6 +11,17 @@
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
+		634B7DBF3A6D41FC89104B0C /* VastagoGrotesk-Black.otf in Resources */ = {isa = PBXBuildFile; fileRef = 85ED4B86C20844D49657BE0A /* VastagoGrotesk-Black.otf */; };
+		551399E0319F42A48B820174 /* VastagoGrotesk-Bold.otf in Resources */ = {isa = PBXBuildFile; fileRef = 29BFCCC805F949078D9EA378 /* VastagoGrotesk-Bold.otf */; };
+		C0A8A8C6034A449CBD0DDDAE /* VastagoGrotesk-ExtraLight.otf in Resources */ = {isa = PBXBuildFile; fileRef = 5B48BFDC6B8845F1BBF10CB4 /* VastagoGrotesk-ExtraLight.otf */; };
+		8F758BFAA96B4191986502BE /* VastagoGrotesk-Heavy.otf in Resources */ = {isa = PBXBuildFile; fileRef = BBC04F365F314D5AB606FEF1 /* VastagoGrotesk-Heavy.otf */; };
+		F4E77E37D800401A9778EF29 /* VastagoGrotesk-Light.otf in Resources */ = {isa = PBXBuildFile; fileRef = F03997D7D2BE4D0992DC1E45 /* VastagoGrotesk-Light.otf */; };
+		C6D5BCEAB53D47BE9D48EED5 /* VastagoGrotesk-Medium.otf in Resources */ = {isa = PBXBuildFile; fileRef = 259F2FEDAF014D209952318E /* VastagoGrotesk-Medium.otf */; };
+		FE59FE56A47D4BCE9ABE1826 /* VastagoGrotesk-Regular.otf in Resources */ = {isa = PBXBuildFile; fileRef = 6F06CBF17F0A4759844D0DDC /* VastagoGrotesk-Regular.otf */; };
+		400CC68099F3462B99B1CBF2 /* VastagoGrotesk-SemiBold.otf in Resources */ = {isa = PBXBuildFile; fileRef = CC1A178C0FF5422E82091F56 /* VastagoGrotesk-SemiBold.otf */; };
+		27DD26FFEEBD43A1B7BFA290 /* VastagoGrotesk-Thin.otf in Resources */ = {isa = PBXBuildFile; fileRef = EB702DF1D1304BCABF7317FA /* VastagoGrotesk-Thin.otf */; };
+		5527B7F4BB64447DB7EA457A /* Borel-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E18BA50B2FF046E0B1EE49BA /* Borel-Regular.ttf */; };
+		EF8EF42F67964D0E869D2F4A /* Urbanist-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 22950A328B614D5CB8198DBB /* Urbanist-Regular.ttf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,6 +35,17 @@
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = FrinqMobile/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = FrinqMobile/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		85ED4B86C20844D49657BE0A /* VastagoGrotesk-Black.otf */ = {isa = PBXFileReference; name = "VastagoGrotesk-Black.otf"; path = "../src/assets/fonts/VastagoGrotesk-Black.otf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		29BFCCC805F949078D9EA378 /* VastagoGrotesk-Bold.otf */ = {isa = PBXFileReference; name = "VastagoGrotesk-Bold.otf"; path = "../src/assets/fonts/VastagoGrotesk-Bold.otf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		5B48BFDC6B8845F1BBF10CB4 /* VastagoGrotesk-ExtraLight.otf */ = {isa = PBXFileReference; name = "VastagoGrotesk-ExtraLight.otf"; path = "../src/assets/fonts/VastagoGrotesk-ExtraLight.otf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		BBC04F365F314D5AB606FEF1 /* VastagoGrotesk-Heavy.otf */ = {isa = PBXFileReference; name = "VastagoGrotesk-Heavy.otf"; path = "../src/assets/fonts/VastagoGrotesk-Heavy.otf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		F03997D7D2BE4D0992DC1E45 /* VastagoGrotesk-Light.otf */ = {isa = PBXFileReference; name = "VastagoGrotesk-Light.otf"; path = "../src/assets/fonts/VastagoGrotesk-Light.otf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		259F2FEDAF014D209952318E /* VastagoGrotesk-Medium.otf */ = {isa = PBXFileReference; name = "VastagoGrotesk-Medium.otf"; path = "../src/assets/fonts/VastagoGrotesk-Medium.otf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		6F06CBF17F0A4759844D0DDC /* VastagoGrotesk-Regular.otf */ = {isa = PBXFileReference; name = "VastagoGrotesk-Regular.otf"; path = "../src/assets/fonts/VastagoGrotesk-Regular.otf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		CC1A178C0FF5422E82091F56 /* VastagoGrotesk-SemiBold.otf */ = {isa = PBXFileReference; name = "VastagoGrotesk-SemiBold.otf"; path = "../src/assets/fonts/VastagoGrotesk-SemiBold.otf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		EB702DF1D1304BCABF7317FA /* VastagoGrotesk-Thin.otf */ = {isa = PBXFileReference; name = "VastagoGrotesk-Thin.otf"; path = "../src/assets/fonts/VastagoGrotesk-Thin.otf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		E18BA50B2FF046E0B1EE49BA /* Borel-Regular.ttf */ = {isa = PBXFileReference; name = "Borel-Regular.ttf"; path = "../src/assets/fonts/Borel-Regular.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		22950A328B614D5CB8198DBB /* Urbanist-Regular.ttf */ = {isa = PBXFileReference; name = "Urbanist-Regular.ttf"; path = "../src/assets/fonts/Urbanist-Regular.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -74,6 +96,7 @@
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				BBD78D7AC51CEA395F1C20DB /* Pods */,
+				789385C2467141C6B822498D /* Resources */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -96,6 +119,25 @@
 			);
 			path = Pods;
 			sourceTree = "<group>";
+		};
+		789385C2467141C6B822498D /* Resources */ = {
+			isa = "PBXGroup";
+			children = (
+				85ED4B86C20844D49657BE0A /* VastagoGrotesk-Black.otf */,
+				29BFCCC805F949078D9EA378 /* VastagoGrotesk-Bold.otf */,
+				5B48BFDC6B8845F1BBF10CB4 /* VastagoGrotesk-ExtraLight.otf */,
+				BBC04F365F314D5AB606FEF1 /* VastagoGrotesk-Heavy.otf */,
+				F03997D7D2BE4D0992DC1E45 /* VastagoGrotesk-Light.otf */,
+				259F2FEDAF014D209952318E /* VastagoGrotesk-Medium.otf */,
+				6F06CBF17F0A4759844D0DDC /* VastagoGrotesk-Regular.otf */,
+				CC1A178C0FF5422E82091F56 /* VastagoGrotesk-SemiBold.otf */,
+				EB702DF1D1304BCABF7317FA /* VastagoGrotesk-Thin.otf */,
+				E18BA50B2FF046E0B1EE49BA /* Borel-Regular.ttf */,
+				22950A328B614D5CB8198DBB /* Urbanist-Regular.ttf */,
+			);
+			name = Resources;
+			sourceTree = "<group>";
+			path = "";
 		};
 /* End PBXGroup section */
 
@@ -159,6 +201,17 @@
 			files = (
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
+				634B7DBF3A6D41FC89104B0C /* VastagoGrotesk-Black.otf in Resources */,
+				551399E0319F42A48B820174 /* VastagoGrotesk-Bold.otf in Resources */,
+				C0A8A8C6034A449CBD0DDDAE /* VastagoGrotesk-ExtraLight.otf in Resources */,
+				8F758BFAA96B4191986502BE /* VastagoGrotesk-Heavy.otf in Resources */,
+				F4E77E37D800401A9778EF29 /* VastagoGrotesk-Light.otf in Resources */,
+				C6D5BCEAB53D47BE9D48EED5 /* VastagoGrotesk-Medium.otf in Resources */,
+				FE59FE56A47D4BCE9ABE1826 /* VastagoGrotesk-Regular.otf in Resources */,
+				400CC68099F3462B99B1CBF2 /* VastagoGrotesk-SemiBold.otf in Resources */,
+				27DD26FFEEBD43A1B7BFA290 /* VastagoGrotesk-Thin.otf in Resources */,
+				5527B7F4BB64447DB7EA457A /* Borel-Regular.ttf in Resources */,
+				EF8EF42F67964D0E869D2F4A /* Urbanist-Regular.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

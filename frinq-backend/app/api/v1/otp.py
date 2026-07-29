@@ -22,6 +22,7 @@ from app.core.otp import otp_bypass_active, send_otp, verify_otp
 from app.core.rate_limit import RateLimitUnavailable, check_rate_limit, hash_identifier
 from app.core.redis_client import get_redis
 from app.core.session import TokenPair, create_session
+from app.core.test_fixtures import reset_test_account, test_phone_role
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/otp", tags=["otp"])
@@ -275,6 +276,13 @@ async def verify_otp_route(
                 "WHERE RIGHT(regexp_replace(phone, '\\D', '', 'g'), 10) = $2 AND user_id IS NULL",
                 data["id"], digits,
             )
+
+            if settings.APP_ENV != "production" and test_phone_role(digits) == "reset":
+                await reset_test_account(conn, data["id"])
+                user_row = await conn.fetchrow("SELECT * FROM users WHERE id = $1 FOR UPDATE", data["id"])
+                if user_row is None:
+                    raise HTTPException(status_code=500, detail="test account reset failed")
+                data = dict(user_row)
 
             pair: TokenPair = await create_session(conn, data["id"], body.platform)
 

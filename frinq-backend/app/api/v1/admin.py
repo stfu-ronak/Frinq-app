@@ -6,7 +6,7 @@ import csv
 import hmac
 import io
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from time import time
 from typing import Any
 from uuid import UUID, uuid4
@@ -21,10 +21,14 @@ import asyncio
 from app.api.deps import get_pool
 from app.api.deps import require_admin as _require_admin
 from app.config import settings
+from app.core.ai.insights import generate_insights
+from app.core.ai.model_config import InvalidModelConfigError, get_all_model_configs, set_model_config
+from app.core.ai.model_pricing import MODEL_INFO, compute_cost, effort_supported, get_model_info, is_known_model, resolve_model_id
+from app.core.ai.openai_client import generate_deep_report
+from app.core.quiz_config import InvalidQuizConfigError, get_active_quiz_config, set_quiz_config
 from app.core.export.raw_responses import to_csv as raw_to_csv
 from app.core.export.raw_responses import to_xlsx as raw_to_xlsx
 from app.core.push import remove_all_for_user as remove_all_push_tokens_for_user
-from app.core.quiz_config import InvalidQuizConfigError, get_active_quiz_config, set_quiz_config
 from app.core.realtime import publish_ban_event
 from app.core.redis_client import get_redis
 from app.core.session import revoke_all_sessions
@@ -84,7 +88,7 @@ async def list_submissions(
                        tags, answers, insights, last_page, share_card,
                        admin_notes, is_test, is_approved,
                        whatsapp_sent_at, followup_sent_at,
-                       created_at, completed_at, updated_at, error_msg
+                       created_at, completed_at, updated_at, error_msg, model_snapshot
                 FROM quiz_submissions
                 {where}
                 ORDER BY created_at DESC
@@ -97,6 +101,16 @@ async def list_submissions(
             *filter_params,
         )
         drop_count = total - complete_count
+
+        # One aggregate query for every row's total AI cost, rather than an
+        # N+1 per-submission lookup.
+        submission_ids = [row["id"] for row in rows]
+        cost_rows = await conn.fetch(
+            "SELECT submission_id, SUM(cost_usd) AS total_cost FROM ai_usage_log "
+            "WHERE submission_id = ANY($1) GROUP BY submission_id",
+            submission_ids,
+        ) if submission_ids else []
+        cost_by_id = {r["submission_id"]: float(r["total_cost"]) for r in cost_rows}
 
     results = []
     for row in rows:
@@ -121,6 +135,13 @@ async def list_submissions(
             except Exception:
                 share_card_raw = {}
 
+        model_snapshot_raw = row["model_snapshot"]
+        if isinstance(model_snapshot_raw, str):
+            try:
+                model_snapshot_raw = json.loads(model_snapshot_raw)
+            except Exception:
+                model_snapshot_raw = None
+
         results.append({
             "id": str(row["id"]),
             "phone": row["phone"],
@@ -142,6 +163,8 @@ async def list_submissions(
             "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None,
             "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
             "error_msg": row["error_msg"],
+            "model_snapshot": model_snapshot_raw,
+            "ai_cost_usd": cost_by_id.get(row["id"]),
         })
 
     logger.info("admin.list_submissions", total=total, returned=len(results))
@@ -1724,6 +1747,86 @@ async def delete_message_moderation(
     return {"ok": True}
 
 
+@router.get("/communities", dependencies=[Depends(_require_admin)])
+async def list_communities(pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any]:
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT c.archetype_slug, c.name, c.description,
+                      (SELECT COUNT(*) FROM community_members m WHERE m.archetype_slug = c.archetype_slug) AS member_count,
+                      (SELECT COUNT(*) FROM messages msg WHERE msg.archetype_slug = c.archetype_slug AND msg.deleted_at IS NULL) AS message_count
+               FROM communities c
+               ORDER BY c.name"""
+        )
+    return {
+        "communities": [
+            {
+                "archetype_slug": r["archetype_slug"],
+                "name": r["name"],
+                "description": r["description"],
+                "member_count": r["member_count"],
+                "message_count": r["message_count"],
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/communities/{slug}/messages", dependencies=[Depends(_require_admin)])
+async def list_community_messages(
+    slug: str,
+    pool: asyncpg.Pool = Depends(get_pool),
+    limit: int = Query(default=50, le=200),
+    before_id: int | None = Query(default=None, description="paginate: only messages with id < this"),
+) -> dict[str, Any]:
+    """Real chat browser (vs. the narrow few-nearby-messages report-detail
+    view) — a full paginated read of one community's live messages, newest
+    first. Uses idx_messages_archetype_slug_desc (archetype_slug, id DESC) —
+    no new index needed."""
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval("SELECT 1 FROM communities WHERE archetype_slug = $1", slug)
+        if not exists:
+            raise HTTPException(status_code=404, detail="community not found")
+
+        conditions = ["m.archetype_slug = $1", "m.deleted_at IS NULL"]
+        params: list[Any] = [slug]
+        if before_id is not None:
+            params.append(before_id)
+            conditions.append(f"m.id < ${len(params)}")
+        where = "WHERE " + " AND ".join(conditions)
+        limit_p = len(params) + 1
+        rows = await conn.fetch(
+            f"""SELECT m.id, m.body, m.created_at, m.user_id,
+                       u.display_name, u.phone, u.banned, u.suspended_until
+                FROM messages m
+                LEFT JOIN users u ON u.id = m.user_id
+                {where}
+                ORDER BY m.id DESC
+                LIMIT ${limit_p}""",
+            *params, limit,
+        )
+    now = datetime.now(timezone.utc)
+    return {
+        "messages": [
+            {
+                "id": r["id"],
+                "body": r["body"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "author": (
+                    {
+                        "id": str(r["user_id"]),
+                        "display_name": r["display_name"],
+                        "phone": r["phone"],
+                        "banned": r["banned"],
+                        "suspended": bool(r["suspended_until"] and r["suspended_until"] > now),
+                    }
+                    if r["user_id"] else None
+                ),
+            }
+            for r in rows
+        ],
+    }
+
+
 @router.post("/users/{user_id}/suspend",
              dependencies=[Depends(_require_admin), Depends(_require_action_password)])
 async def suspend_user(
@@ -1787,6 +1890,164 @@ async def ban_user_moderation(
     return {"ok": True}
 
 
+# ─── AI model configuration + usage (admin-controlled provider/model/effort) ─────
+# Live-switch semantics: quiz_insights.py reads the active row once, at the
+# moment a job starts processing, and never re-reads mid-run — see that
+# module's docstring. A PATCH here takes effect for the next job to start.
+
+
+class SetModelConfigRequest(BaseModel):
+    model_config = {"protected_namespaces": ()}  # allow the field name "model_id"
+
+    provider: str = Field(pattern="^(openai|claude|gemini)$")
+    model_id: str
+    effort: str | None = None
+
+
+class AiTestRequest(BaseModel):
+    """Small, PII-free request used by the admin connection smoke test."""
+
+    model_config = {"protected_namespaces": ()}
+
+    step: str = Field(pattern="^(insights|deep_report)$")
+    provider: str = Field(pattern="^(openai|claude|gemini)$")
+    model_id: str
+    effort: str | None = None
+
+
+_AI_TEST_ANSWERS: dict[str, Any] = {
+    "social_type": "small groups",
+    "trip": "a slow weekend away",
+    "saturday": "a long walk and good food",
+    "connection": "honest conversation",
+    "opinions": ["curious", "warm", "independent"],
+    "slider_energy": 4,
+    "slider_planning": 3,
+    "slider_social": 4,
+}
+
+
+def _make_admin_usage_recorder(pool: Any, step: str, config: dict[str, Any]):
+    async def _record(input_tokens: int, output_tokens: int) -> None:
+        try:
+            cost = compute_cost(config["model_id"], input_tokens, output_tokens)
+        except ValueError:
+            cost = 0.0
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO ai_usage_log
+                   (submission_id, step, provider, model_id, effort, input_tokens, output_tokens, cost_usd)
+                   VALUES (NULL, $1, $2, $3, $4, $5, $6, $7)""",
+                step, config["provider"], config["model_id"], config["effort"],
+                input_tokens, output_tokens, cost,
+            )
+    return _record
+
+
+@router.post("/ai-test", dependencies=[Depends(_require_admin), Depends(_require_action_password)])
+async def test_ai_connection(
+    body: AiTestRequest, pool: asyncpg.Pool = Depends(get_pool)
+) -> dict[str, Any]:
+    """Exercise the same prompt/generation path used by production jobs.
+
+    The fixture deliberately contains no name, phone, city, or free-form PII.
+    Only normalized provider output is returned, and failures expose the
+    exception type rather than provider response bodies.
+    """
+    canonical_model_id = resolve_model_id(body.model_id)
+    info = get_model_info(canonical_model_id)
+    if not is_known_model(canonical_model_id) or info is None:
+        raise HTTPException(status_code=422, detail="unknown model")
+    if info.provider != body.provider:
+        raise HTTPException(status_code=422, detail="model/provider mismatch")
+    if body.effort is not None and not effort_supported(canonical_model_id, body.effort):
+        raise HTTPException(status_code=422, detail="unsupported effort for model")
+
+    config = {"provider": body.provider, "model_id": canonical_model_id, "effort": body.effort}
+    recorder = _make_admin_usage_recorder(pool, body.step, config)
+    started = time()
+    try:
+        if body.step == "insights":
+            result = await generate_insights(
+                dict(_AI_TEST_ANSWERS), model_config=config, usage_recorder=recorder,
+            )
+        else:
+            result = await generate_deep_report(
+                dict(_AI_TEST_ANSWERS), model_config=config, usage_recorder=recorder,
+            )
+    except Exception as exc:
+        logger.warning("admin.ai_test.failed", step=body.step, provider=body.provider,
+                       model_id=canonical_model_id, error_code=type(exc).__name__)
+        raise HTTPException(status_code=502, detail=f"AI test failed: {type(exc).__name__}") from exc
+
+    return {
+        "ok": True,
+        "step": body.step,
+        "provider": body.provider,
+        "model_id": canonical_model_id,
+        "latency_ms": round((time() - started) * 1000),
+        "result": result,
+    }
+
+
+@router.get("/ai-config", dependencies=[Depends(_require_admin)])
+async def get_ai_config(pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any]:
+    async with pool.acquire() as conn:
+        configs = await get_all_model_configs(conn)
+    return {
+        "configs": [
+            {
+                "step": c["step"],
+                "provider": c["provider"],
+                "model_id": c["model_id"],
+                "effort": c["effort"],
+                "updated_at": c["updated_at"].isoformat() if c["updated_at"] else None,
+                "updated_by": c["updated_by"],
+            }
+            for c in configs
+        ],
+        # Full catalog so the admin UI can render a model picker with live
+        # pricing + which effort levels each model actually supports, without
+        # a second source of truth duplicated into the frontend.
+        "available_models": [
+            {
+                "model_id": model_id,
+                "provider": info.provider,
+                "input_price_per_mtok": info.input_price_per_mtok,
+                "output_price_per_mtok": info.output_price_per_mtok,
+                "supports_effort": info.supports_effort,
+                "effort_levels": list(info.effort_levels),
+            }
+            for model_id, info in MODEL_INFO.items()
+        ],
+    }
+
+
+@router.patch("/ai-config/{step}",
+               dependencies=[Depends(_require_admin), Depends(_require_action_password)])
+async def patch_ai_config(
+    step: str, body: SetModelConfigRequest, pool: asyncpg.Pool = Depends(get_pool)
+) -> dict[str, Any]:
+    if step not in ("insights", "deep_report"):
+        raise HTTPException(status_code=404, detail="unknown step")
+    try:
+        async with pool.acquire() as conn:
+            updated = await set_model_config(
+                conn, step, body.provider, body.model_id, body.effort, settings.ADMIN_ACTOR_ID,
+            )
+    except InvalidModelConfigError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    logger.info("admin.ai_config.updated", step=step, provider=body.provider, model_id=body.model_id)
+    return {
+        "step": updated["step"],
+        "provider": updated["provider"],
+        "model_id": updated["model_id"],
+        "effort": updated["effort"],
+        "updated_at": updated["updated_at"].isoformat() if updated["updated_at"] else None,
+        "updated_by": updated["updated_by"],
+    }
+
+
 class SetQuizConfigRequest(BaseModel):
     steps: list[dict[str, Any]]
 
@@ -1797,7 +2058,7 @@ async def get_quiz_config_admin(pool: asyncpg.Pool = Depends(get_pool)) -> dict[
         return await get_active_quiz_config(conn)
 
 
-@router.put("/quiz-config", dependencies=[Depends(_require_admin), Depends(_require_action_password)])
+@router.put("/quiz-config", dependencies=[Depends(_require_admin)])
 async def put_quiz_config(
     body: SetQuizConfigRequest, pool: asyncpg.Pool = Depends(get_pool)
 ) -> dict[str, Any]:
@@ -1808,6 +2069,63 @@ async def put_quiz_config(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     logger.info("admin.quiz_config.updated", version=result["version"], step_count=len(body.steps))
     return result
+
+
+@router.get("/ai-usage", dependencies=[Depends(_require_admin)])
+async def get_ai_usage(pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any]:
+    async with pool.acquire() as conn:
+        totals = await conn.fetchrow(
+            "SELECT COALESCE(SUM(cost_usd), 0) AS total_cost, COUNT(*) AS total_calls FROM ai_usage_log"
+        )
+        today = await conn.fetchrow(
+            "SELECT COALESCE(SUM(cost_usd), 0) AS cost FROM ai_usage_log WHERE created_at >= date_trunc('day', now())"
+        )
+        this_week = await conn.fetchrow(
+            "SELECT COALESCE(SUM(cost_usd), 0) AS cost FROM ai_usage_log WHERE created_at >= now() - interval '7 days'"
+        )
+        by_model = await conn.fetch(
+            """SELECT provider, model_id, COUNT(*) AS calls,
+                      SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
+                      SUM(cost_usd) AS cost_usd
+               FROM ai_usage_log GROUP BY provider, model_id ORDER BY cost_usd DESC"""
+        )
+        recent = await conn.fetch(
+            """SELECT id, submission_id, step, provider, model_id, effort,
+                      input_tokens, output_tokens, cost_usd, created_at
+               FROM ai_usage_log ORDER BY created_at DESC LIMIT 50"""
+        )
+    return {
+        "total_cost_usd": float(totals["total_cost"]),
+        "total_calls": totals["total_calls"],
+        "cost_today_usd": float(today["cost"]),
+        "cost_this_week_usd": float(this_week["cost"]),
+        "by_model": [
+            {
+                "provider": r["provider"],
+                "model_id": r["model_id"],
+                "calls": r["calls"],
+                "input_tokens": r["input_tokens"],
+                "output_tokens": r["output_tokens"],
+                "cost_usd": float(r["cost_usd"]),
+            }
+            for r in by_model
+        ],
+        "recent": [
+            {
+                "id": str(r["id"]),
+                "submission_id": str(r["submission_id"]) if r["submission_id"] else None,
+                "step": r["step"],
+                "provider": r["provider"],
+                "model_id": r["model_id"],
+                "effort": r["effort"],
+                "input_tokens": r["input_tokens"],
+                "output_tokens": r["output_tokens"],
+                "cost_usd": float(r["cost_usd"]),
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            }
+            for r in recent
+        ],
+    }
 
 
 # ─── User management + audit trail (full-control console) ───────────────────────
