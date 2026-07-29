@@ -47,6 +47,7 @@ export function BrandHeading({ children, variant = 'display', tone = 'primary', 
     <RNText
       {...rest}
       accessibilityRole="header"
+      includeFontPadding
       style={[typeScale[variant], { color: TONE[tone] }, style]}
     >
       {children}

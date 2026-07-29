@@ -251,3 +251,10 @@ describe('Sheet', () => {
     expect(queryByText('message actions')).toBeNull();
   });
 });
+
+describe('BrandHeading', () => {
+  it('keeps Android font padding for Borel display headings', () => {
+    const { getByRole } = render(<BrandHeading>find your frinq</BrandHeading>);
+    expect(getByRole('header').props.includeFontPadding).toBe(true);
+  });
+});
