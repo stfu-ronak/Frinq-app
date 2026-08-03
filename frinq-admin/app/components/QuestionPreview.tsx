@@ -8,17 +8,6 @@ const BROWN = appColor.brown;
 const BROWN_SECONDARY = appColor.brownSecondary;
 const BROWN_DISABLED = appColor.brownDisabled;
 
-/** Every non-empty line, each split on "|" into its pipe-delimited parts —
- *  used to render the FULL round (every slider/pair), not just the first
- *  item, matching what the real quiz actually shows across N screens. */
-function allLines(text: unknown): string[][] {
-  if (typeof text !== "string") return [];
-  return text
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .map((line) => line.split("|").map((part) => part.trim()));
-}
 
 function Pill({ children, selected = false }: { children: ReactNode; selected?: boolean }) {
   return (
@@ -202,21 +191,21 @@ export function QuestionPreview({ kind, fields }: { kind: string; fields: Record
       break;
     }
     case "preferences": {
-      const sliders = allLines(fields._optionsText);
+      const sliders = (Array.isArray(fields.sliders) ? fields.sliders : []) as { prompt?: string; leftLabel?: string; rightLabel?: string }[];
       body = sliders.length ? (
         <>
-          {sliders.map(([sPrompt, leftLabel, , rightLabel], i) => (
+          {sliders.map((slider, i) => (
             <div key={i} style={{ marginBottom: i < sliders.length - 1 ? 14 : 0 }}>
               <RoundPosition index={i} total={sliders.length} />
-              <Heading>{sPrompt || "slider round"}</Heading>
+              <Heading>{slider.prompt || "slider round"}</Heading>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0" }}>
                 {[0, 1, 2, 3, 4].map((d) => (
                   <div key={d} style={{ width: 14, height: 14, borderRadius: 999, border: `1px solid ${MAROON}`, background: d === 2 ? MAROON : "transparent" }} />
                 ))}
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "var(--font-motive)", fontSize: 10, color: BROWN_SECONDARY }}>
-                <span>{leftLabel || "left"}</span>
-                <span>{rightLabel || "right"}</span>
+                <span>{slider.leftLabel || "left"}</span>
+                <span>{slider.rightLabel || "right"}</span>
               </div>
             </div>
           ))}
@@ -229,13 +218,10 @@ export function QuestionPreview({ kind, fields }: { kind: string; fields: Record
     case "singleChoiceCard":
     case "singleChoiceList":
     case "multiChoiceTags": {
-      const options = (fields._optionsText as string | undefined ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
-      const parsed = (options.length ? options : ["option a", "option b"]).map((line) => {
-        const sep = line.indexOf("::");
-        const labelPart = sep >= 0 ? line.slice(sep + 2) : line;
-        const [label, ...descParts] = labelPart.split("|").map((p) => p.trim());
-        return { label: label || line, description: descParts.join("|").trim() || undefined };
-      });
+      const rawOptions = (Array.isArray(fields.options) ? fields.options : []) as (string | { label?: string; description?: string })[];
+      const parsed = (rawOptions.length ? rawOptions : ["option a", "option b"]).map((o) =>
+        typeof o === "string" ? { label: o, description: undefined } : { label: o.label || "", description: o.description }
+      );
       body = (
         <>
           <Heading>{prompt || "prompt"}</Heading>
@@ -253,16 +239,16 @@ export function QuestionPreview({ kind, fields }: { kind: string; fields: Record
       break;
     }
     case "rapidFire": {
-      const pairs = allLines(fields._pairsText);
+      const pairs = (Array.isArray(fields.pairs) ? fields.pairs : []) as { a?: string; b?: string }[];
       body = pairs.length ? (
         <>
           <p style={{ fontFamily: "var(--font-things)", color: MAROON, fontSize: 16, margin: "4px 0" }}>rapid fire round</p>
-          {pairs.map(([a, b], i) => (
+          {pairs.map((pair, i) => (
             <div key={i} style={{ marginBottom: 8 }}>
               <RoundPosition index={i} total={pairs.length} />
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <Pill>{a || "option a"}</Pill>
-                <Pill>{b || "option b"}</Pill>
+                <Pill>{pair.a || "option a"}</Pill>
+                <Pill>{pair.b || "option b"}</Pill>
               </div>
             </div>
           ))}
@@ -275,21 +261,21 @@ export function QuestionPreview({ kind, fields }: { kind: string; fields: Record
       break;
     }
     case "opinions": {
-      const pairs = allLines(fields._pairsText);
+      const pairs = (Array.isArray(fields.pairs) ? fields.pairs : []) as { prompt?: string; a?: string; b?: string; whyPrompt?: string }[];
       body = pairs.length ? (
         <>
           <p style={{ fontFamily: "var(--font-things)", color: MAROON, fontSize: 16, margin: "4px 0" }}>this-or-that round</p>
-          {pairs.map(([oPrompt, a, b, whyPrompt], i) => (
+          {pairs.map((pair, i) => (
             <div key={i} style={{ marginBottom: 12 }}>
               <RoundPosition index={i} total={pairs.length} />
-              <Heading>{oPrompt || "prompt"}</Heading>
+              <Heading>{pair.prompt || "prompt"}</Heading>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <Pill>{a || "option a"}</Pill>
-                <Pill>{b || "option b"}</Pill>
+                <Pill>{pair.a || "option a"}</Pill>
+                <Pill>{pair.b || "option b"}</Pill>
               </div>
-              {!!whyPrompt && (
+              {!!pair.whyPrompt && (
                 <p style={{ fontFamily: "var(--font-motive)", fontSize: 10, color: BROWN_SECONDARY, marginTop: 8 }}>
-                  then asks (text + voice): &ldquo;{whyPrompt}&rdquo;
+                  then asks (text + voice): &ldquo;{pair.whyPrompt}&rdquo;
                 </p>
               )}
             </div>
