@@ -8,7 +8,7 @@ import { ArrowButton } from '../../../design/components/ArrowButton';
 import { PrimaryButton } from '../../../design/components/PrimaryButton';
 import { spacing } from '../../../design/tokens/spacing';
 import { useSession } from '../../../services/session/sessionContext';
-import { sendOtp, verifyOtp, acceptLegal } from '../authService';
+import { sendOtp, verifyOtp, acceptLegal, fetchCurrentLegal } from '../authService';
 import { loadPendingAcceptance, clearPendingAcceptance } from '../../legal/pendingAcceptance';
 import { flushPendingQuizState } from '../../quiz/flushPendingQuizState';
 import { track } from '../../../services/telemetry/analytics';
@@ -72,9 +72,20 @@ export function OtpScreen() {
 
       const pending = await loadPendingAcceptance();
       if (pending) {
+        let termsVersion = pending.termsVersion;
+        let privacyVersion = pending.privacyVersion;
+        try {
+          const currentLegal = await fetchCurrentLegal(apiClient);
+          termsVersion = currentLegal.terms_version;
+          privacyVersion = currentLegal.privacy_version;
+        } catch {
+          // OTP already proved the backend is reachable. If this subsequent
+          // manifest check races a transient failure, submit the cached choice;
+          // the server remains the final authority and can route to Legal.
+        }
         const accepted = await acceptLegal(apiClient, {
-          terms_version: pending.termsVersion,
-          privacy_version: pending.privacyVersion,
+          terms_version: termsVersion,
+          privacy_version: privacyVersion,
           locale: pending.locale,
           source: 'android',
         });
@@ -92,13 +103,16 @@ export function OtpScreen() {
       // quiz-draft flush at worst resumes the quiz without the typed name.
     }
 
-    setLoading(false);
     if (tokensSet) {
       // Flip auth so boot resolution takes over routing (server-authoritative).
+      // Loading stays true (busy indicator visible) until this screen
+      // unmounts once boot resolution lands on the real destination — no
+      // splash flash, so don't clear it here.
       coordinator.signalAuthenticated();
     } else {
       // Couldn't even persist the credential — surface a retry rather than
       // silently proceeding unauthenticated.
+      setLoading(false);
       setCode('');
       setError(ERROR_COPY.network_error ?? "Couldn't verify, try again.");
     }
@@ -113,8 +127,8 @@ export function OtpScreen() {
   return (
     <ReferenceJourneyFrame onBack={() => navigation.goBack()} scroll>
       <View style={styles.body}>
-        <BrandHeading style={styles.heading}>verify</BrandHeading>
-        <BodyText tone="secondary" style={styles.copy}>
+        <BrandHeading testID="otp-heading" tone="brand" style={styles.heading}>verify</BrandHeading>
+        <BodyText tone="muted" style={styles.copy}>
           OTP has been sent to 91+ {phone}
         </BodyText>
 
@@ -139,9 +153,9 @@ export function OtpScreen() {
 }
 
 const styles = StyleSheet.create({
-  body: { flex: 1, alignItems: 'center', paddingTop: 132 },
-  heading: { fontSize: 52, lineHeight: 64, textAlign: 'center', marginBottom: spacing.md },
-  copy: { textAlign: 'center', fontSize: 17, lineHeight: 26, marginBottom: spacing.xxl },
+  body: { flex: 1, alignItems: 'center', paddingTop: 90 },
+  heading: { fontSize: 28, lineHeight: 42, textAlign: 'center', marginBottom: spacing.md },
+  copy: { textAlign: 'center', fontSize: 14, lineHeight: 21, marginBottom: spacing.xxl },
   resend: { alignSelf: 'center', marginTop: spacing.xl },
-  confirm: { alignSelf: 'stretch', marginTop: spacing.lg },
+  confirm: { alignSelf: 'center', width: '86%', minHeight: 52, borderRadius: 12, marginTop: spacing.lg },
 });

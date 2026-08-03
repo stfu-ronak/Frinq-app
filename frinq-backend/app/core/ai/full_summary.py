@@ -1,4 +1,10 @@
-"""Single-call generation for user summary plus vibe card."""
+"""Single-call generation for user summary plus vibe card.
+
+Legacy — superseded for production quiz-completion traffic by
+app.core.ai.page2_summary (2026-07-31). Retained for admin's /ai-test
+step="summary" smoke check and back-compat tests
+(tests/test_ai/test_full_summary.py); not called from
+app/workers/tasks/quiz_insights.py anymore."""
 
 from __future__ import annotations
 
@@ -9,6 +15,7 @@ from app.config import settings
 from app.core.ai import gemini_client, prompts
 from app.core.ai import failover
 from app.core.ai.claude_client import CLAUDE_SONNET, call_with_cache
+from app.core.ai.model_pricing import GEMINI_DEFAULT
 from app.core.ai.answer_maps import annotate_answers
 from app.core.ai.insights import (
     ARCHETYPES,
@@ -118,7 +125,7 @@ async def generate_full_summary(
     provider = (model_config or {}).get("provider", settings.INSIGHTS_PROVIDER)
     model_id = (model_config or {}).get("model_id") or (
         CLAUDE_SONNET if provider == "claude" else
-        "gemini-3.5-flash-lite" if provider == "gemini" else settings.OPENAI_MODEL
+        GEMINI_DEFAULT if provider == "gemini" else settings.OPENAI_MODEL
     )
     effort = (model_config or {}).get("effort")
     user = json.dumps({

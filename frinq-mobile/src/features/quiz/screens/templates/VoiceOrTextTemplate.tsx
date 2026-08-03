@@ -32,15 +32,17 @@ export function VoiceOrTextTemplate({ step, submissionId, value, onChange, onCon
       stepId={step.id}
       section={step.section}
       onBack={onBack}
+      showProgress={false}
+      showStepCounter
       continueLabel="continue"
       onContinue={onContinue}
       continueDisabled={!valid}
     >
-      <BodyText variant="subheading" style={{ marginBottom: step.subtext ? spacing.xs : spacing.lg }}>
+      <BodyText variant="display" tone="brand" style={{ fontSize: 22, lineHeight: 30, textAlign: 'center', marginBottom: step.subtext ? spacing.xs : spacing.lg }}>
         {step.heading}
       </BodyText>
       {!!step.subtext && (
-        <BodyText variant="body" tone="secondary" style={{ marginBottom: spacing.lg }}>
+        <BodyText variant="body" tone="secondary" style={{ textAlign: 'center', marginBottom: spacing.lg }}>
           {step.subtext}
         </BodyText>
       )}
@@ -48,6 +50,7 @@ export function VoiceOrTextTemplate({ step, submissionId, value, onChange, onCon
       <TextField
         label={step.heading}
         hideLabel
+        variant="underline"
         value={value}
         onChangeText={onChange}
         placeholder={step.placeholder}

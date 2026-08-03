@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, waitFor, act } from '@testing-library/react-native';
 import { Text } from 'react-native';
+import * as FirebaseAnalytics from '@react-native-firebase/analytics';
 
 let mockStoreData: Map<string, string>;
 const mockStore = {
@@ -8,6 +9,11 @@ const mockStore = {
   set: (k: string, v: string) => void mockStoreData.set(k, v),
   remove: (k: string) => void mockStoreData.delete(k),
 };
+jest.mock('@react-native-firebase/analytics', () => ({
+  getAnalytics: jest.fn(() => ({})),
+  logEvent: jest.fn(() => Promise.resolve()),
+  setAnalyticsCollectionEnabled: jest.fn(() => Promise.resolve()),
+}));
 jest.mock('../../storage/encryptedStorage', () => ({
   getEncryptedStore: async () => mockStore,
 }));
@@ -36,9 +42,16 @@ function Probe() {
 
 beforeEach(() => {
   mockStoreData = new Map();
+  jest.clearAllMocks();
 });
 
 describe('AnalyticsConsentProvider', () => {
+  it('uses Firebase Analytics modular functions without the deprecated namespace API', async () => {
+    render(<AnalyticsConsentProvider><Probe /></AnalyticsConsentProvider>);
+    const setCollectionEnabled = FirebaseAnalytics.setAnalyticsCollectionEnabled as unknown as jest.Mock;
+    await waitFor(() => expect(setCollectionEnabled).toHaveBeenCalledWith(expect.any(Object), false));
+  });
+
   it('defaults to off with nothing persisted', async () => {
     const { getByTestId } = render(<AnalyticsConsentProvider><Probe /></AnalyticsConsentProvider>);
     await waitFor(() => expect(getByTestId('state').props.children).toBe('false'));

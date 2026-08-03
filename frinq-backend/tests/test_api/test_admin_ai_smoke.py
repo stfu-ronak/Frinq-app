@@ -110,3 +110,30 @@ async def test_ai_config_patch_accepts_gemini(client, fake_pool: FakePool):
     )
     assert res.status_code == 200
     assert res.json()["provider"] == "gemini"
+
+
+async def test_ai_keys_status_reports_presence_never_values(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-real-key")
+    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
+
+    from httpx import ASGITransport, AsyncClient
+    from app.main import app as fastapi_app
+
+    transport = ASGITransport(app=fastapi_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get("/api/v1/admin/ai-keys-status", headers=_ADMIN_HEADERS)
+    assert res.status_code == 200
+    body = res.json()
+    assert body == {"openai": True, "claude": False, "gemini": False}
+    assert "sk-real-key" not in res.text
+
+
+async def test_ai_keys_status_requires_admin_key():
+    from httpx import ASGITransport, AsyncClient
+    from app.main import app as fastapi_app
+
+    transport = ASGITransport(app=fastapi_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get("/api/v1/admin/ai-keys-status")
+    assert res.status_code == 401

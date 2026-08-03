@@ -12,6 +12,7 @@ import { spacing } from '../../../design/tokens/spacing';
 import { useSession } from '../../../services/session/sessionContext';
 import { ApiError } from '../../../services/api/apiError';
 import { ProfilePatch, fetchProfile, updateProfile, mapDisplayNameError, DISPLAY_NAME_MAX } from '../profileService';
+import { UserResponse } from '../../../services/api/contracts';
 import { GENDER_OPTIONS } from '../../../services/api/genderOptions';
 import { NCR_ZONE_OPTIONS } from '../../../services/api/ncrZoneOptions';
 
@@ -70,11 +71,18 @@ export function EditProfileScreen() {
 
   const mutation = useMutation({
     mutationFn: (patch: ProfilePatch) => updateProfile(apiClient, patch),
+    onMutate: async (patch) => {
+      await queryClient.cancelQueries({ queryKey: ['userMe'] });
+      const previous = queryClient.getQueryData<UserResponse>(['userMe']);
+      if (previous) queryClient.setQueryData<UserResponse>(['userMe'], { ...previous, ...patch });
+      return { previous };
+    },
     onSuccess: (updated) => {
       queryClient.setQueryData(['userMe'], updated);
       navigation.goBack();
     },
-    onError: (err) => {
+    onError: (err, _patch, context) => {
+      if (context?.previous) queryClient.setQueryData(['userMe'], context.previous);
       setError(err instanceof ApiError ? mapDisplayNameError(err.code) : 'network error, try again');
     },
   });

@@ -33,13 +33,19 @@ jest.mock('react-native-haptic-feedback', () => ({
   trigger: jest.fn(),
 }));
 
-jest.mock('@react-native-firebase/analytics', () => ({
-  __esModule: true,
-  default: () => ({
+jest.mock('@react-native-firebase/analytics', () => {
+  const mockAnalytics = {
     logEvent: jest.fn().mockResolvedValue(undefined),
     setAnalyticsCollectionEnabled: jest.fn().mockResolvedValue(undefined),
-  }),
-}));
+  };
+  return {
+    __esModule: true,
+    default: () => mockAnalytics,
+    getAnalytics: () => mockAnalytics,
+    logEvent: mockAnalytics.logEvent,
+    setAnalyticsCollectionEnabled: mockAnalytics.setAnalyticsCollectionEnabled,
+  };
+});
 
 // NetInfo ships an official Jest mock.
 jest.mock('@react-native-community/netinfo', () =>

@@ -11,9 +11,9 @@ import { nextStep } from './domain/quizDefinition';
  * pre-auth `name` answer (freshly typed this session, so it wins) with any
  * `prior_session` the server already had for this phone/account, then saves
  * it into the real per-user encrypted quiz draft and clears the pre-auth
- * holder. Never leaves the quiz without a submission id: falls back to a
- * synchronous quiz/start if the fire-and-forget one from PhoneScreen never
- * landed (and there's no prior_session to source one from either).
+ * holder. Never leaves the quiz without a submission id: starts the quiz
+ * only after OTP establishes the authenticated account when no prior session
+ * can supply one.
  */
 export async function flushPendingQuizState(
   apiClient: ApiClient,

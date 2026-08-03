@@ -3,7 +3,6 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { color } from '../design/tokens/colors';
 import { VibeReportScreen } from '../features/vibe-report/screens/VibeReportScreen';
-import { CommunityScreen } from '../features/community/screens/CommunityScreen';
 import { ProfileScreen } from '../features/profile/screens/ProfileScreen';
 import { EditProfileScreen } from '../features/profile/screens/EditProfileScreen';
 import { SettingsScreen } from '../features/settings/screens/SettingsScreen';
@@ -63,8 +62,10 @@ function ProfileNavigator() {
   );
 }
 
-/** Two bottom tabs: Community, Profile. Settings is reached via a gear icon
- *  on Profile, not a tab of its own (2026-07-27 design spec). */
+/** Two bottom tabs: Events, Profile. Settings is reached via a gear icon on
+ *  Profile, not a tab of its own (2026-07-27 design spec). The Community tab
+ *  is hidden pending the AI Matchmaker feature that replaces it — the screen
+ *  and its route stay fully intact, just unmounted from the tab bar. */
 export function MainTabs() {
   return (
     <Tabs.Navigator
@@ -74,7 +75,6 @@ export function MainTabs() {
         tabBarInactiveTintColor: color.text.secondary,
       }}
     >
-      <Tabs.Screen name="Community" component={CommunityScreen} />
       <Tabs.Screen name="Events" component={EventsScreen} />
       <Tabs.Screen name="Profile" component={ProfileNavigator} />
     </Tabs.Navigator>

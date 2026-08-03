@@ -1,4 +1,4 @@
-export type StepKind = "text" | "singleChoiceCard" | "singleChoiceList" | "multiChoiceTags" | "slider" | "rapidFire" | "intro";
+export type StepKind = "text" | "singleChoiceCard" | "singleChoiceList" | "multiChoiceTags" | "slider" | "rapidFire" | "intro" | "opinions" | "preferences" | "voiceOrText";
 
 export interface QuizStepDraft {
   id: string;
@@ -37,5 +37,24 @@ export function quizStepForSave(step: Record<string, unknown>): QuizStepDraft {
     fields.secondsPerPair = Number(fields.secondsPerPair) || 5;
   }
 
+  if (pairText !== null && fields.kind === "opinions") {
+    const pairs = pairText.split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
+      const [prompt, a, b, whyPrompt] = line.split("|").map((part) => part.trim());
+      return whyPrompt ? { prompt, a, b, whyPrompt, whyAllowVoice: true } : { prompt, a, b };
+    });
+    fields.pairs = pairs;
+    // Auto-derived, not admin-typed — every real use case wants exactly this.
+    fields.whyAnswerKey = pairs.some((p) => "whyPrompt" in p) ? `${fields.answerKey || newAnswerKey()}_why` : undefined;
+  }
+
+  if (optionText !== null && fields.kind === "preferences") {
+    fields.sliders = optionText.split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
+      const [prompt, leftLabel, leftHint, rightLabel, rightHint] = line.split("|").map((part) => part.trim());
+      return { prompt, leftLabel, leftHint, rightLabel, rightHint };
+    });
+  }
+
   return fields as QuizStepDraft;
 }
+
+function newAnswerKey(): string { return `custom_${Date.now()}`; }

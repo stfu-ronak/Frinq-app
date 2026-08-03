@@ -27,7 +27,7 @@ from typing import Any
 from uuid import UUID
 
 from app.core.ai.archetypes import get_archetype
-from app.core.ai.full_summary import generate_full_summary_with_fallback
+from app.core.ai.page2_summary import generate_page2_summary_with_fallback
 from app.core.ai.insights import generate_insights as _ORIGINAL_GENERATE_INSIGHTS
 from app.core.ai.model_config import InvalidModelConfigError, get_active_model_config
 from app.core.ai.model_pricing import compute_cost
@@ -93,9 +93,10 @@ async def _generate_summary(
     fallback_config: dict[str, Any],
     primary_usage_recorder: Any,
     fallback_usage_recorder: Any,
+    submission_id: str | None = None,
 ) -> dict[str, Any]:
     # Existing tests/adapters can inject legacy callables. Normal runtime uses
-    # one combined provider call with fallback handled by full_summary.
+    # the page2 two-stage pipeline with fallback handled by page2_summary.
     if generate_insights is not _ORIGINAL_GENERATE_INSIGHTS or generate_deep_report is not _ORIGINAL_GENERATE_DEEP_REPORT:
         result = await generate_insights(
             answers, model_config=primary_config, usage_recorder=primary_usage_recorder
@@ -110,12 +111,13 @@ async def _generate_summary(
         result["deep_summary"] = deep
         result["_ai_route"] = "primary"
         return result
-    return await generate_full_summary_with_fallback(
+    return await generate_page2_summary_with_fallback(
         answers,
         primary_config=primary_config,
         fallback_config=fallback_config,
         primary_usage_recorder=primary_usage_recorder,
         fallback_usage_recorder=fallback_usage_recorder,
+        submission_id=submission_id,
     )
 
 
@@ -236,6 +238,7 @@ async def generate_quiz_insights(ctx: dict[str, Any], submission_id: str) -> Non
                 fallback_config=deep_report_config,
                 primary_usage_recorder=insights_recorder,
                 fallback_usage_recorder=fallback_recorder,
+                submission_id=submission_id,
             )
             ai_route = result.pop("_ai_route", "primary")
             deep_summary_result = result.get("deep_summary")

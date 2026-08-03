@@ -12,6 +12,7 @@
  */
 import React from 'react';
 import { act, render, waitFor } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { QuizNavigator } from '../../../navigation/QuizNavigator';
 import { QuizDraftRepository, setDynamicAnswerKeys } from '../../../storage/quizDraftRepository';
 import { QuizSubmissionService } from '../quizSubmissionService';
@@ -62,9 +63,23 @@ jest.mock('../screens/QuizStepScreen', () => {
 
 const USER: any = { id: 'user-1', phone: '9876543210' };
 
+let testQueryClient: QueryClient;
+
+/** QuizNavigator shares its /users/me fetch with BootController via a
+ *  react-query cache — a fresh client per test avoids one test's cached
+ *  'currentUser' leaking into the next and skipping the mocked fetch. */
+function renderNavigator(onQuizComplete: () => void) {
+  return render(
+    <QueryClientProvider client={testQueryClient}>
+      <QuizNavigator onQuizComplete={onQuizComplete} />
+    </QueryClientProvider>,
+  );
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockStoreData = new Map();
+  testQueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 });
 
 afterEach(() => {
@@ -80,7 +95,7 @@ describe('QuizNavigator resolution', () => {
     const apiClient = { request: jest.fn().mockResolvedValue(USER) };
     mockUseSession.mockReturnValue({ apiClient });
 
-    render(<QuizNavigator onQuizComplete={jest.fn()} />);
+    renderNavigator(jest.fn());
 
     await waitFor(() => expect(apiClient.request).toHaveBeenCalledWith({ path: '/api/v1/users/me' }));
     expect(mockStartQuiz).not.toHaveBeenCalled();
@@ -91,7 +106,7 @@ describe('QuizNavigator resolution', () => {
     const apiClient = { request: jest.fn().mockResolvedValue(USER) };
     mockUseSession.mockReturnValue({ apiClient });
 
-    render(<QuizNavigator onQuizComplete={jest.fn()} />);
+    renderNavigator(jest.fn());
 
     await waitFor(() => expect(mockStartQuiz).toHaveBeenCalledWith(apiClient, USER.phone));
   });
@@ -108,7 +123,7 @@ describe('QuizNavigator resolution', () => {
     };
     mockUseSession.mockReturnValue({ apiClient });
 
-    const screen = render(<QuizNavigator onQuizComplete={jest.fn()} />);
+    const screen = renderNavigator(jest.fn());
 
     await waitFor(() => expect(apiClient.request).toHaveBeenCalledWith({ path: '/api/v1/quiz/config' }));
     expect(await screen.findByText('social_type')).toBeTruthy();
@@ -140,11 +155,15 @@ describe('QuizNavigator resolution', () => {
     let activeApiClient = oldApiClient;
     mockUseSession.mockImplementation(() => ({ apiClient: activeApiClient }));
 
-    const screen = render(<QuizNavigator onQuizComplete={jest.fn()} />);
+    const screen = renderNavigator(jest.fn());
     await waitFor(() => expect(oldApiClient.request).toHaveBeenCalledWith({ path: '/api/v1/quiz/config' }));
 
     activeApiClient = newApiClient;
-    screen.rerender(<QuizNavigator onQuizComplete={jest.fn()} />);
+    screen.rerender(
+      <QueryClientProvider client={testQueryClient}>
+        <QuizNavigator onQuizComplete={jest.fn()} />
+      </QueryClientProvider>,
+    );
     expect(await screen.findByText('new-content')).toBeTruthy();
 
     await act(async () => {
@@ -162,7 +181,7 @@ describe('QuizNavigator resolution', () => {
     const apiClient = { request: jest.fn().mockRejectedValue(new Error('network')) };
     mockUseSession.mockReturnValue({ apiClient });
 
-    const screen = render(<QuizNavigator onQuizComplete={jest.fn()} />);
+    const screen = renderNavigator(jest.fn());
     await waitFor(() => expect(screen.getByRole('button', { name: /try again/i })).toBeTruthy());
   });
 });

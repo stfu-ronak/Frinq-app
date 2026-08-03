@@ -85,3 +85,21 @@ def test_compute_cost_resolves_alias():
 def test_compute_cost_raises_for_unknown_model():
     with pytest.raises(ValueError):
         compute_cost("claude-nonexistent", 100, 100)
+
+
+def test_claude_sonnet_default_is_priced():
+    """claude_client.CLAUDE_SONNET must always be a real MODEL_INFO key —
+    a code-level default constant never goes through set_model_config's
+    validation, so this is the only guard against a silent cost=0.0 /
+    unconditional-temperature regression (it happened once already)."""
+    from app.core.ai.claude_client import CLAUDE_SONNET
+
+    assert is_known_model(CLAUDE_SONNET)
+    assert get_model_info(CLAUDE_SONNET).provider == "claude"
+
+
+def test_gemini_default_is_priced():
+    from app.core.ai.model_pricing import GEMINI_DEFAULT
+
+    assert is_known_model(GEMINI_DEFAULT)
+    assert get_model_info(GEMINI_DEFAULT).provider == "gemini"

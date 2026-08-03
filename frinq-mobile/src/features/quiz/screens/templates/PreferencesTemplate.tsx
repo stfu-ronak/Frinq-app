@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { QuizScreenFrame } from '../../components/QuizScreenFrame';
+import { QuizProgress } from '../../../../design/components/QuizProgress';
 import { SnapSlider } from '../../components/SnapSlider';
+import { spacing } from '../../../../design/tokens/spacing';
 import { PreferencesStep } from '../../domain/quizDefinition';
 
 type Props = {
@@ -12,29 +14,52 @@ type Props = {
   onBack?: () => void;
 };
 
+/** One statement per screen (paginated by an internal index), matching the
+ *  Figma "not me ↔ that's so me!" slider design — not all sliders stacked
+ *  on one page. External contract (values/onChange/onContinue/onBack)
+ *  is unchanged, so QuizStepScreen needs no changes: onContinue only
+ *  fires once, after the last slider. */
 export function PreferencesTemplate({ step, values, onChange, onContinue, onBack }: Props) {
-  const allAnswered = values.length === step.sliders.length && values.every((v) => v !== undefined);
+  const [index, setIndex] = useState(0);
+  const slider = step.sliders[index];
+  const isLast = index === step.sliders.length - 1;
+
+  function handleContinue() {
+    if (isLast) {
+      onContinue();
+      return;
+    }
+    setIndex((i) => i + 1);
+  }
+
+  function handleBack() {
+    if (index === 0) {
+      onBack?.();
+      return;
+    }
+    setIndex((i) => i - 1);
+  }
+
   return (
     <QuizScreenFrame
       stepId={step.id}
       section={step.section}
-      onBack={onBack}
+      onBack={index > 0 || onBack ? handleBack : undefined}
+      showProgress={false}
       continueLabel="continue"
-      onContinue={onContinue}
-      continueDisabled={!allAnswered}
+      onContinue={handleContinue}
+      continueDisabled={values[index] === undefined}
     >
-      {step.sliders.map((slider, i) => (
-        <SnapSlider
-          key={i}
-          prompt={slider.prompt}
-          leftLabel={slider.leftLabel}
-          leftHint={slider.leftHint}
-          rightLabel={slider.rightLabel}
-          rightHint={slider.rightHint}
-          value={values[i]}
-          onChange={(v) => onChange(i, v)}
-        />
-      ))}
+      <QuizProgress step={index + 1} total={step.sliders.length} style={{ marginBottom: spacing.lg }} />
+      <SnapSlider
+        prompt={slider.prompt}
+        leftLabel={slider.leftLabel}
+        leftHint={slider.leftHint}
+        rightLabel={slider.rightLabel}
+        rightHint={slider.rightHint}
+        value={values[index]}
+        onChange={(v) => onChange(index, v)}
+      />
     </QuizScreenFrame>
   );
 }

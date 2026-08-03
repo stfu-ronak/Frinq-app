@@ -77,7 +77,7 @@ export function ProfileScreen() {
       <Row label="gender" value={user.gender || '—'} />
       <Row label="age" value={user.age ? String(user.age) : '—'} />
       <Row label="area" value={user.ncr_zone ? user.ncr_zone.replace(/_/g, ' ') : '—'} />
-      <Row label="community" value={user.community_slug ? user.community_slug.replace(/-/g, ' ') : '—'} />
+      <Row label="frinq squad" value={user.community_slug ? user.community_slug.replace(/-/g, ' ') : '—'} />
 
       <ArrowButton
         label="view your full vibe report"

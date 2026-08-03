@@ -78,8 +78,8 @@ class _FakeCommunitiesConnection:
 async def test_sync_creates_exactly_the_taxonomy_communities() -> None:
     conn = _FakeCommunitiesConnection()
     count = await sync_communities(conn)
-    assert count == len(ARCHETYPES) == 24
-    assert len(conn.communities) == 24
+    assert count == len(ARCHETYPES) == 18
+    assert len(conn.communities) == 18
 
 
 async def test_assignment_replaces_no_existing_membership() -> None:

@@ -38,7 +38,7 @@ export function nextLandingRoute({ hasPendingAcceptance, hasName }: { hasPending
  *  modal-ish stack screen reachable from the acceptance checkboxes. */
 export function AuthNavigator() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="Landing">
+    <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade', animationDuration: 180 }} initialRouteName="Landing">
       <Stack.Screen name="Landing" component={LandingScreen} />
       <Stack.Screen name="ReferenceIntro" component={ReferenceIntroScreen} />
       <Stack.Screen name="DudesIntro" component={DudesIntroScreen} />

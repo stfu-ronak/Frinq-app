@@ -43,6 +43,7 @@ describe('RootNavigator render gating', () => {
   it('renders only the boot splash while checking (no protected screens)', () => {
     const { getByTestId, queryByTestId } = renderRoot('checking');
     expect(getByTestId('app-launch-splash')).toBeTruthy();
+    expect(getByTestId('app-launch-splash-icon')).toBeTruthy();
     expect(queryByTestId('screen-community')).toBeNull();
     expect(queryByTestId('screen-profile')).toBeNull();
     expect(queryByTestId('screen-quiz')).toBeNull();

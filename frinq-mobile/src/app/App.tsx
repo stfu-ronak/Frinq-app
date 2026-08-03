@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import NetInfo from '@react-native-community/netinfo';
+import { useQueryClient } from '@tanstack/react-query';
 import { AppProviders } from './AppProviders';
 import { RootNavigator } from '../navigation/RootNavigator';
 import { BootState, routeForUser } from './boot/bootMachine';
@@ -13,6 +14,7 @@ export type BootResolver = () => Promise<BootState>;
 
 export function BootController({ resolveBoot }: { resolveBoot?: BootResolver }) {
   const { coordinator, apiClient, authenticated } = useSession();
+  const queryClient = useQueryClient();
   const [state, setState] = useState<BootState>('checking');
   const stateRef = useRef<BootState>(state);
   stateRef.current = state;
@@ -26,7 +28,13 @@ export function BootController({ resolveBoot }: { resolveBoot?: BootResolver }) 
       if (!restored) return offline ? 'offline' : 'authRequired';
       try {
         const [user, legal] = await Promise.all([
-          apiClient.request<UserResponse>({ path: '/api/v1/users/me' }),
+          // Shared query key with QuizNavigator's own /users/me fetch — within
+          // the 30s staleTime, whichever runs second reuses this cached
+          // result instead of hitting the network again.
+          queryClient.fetchQuery({
+            queryKey: ['currentUser'],
+            queryFn: () => apiClient.request<UserResponse>({ path: '/api/v1/users/me' }),
+          }),
           apiClient.request<LegalCurrent>({ path: '/api/v1/legal/current', auth: false }),
         ]);
         return routeForUser(user, legal);
@@ -37,7 +45,7 @@ export function BootController({ resolveBoot }: { resolveBoot?: BootResolver }) 
         throw err;
       }
     };
-  }, [resolveBoot, coordinator, apiClient]);
+  }, [resolveBoot, coordinator, apiClient, queryClient]);
 
   // Every resolve trigger (mount, auth flip, NetInfo auto-resume, nav
   // callbacks) routes through here. A monotonic id + mounted flag ensure only
@@ -54,14 +62,24 @@ export function BootController({ resolveBoot }: { resolveBoot?: BootResolver }) 
     };
   }, []);
 
+  // Only the true first (cold-boot) resolve forces the 'checking'/splash
+  // render. Every later re-resolve (OTP verify, legal accepted, quiz
+  // complete, ...) keeps whatever screen is currently mounted visible while
+  // it runs in the background, then jumps straight to the real destination —
+  // instead of round-tripping through a cold-launch-styled splash screen on
+  // every auth/state flip.
+  const isInitialResolveRef = useRef(true);
+
   const runResolve = useCallback(() => {
     const id = ++resolveIdRef.current;
-    setState('checking');
+    if (isInitialResolveRef.current) setState('checking');
     resolver()
       .then((next) => {
+        isInitialResolveRef.current = false;
         if (mountedRef.current && resolveIdRef.current === id) setState(next);
       })
       .catch(() => {
+        isInitialResolveRef.current = false;
         if (mountedRef.current && resolveIdRef.current === id) setState('error');
       });
   }, [resolver]);

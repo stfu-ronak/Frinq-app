@@ -6,7 +6,7 @@ import { ChoicePill } from '../components/ChoicePill';
 import { ChoiceCard } from '../components/ChoiceCard';
 import { TextField } from '../components/TextField';
 import { OfflineBanner } from '../components/OfflineBanner';
-import { BrandHeading } from '../components/Text';
+import { BodyText, BrandHeading } from '../components/Text';
 import { OtpField } from '../components/OtpField';
 import { PhoneField } from '../components/PhoneField';
 import { ChoiceListRow } from '../components/ChoiceListRow';
@@ -162,6 +162,20 @@ describe('BrandHeading', () => {
   });
 });
 
+describe('reference palette text tones', () => {
+  it('uses maroon for editorial headings and gray for supporting copy', () => {
+    const { getByText } = render(
+      <View>
+        <BrandHeading tone={'brand' as any}>location services</BrandHeading>
+        <BodyText tone={'muted' as any}>supporting copy</BodyText>
+      </View>,
+    );
+
+    expect(flatten(getByText('location services').props.style).color).toBe('#621407');
+    expect(flatten(getByText('supporting copy').props.style).color).toBe('#545454');
+  });
+});
+
 describe('PhoneField', () => {
   it('strips non-digits and caps at 10', () => {
     const onChange = jest.fn();
@@ -255,6 +269,6 @@ describe('Sheet', () => {
 describe('BrandHeading', () => {
   it('keeps Android font padding for Borel display headings', () => {
     const { getByRole } = render(<BrandHeading>find your frinq</BrandHeading>);
-    expect(getByRole('header').props.includeFontPadding).toBe(true);
+    expect(getByRole('header').props.style).toEqual(expect.arrayContaining([expect.objectContaining({ includeFontPadding: true, paddingTop: 8, paddingBottom: 4 })]));
   });
 });

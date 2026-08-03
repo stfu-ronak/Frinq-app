@@ -3,7 +3,7 @@
 import { createContext, Suspense, useCallback, useContext, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { adminFetch, loadAdminKey, saveAdminKey, clearAdminKey } from "@/app/lib/adminFetch";
+import { adminFetch, loadAdminKey, saveAdminKey, clearAdminKey, setUnauthorizedHandler } from "@/app/lib/adminFetch";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -28,16 +28,31 @@ export function useAdminAuth(): AdminAuthValue {
 
 // Top-level IA. "Questions"/"Events" are added by later phases (they don't
 // exist yet — no dead links in the meantime).
-const NAV_ITEMS: { label: string; href: string; isActive: (pathname: string, tab: string | null) => boolean }[] = [
+//
+// Items whose group spans multiple `?tab=` values carry `group`/`defaultTab`
+// so NavLinks can self-link to whichever tab in the group is CURRENT rather
+// than always resetting to the group's default — otherwise clicking
+// "analytics" while on `?tab=funnel` silently jumps back to `overview`.
+const NAV_ITEMS: {
+  label: string;
+  href: string;
+  isActive: (pathname: string, tab: string | null) => boolean;
+  group?: string[];
+  defaultTab?: string;
+}[] = [
   {
     label: "analytics",
     href: "/?tab=overview",
     isActive: (p, t) => p === "/" && (!t || ["overview", "analytics", "insights", "funnel"].includes(t)),
+    group: ["overview", "analytics", "insights", "funnel"],
+    defaultTab: "overview",
   },
   {
     label: "users",
     href: "/?tab=users",
     isActive: (p, t) => p === "/" && ["users", "testing", "accounts"].includes(t ?? ""),
+    group: ["users", "testing", "accounts"],
+    defaultTab: "users",
   },
   { label: "community", href: "/moderation", isActive: (p) => p === "/moderation" },
   {
@@ -58,10 +73,13 @@ function NavLinks() {
     <>
       {NAV_ITEMS.map((item) => {
         const active = item.isActive(pathname, tab);
+        // Self-link: if we're already on a tab within this item's group,
+        // keep linking to that same tab instead of the group's default.
+        const href = item.group && tab && item.group.includes(tab) ? `/?tab=${tab}` : item.href;
         return (
           <Link
             key={item.label}
-            href={item.href}
+            href={href}
             className={`font-[family-name:var(--font-motive)] text-[10px] tracking-[0.14em] px-4 py-3 border-b-2 transition-colors whitespace-nowrap ${active ? "text-[#2A1810] border-[#2A1810]" : "text-[#8B7355] border-transparent hover:text-[#2A1810]"}`}
           >
             {item.label}
@@ -143,6 +161,16 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     setStatus("unauthed");
   }, []);
 
+  // Wired only once authed — the pre-login key-verify probe (`verify`, used
+  // by both the initial mount check and the login form) handles its own 401
+  // via its return value, and shouldn't also fire this while there's no
+  // `logout` state to unwind yet.
+  useEffect(() => {
+    if (status !== "authed") return;
+    setUnauthorizedHandler(logout);
+    return () => setUnauthorizedHandler(null);
+  }, [status, logout]);
+
   if (status === "checking") return null;
 
   if (status !== "authed") {
@@ -167,7 +195,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <AdminAuthContext.Provider value={{ adminKey, logout }}>
-      <div style={{ position: "fixed", inset: 0, overflowY: "auto", overflowX: "hidden", background: "#F5F0E8" }}>
+      <div style={{ minHeight: "100dvh", background: "#F5F0E8" }}>
         {/* Tailwind's JIT scanner needs a literal class string — it can't see
             through a template-literal interpolation of NAV_HEIGHT_PX, so the
             height is set via inline style instead; NAV_HEIGHT_PX stays the

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { QuizMachine, QuizEvent, QuizState } from './domain/quizMachine';
 import { QuizDraftRepository } from '../../storage/quizDraftRepository';
 import { PartialSaveFn } from './domain/quizMachine';
@@ -52,10 +52,18 @@ export function QuizProvider({ submissionId, userId, repo, partialSave, onQuizCo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function send(event: QuizEvent) {
+  const send = useCallback((event: QuizEvent) => {
     machine.send(event);
     setState(machine.getState());
-  }
+  }, [machine]);
 
-  return <QuizContext.Provider value={{ state, send, machine, onQuizComplete }}>{children}</QuizContext.Provider>;
+  // Without this memo, every ANSWER event (every keystroke in text/voice
+  // fields) creates a new context value object, re-rendering the whole quiz
+  // subtree regardless of whether a given template is memoized.
+  const value = useMemo<QuizContextValue>(
+    () => ({ state, send, machine, onQuizComplete }),
+    [state, send, machine, onQuizComplete],
+  );
+
+  return <QuizContext.Provider value={value}>{children}</QuizContext.Provider>;
 }

@@ -3,11 +3,13 @@ import { Text as RNText, TextProps, TextStyle } from 'react-native';
 import { color } from '../tokens/colors';
 import { typeScale, TypeRole } from '../tokens/typography';
 
-type Tone = 'primary' | 'secondary' | 'onMaroon' | 'error' | 'disabled';
+type Tone = 'primary' | 'secondary' | 'muted' | 'brand' | 'onMaroon' | 'error' | 'disabled';
 
 const TONE: Record<Tone, string> = {
   primary: color.text.primary,
   secondary: color.text.secondary,
+  muted: color.text.muted,
+  brand: color.brand.maroon,
   onMaroon: color.text.onMaroon,
   error: color.text.error,
   disabled: color.text.disabled,
@@ -47,8 +49,7 @@ export function BrandHeading({ children, variant = 'display', tone = 'primary', 
     <RNText
       {...rest}
       accessibilityRole="header"
-      includeFontPadding
-      style={[typeScale[variant], { color: TONE[tone] }, style]}
+      style={[typeScale[variant], { color: TONE[tone], includeFontPadding: true, paddingTop: 8, paddingBottom: 4 }, style]}
     >
       {children}
     </RNText>

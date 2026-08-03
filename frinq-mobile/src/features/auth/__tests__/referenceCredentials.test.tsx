@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { NameScreen } from '../screens/NameScreen';
 import { PhoneScreen } from '../screens/PhoneScreen';
@@ -50,5 +51,13 @@ describe('reference credential pages', () => {
   it('uses the reference Confirm action for the OTP page', () => {
     const { getByRole } = render(<OtpScreen />);
     expect(getByRole('button', { name: 'Confirm' })).toBeTruthy();
+  });
+
+  it('uses the reference-scale verify heading and compact Confirm button', () => {
+    const { getByTestId, getByRole } = render(<OtpScreen />);
+    const heading = StyleSheet.flatten(getByTestId('otp-heading').props.style as never) as Record<string, number | string | undefined>;
+    const confirm = StyleSheet.flatten(getByRole('button', { name: 'Confirm' }).props.style as never) as Record<string, number | string | undefined>;
+    expect(heading).toMatchObject({ color: '#621407', fontSize: 28, lineHeight: 42 });
+    expect(confirm).toMatchObject({ width: '86%', minHeight: 52, borderRadius: 12 });
   });
 });

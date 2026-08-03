@@ -69,8 +69,8 @@ describe('post-deletion boot resolution (real SessionCoordinator + real routeFor
     });
 
     // Boot re-resolved with no stored credential at all -> authRequired ->
-    // the real LandingScreen ("begin"), not a stale suspended screen and not
+    // the real LandingScreen action, not a stale suspended screen and not
     // a splash stuck on "checking".
-    expect(await findByLabelText('begin')).toBeTruthy();
+    expect(await findByLabelText('Start finding your Frinq')).toBeTruthy();
   });
 });

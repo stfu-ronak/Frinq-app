@@ -39,6 +39,8 @@ interface ReportDetail {
   prior_action_count: number;
 }
 
+const REPORTS_PAGE_SIZE = 50;
+
 const REASONS = [
   "spam", "harassment", "hate", "sexual", "self_harm", "violence", "impersonation", "privacy", "other",
 ] as const;
@@ -66,6 +68,8 @@ export default function ModerationPage() {
   const [statusFilter, setStatusFilter] = useState<ReportStatus>("open");
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [ageFilter, setAgeFilter] = useState<Age>("all");
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ReportDetail | null>(null);
@@ -86,19 +90,23 @@ export default function ModerationPage() {
     setLoading(true);
     setListError(null);
     try {
-      const params = new URLSearchParams({ status: statusFilter });
+      const params = new URLSearchParams({ status: statusFilter, limit: String(REPORTS_PAGE_SIZE), offset: String(offset) });
       if (categoryFilter) params.set("reason", categoryFilter);
       const res = await adminFetch(`${API_URL}/api/v1/admin/reports?${params}`, {}, { key: adminKey });
       if (res.status === 401) { logout(); return; }
       if (!res.ok) { setListError(`error ${res.status}`); return; }
       const data = await res.json();
-      setReports(data.reports || []);
+      const rows: ReportRow[] = data.reports || [];
+      setReports(rows);
+      setHasMore(rows.length === REPORTS_PAGE_SIZE);
+      setExpandedId(null);
+      setDetail(null);
     } catch (e) {
       setListError(e instanceof Error ? e.message : "network error");
     } finally {
       setLoading(false);
     }
-  }, [adminKey, statusFilter, categoryFilter, logout]);
+  }, [adminKey, statusFilter, categoryFilter, offset, logout]);
 
   useEffect(() => {
     if (!adminKey) return;
@@ -183,14 +191,14 @@ export default function ModerationPage() {
       {section === "reports" && (
       <main className="px-6 py-6 max-w-3xl mx-auto">
         <div className="flex flex-wrap gap-3 mb-6" role="group" aria-label="filters">
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as ReportStatus)}
+          <select value={statusFilter} onChange={(e) => { setOffset(0); setStatusFilter(e.target.value as ReportStatus); }}
             aria-label="status filter"
             className="font-[family-name:var(--font-motive)] text-[11px] px-2 py-1.5 border border-[rgba(42,24,16,0.18)] bg-transparent text-[#2A1810]">
             <option value="open">open</option>
             <option value="resolved">resolved</option>
             <option value="dismissed">dismissed</option>
           </select>
-          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}
+          <select value={categoryFilter} onChange={(e) => { setOffset(0); setCategoryFilter(e.target.value); }}
             aria-label="category filter"
             className="font-[family-name:var(--font-motive)] text-[11px] px-2 py-1.5 border border-[rgba(42,24,16,0.18)] bg-transparent text-[#2A1810]">
             <option value="">all categories</option>
@@ -313,6 +321,22 @@ export default function ModerationPage() {
             </div>
           ))}
         </div>
+
+        {(offset > 0 || hasMore) && (
+          <div className="flex items-center justify-center gap-3 mt-6">
+            <button onClick={() => setOffset((o) => Math.max(0, o - REPORTS_PAGE_SIZE))} disabled={offset === 0 || loading}
+              className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.14em] px-2.5 py-1 border border-[rgba(42,24,16,0.18)] text-[#8B7355] hover:text-[#2A1810] transition-colors disabled:opacity-30">
+              prev
+            </button>
+            <span className="font-[family-name:var(--font-motive)] text-[9px] text-[#8B7355] tracking-[0.1em]">
+              page {Math.floor(offset / REPORTS_PAGE_SIZE) + 1}
+            </span>
+            <button onClick={() => setOffset((o) => o + REPORTS_PAGE_SIZE)} disabled={!hasMore || loading}
+              className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.14em] px-2.5 py-1 border border-[rgba(42,24,16,0.18)] text-[#8B7355] hover:text-[#2A1810] transition-colors disabled:opacity-30">
+              next
+            </button>
+          </div>
+        )}
       </main>
       )}
 

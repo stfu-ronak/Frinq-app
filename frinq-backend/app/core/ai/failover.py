@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.core.redis_client import get_redis
@@ -17,6 +17,10 @@ from app.core.redis_client import get_redis
 COOLDOWN_SECONDS = 300
 _PREFIX = "ai:primary-failure:"
 _local_down_until: dict[str, float] = {}
+# Wall-clock mirror of _local_down_until (which is keyed on time.monotonic(),
+# with no fixed epoch relationship to real time) — kept only so get_status()
+# can report a real cooldown expiry instead of "now" (a prior bug).
+_local_down_until_wall: dict[str, datetime] = {}
 _redis: Any | bool | None = None
 
 
@@ -39,6 +43,7 @@ async def is_primary_suppressed(route_key: str) -> bool:
     if local_until > now:
         return True
     _local_down_until.pop(route_key, None)
+    _local_down_until_wall.pop(route_key, None)
 
     client = await _client()
     if client is None:
@@ -51,6 +56,7 @@ async def is_primary_suppressed(route_key: str) -> bool:
 
 async def mark_primary_failure(route_key: str) -> None:
     _local_down_until[route_key] = time.monotonic() + COOLDOWN_SECONDS
+    _local_down_until_wall[route_key] = datetime.now(timezone.utc) + timedelta(seconds=COOLDOWN_SECONDS)
     client = await _client()
     if client is None:
         return
@@ -62,6 +68,7 @@ async def mark_primary_failure(route_key: str) -> None:
 
 async def mark_primary_success(route_key: str) -> None:
     _local_down_until.pop(route_key, None)
+    _local_down_until_wall.pop(route_key, None)
     client = await _client()
     if client is None:
         return
@@ -74,18 +81,18 @@ async def mark_primary_success(route_key: str) -> None:
 async def get_status(provider: str, model_id: str) -> dict[str, Any]:
     route_key = f"{provider}:{model_id}"
     suppressed = await is_primary_suppressed(route_key)
-    local_until = _local_down_until.get(route_key)
+    expiry = _local_down_until_wall.get(route_key)
     return {
         "key": _key(provider, model_id),
         "active_route": "fallback" if suppressed else "primary",
         "primary_suppressed": suppressed,
         "cooldown_seconds": COOLDOWN_SECONDS,
         "suppressed_until": (
-            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-            if local_until else None
+            expiry.isoformat().replace("+00:00", "Z") if expiry else None
         ),
     }
 
 
 def reset_for_tests() -> None:
     _local_down_until.clear()
+    _local_down_until_wall.clear()

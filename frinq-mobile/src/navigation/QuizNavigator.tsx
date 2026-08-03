@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSession } from '../services/session/sessionContext';
 import { UserResponse } from '../services/api/contracts';
 import { QuizProvider } from '../features/quiz/quizContext';
@@ -39,6 +40,7 @@ function isValidContentSteps(steps: readonly QuizStep[]): boolean {
  */
 export function QuizNavigator({ onQuizComplete }: { onQuizComplete: () => void }) {
   const { apiClient } = useSession();
+  const queryClient = useQueryClient();
   const [resolved, setResolved] = useState<ResolvedQuiz | null>(null);
   const [resolveFailed, setResolveFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -47,7 +49,13 @@ export function QuizNavigator({ onQuizComplete }: { onQuizComplete: () => void }
     let cancelled = false;
     setResolveFailed(false);
     (async () => {
-      const user = await apiClient.request<UserResponse>({ path: '/api/v1/users/me' });
+      // Shared query key with BootController's own /users/me fetch — if boot
+      // resolved within the last 30s (staleTime), this reuses that cached
+      // result instead of a second network round-trip right after it.
+      const user = await queryClient.fetchQuery({
+        queryKey: ['currentUser'],
+        queryFn: () => apiClient.request<UserResponse>({ path: '/api/v1/users/me' }),
+      });
       let contentSteps: readonly QuizStep[];
       try {
         const config = await fetchQuizConfig(apiClient);
@@ -92,12 +100,32 @@ export function QuizNavigator({ onQuizComplete }: { onQuizComplete: () => void }
     };
   }, [apiClient, attempt]);
 
+  // Hoisted above the early returns (hooks must run unconditionally) so
+  // QuizProvider's context value — which now memoizes on these — actually
+  // gets a stable identity across re-renders instead of a fresh instance/
+  // closure every time, per quizContext.tsx's memoization fix.
+  const submissionService = useMemo(() => new QuizSubmissionService(apiClient), [apiClient]);
+
+  const handleQuizComplete = useCallback(async () => {
+    if (!resolved) return false;
+    // The machine's current answers live in QuizStepScreen's context; read
+    // them back off the draft (already persisted synchronously on every
+    // ANSWER) rather than threading machine state through here.
+    const draft = resolved.repo.load(resolved.userId);
+    const outcome = await submissionService.finalize(resolved.submissionId, draft?.answers ?? {});
+    if (outcome.kind === 'success') {
+      onQuizComplete();
+      return true;
+    }
+    // 'invalid'/'error' — report failure so the last step shows an error +
+    // retry. finalize() dedupes in-flight calls, so retry is safe.
+    return false;
+  }, [resolved, submissionService, onQuizComplete]);
+
   if (resolveFailed) {
     return <ErrorState message="Couldn't load your quiz. Check your connection and try again." onRetry={() => setAttempt((a) => a + 1)} />;
   }
   if (!resolved) return <BootSplash />;
-
-  const submissionService = new QuizSubmissionService(apiClient);
 
   return (
     <QuizProvider
@@ -105,22 +133,9 @@ export function QuizNavigator({ onQuizComplete }: { onQuizComplete: () => void }
       userId={resolved.userId}
       repo={resolved.repo}
       partialSave={(id, answers, lastRoute) => partialSaveApi(apiClient, id, answers, lastRoute)}
-      onQuizComplete={async () => {
-        // The machine's current answers live in QuizStepScreen's context;
-        // read them back off the draft (already persisted synchronously on
-        // every ANSWER) rather than threading machine state through here.
-        const draft = resolved.repo.load(resolved.userId);
-        const outcome = await submissionService.finalize(resolved.submissionId, draft?.answers ?? {});
-        if (outcome.kind === 'success') {
-          onQuizComplete();
-          return true;
-        }
-        // 'invalid'/'error' — report failure so the last step shows an error +
-        // retry. finalize() dedupes in-flight calls, so retry is safe.
-        return false;
-      }}
+      onQuizComplete={handleQuizComplete}
     >
-      <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="Step">
+      <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }} initialRouteName="Step">
         <Stack.Screen name="Step" component={QuizStepScreen} initialParams={{ stepId: resolved.initialStepId }} />
       </Stack.Navigator>
     </QuizProvider>

@@ -21,7 +21,7 @@ export function AccountScreen() {
       </BrandHeading>
       <BodyText variant="body" tone="secondary" style={styles.paragraph}>
         Deleting your account is permanent and removes your quiz answers, Vibe report, and
-        community membership. This can't be undone.
+        frinq squad membership. This can't be undone.
       </BodyText>
       <PrimaryButton
         label="delete my account"

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { BackHandler } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { useQuiz } from '../quizContext';
@@ -59,6 +59,39 @@ export function QuizStepScreen() {
   // (offline / 5xx) did nothing visible — the screen just sat there.
   const [finalizeState, setFinalizeState] = useState<'idle' | 'finalizing' | 'error'>('idle');
 
+  // finalize/advanceOrFinish/goBack are useCallback (stable identity across
+  // re-renders) so the memoized templates below (and quizContext's memoized
+  // provider value) actually skip re-rendering instead of getting a fresh
+  // closure prop every render. Declared before the `!step` early return
+  // (hooks must run unconditionally) and guard internally instead.
+  const finalize = useCallback(async () => {
+    setFinalizeState('finalizing');
+    const ok = await onQuizComplete();
+    // On success boot re-resolves and unmounts this screen; only a failure
+    // lands back here, where we surface a retry.
+    if (!ok) setFinalizeState('error');
+  }, [onQuizComplete]);
+
+  const advanceOrFinish = useCallback(() => {
+    if (!step) return;
+    const next = nextStep(step.id);
+    if (next) {
+      send({ type: 'NEXT' });
+      navigation.push('Step', { stepId: next });
+    } else {
+      send({ type: 'NEXT' }); // no-op at the last step, kept for symmetry/draft persistence
+      void finalize();
+    }
+  }, [step, send, navigation, finalize]);
+
+  const goBack = useCallback(() => {
+    if (!step) return;
+    const prev = previousStep(step.id);
+    if (!prev) return;
+    send({ type: 'BACK' });
+    navigation.goBack();
+  }, [step, send, navigation]);
+
   // Android hardware-back must route through goBack() (machine BACK + nav pop
   // together). A bare native pop leaves machine.stepId ahead of the route, so
   // the next persistDraft writes a stale lastRoute and the quiz resumes at the
@@ -74,35 +107,9 @@ export function QuizStepScreen() {
     const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
     return () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step?.id, finalizeState]);
+  }, [step?.id, finalizeState, goBack]);
 
   if (!step) return null; // unreachable: route params always come from getStep-validated ids
-
-  async function finalize() {
-    setFinalizeState('finalizing');
-    const ok = await onQuizComplete();
-    // On success boot re-resolves and unmounts this screen; only a failure
-    // lands back here, where we surface a retry.
-    if (!ok) setFinalizeState('error');
-  }
-
-  function advanceOrFinish() {
-    const next = nextStep(step!.id);
-    if (next) {
-      send({ type: 'NEXT' });
-      navigation.push('Step', { stepId: next });
-    } else {
-      send({ type: 'NEXT' }); // no-op at the last step, kept for symmetry/draft persistence
-      void finalize();
-    }
-  }
-
-  function goBack() {
-    const prev = previousStep(step!.id);
-    if (!prev) return;
-    send({ type: 'BACK' });
-    navigation.goBack();
-  }
 
   // Finalizing the quiz (last step submitted) takes over the screen so the
   // user gets a clear busy state, and a real retry on failure, instead of a
@@ -221,7 +228,14 @@ export function QuizStepScreen() {
       return (
         <OpinionsTemplate
           step={step}
-          onComplete={(answers) => { send({ type: 'ANSWER', key: step.answerKey, value: answers }); advanceOrFinish(); }}
+          submissionId={state.submissionId}
+          onComplete={(picks, whys) => {
+            send({ type: 'ANSWER', key: step.answerKey, value: picks });
+            if (step.whyAnswerKey && whys.length > 0) {
+              send({ type: 'ANSWER', key: step.whyAnswerKey, value: whys });
+            }
+            advanceOrFinish();
+          }}
           onBack={previousStep(step.id) ? goBack : undefined}
         />
       );

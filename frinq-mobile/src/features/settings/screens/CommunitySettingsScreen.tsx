@@ -36,7 +36,7 @@ export function CommunitySettingsScreen() {
   return (
     <Screen>
       <BrandHeading variant="title" style={styles.title}>
-        community notifications
+        frinq squad notifications
       </BrandHeading>
       <BodyText variant="caption" tone="secondary" style={styles.hint}>
         this only affects push notifications for new messages — it never changes your membership

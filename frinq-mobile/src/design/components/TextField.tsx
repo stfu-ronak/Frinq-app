@@ -13,13 +13,18 @@ type Props = Omit<TextInputProps, 'style'> & {
   /** Visually hide the label but keep it for screen readers. */
   hideLabel?: boolean;
   containerStyle?: ViewStyle;
+  /** 'boxed' (default): bordered box, cream fill. 'underline': bottom-line
+   *  only, transparent — the inline-placeholder look on quiz voice/text
+   *  screens. */
+  variant?: 'boxed' | 'underline';
 };
 
 /** Labeled text input with an accessible error region. Focus draws a visible
  *  maroon ring; errors set aria state and are announced. */
-export function TextField({ label, value, onChangeText, error, hideLabel = false, containerStyle, ...rest }: Props) {
+export function TextField({ label, value, onChangeText, error, hideLabel = false, containerStyle, variant = 'boxed', ...rest }: Props) {
   const [focused, setFocused] = useState(false);
   const borderColor = error ? color.state.error : focused ? color.border.focus : color.border.subtle;
+  const isUnderline = variant === 'underline';
 
   return (
     <View style={[styles.container, containerStyle]}>
@@ -37,7 +42,7 @@ export function TextField({ label, value, onChangeText, error, hideLabel = false
         accessibilityLabel={label}
         accessibilityState={{ disabled: rest.editable === false }}
         placeholderTextColor={color.text.disabled}
-        style={[styles.input, { borderColor }, typeScale.body]}
+        style={[styles.input, isUnderline ? { ...styles.inputUnderline, borderBottomColor: borderColor } : { borderColor }, typeScale.body]}
       />
       {!!error && (
         <BodyText variant="caption" tone="error" accessibilityLiveRegion="polite" style={styles.error}>
@@ -58,6 +63,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     color: color.text.primary,
     backgroundColor: color.brand.cream,
+  },
+  inputUnderline: {
+    borderWidth: 0,
+    borderBottomWidth: 1,
+    borderRadius: 0,
+    paddingHorizontal: 0,
+    backgroundColor: 'transparent',
   },
   error: { marginTop: spacing.xs },
 });

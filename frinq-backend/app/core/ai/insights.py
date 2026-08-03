@@ -1,7 +1,12 @@
 """Generate dot-connecting personality insights from raw quiz answers.
 
+Legacy — superseded for production quiz-completion traffic by
+app.core.ai.page2_summary (2026-07-31). Retained for admin's /ai-test
+step="insights" smoke check and back-compat tests; not called from
+app/workers/tasks/quiz_insights.py's production path anymore.
+
 Calls the INSIGHTS_* prompts against whichever provider settings.INSIGHTS_PROVIDER
-selects — OpenAI by default, Claude Sonnet 4.6 if flipped back on. Returns a
+selects — OpenAI by default, Claude Sonnet if flipped back on. Returns a
 structured dict with archetype, archetype_desc, headline, insights list, tags,
 share_quote. Also mirrors archetype → spirit_animal for back-compat with older
 callers. Retries once on malformed output, raises InsightsError on second failure.
@@ -25,8 +30,9 @@ from app.core.ai.answer_maps import (
     TRIP_MAP,
     slider_label as _slider_label,
 )
-from app.core.ai.archetypes import ARCHETYPES as _CANONICAL_ARCHETYPES
+from app.core.ai.archetypes_legacy import LEGACY_ARCHETYPES as _CANONICAL_ARCHETYPES
 from app.core.ai.claude_client import CLAUDE_SONNET, call_with_cache
+from app.core.ai.model_pricing import GEMINI_DEFAULT
 from app.core.ai.openai_client import call_openai_json
 from app.core.ai.pii import PIIContext, scrub_list, scrub_text
 from app.utils.logger import logger
@@ -182,9 +188,13 @@ def _build_insights_prompt(answers: dict[str, Any]) -> str:
     else:
         substance = str(scene_raw) if scene_raw else "not specified"
 
-    # opinions_why — 3 free-text answers explaining their opinion choices
+    # opinions_why — 4 free-text answers explaining their opinion choices
     opinions_why_raw = answers.get("opinions_why", []) or []
-    OPINION_WHY_LABELS = ["on ai:", "on truth:", "on respect:"]
+    if isinstance(opinions_why_raw, str):
+        # Historical submissions (pre opinions-why-inline) stored one shared
+        # string instead of one answer per pair — don't index into its chars.
+        opinions_why_raw = [opinions_why_raw]
+    OPINION_WHY_LABELS = ["on ai:", "on truth:", "on respect:", "on how people show up:"]
     opinions_why_lines = []
     for i, label in enumerate(OPINION_WHY_LABELS):
         if i < len(opinions_why_raw):
@@ -278,11 +288,13 @@ def _strip_fences(text: str) -> str:
     return t.strip()
 
 
-# Derived from the canonical taxonomy (archetypes.py) — NOT re-declared —
-# so the names we validate here can never drift from the slugs
-# assign_user_to_community expects. A name that isn't canonical would pass
-# _validate (paid AI calls already spent) and then dead-end the user in
-# 'error' at get_archetype(). test_archetype_taxonomy.py guards the invariant.
+# Derived from the LEGACY taxonomy (archetypes_legacy.py) — NOT re-declared
+# — this module's own prompts.py-driven prompt still describes exactly
+# these 24 old archetypes by name, so validation must match what the model
+# is actually being asked for, not the new 18-role taxonomy. A name that
+# isn't canonical would pass _validate (paid AI calls already spent) and
+# then dead-end the user in 'error' at get_archetype().
+# test_archetype_taxonomy.py guards the invariant.
 ARCHETYPES: Final[frozenset[str]] = frozenset(
     a["name"] for a in _CANONICAL_ARCHETYPES.values()
 )
@@ -350,7 +362,7 @@ async def generate_insights(
     provider = (model_config or {}).get("provider", settings.INSIGHTS_PROVIDER)
     model_id = (model_config or {}).get("model_id") or (
         CLAUDE_SONNET if provider == "claude" else
-        "gemini-3.5-flash-lite" if provider == "gemini" else settings.OPENAI_MODEL
+        GEMINI_DEFAULT if provider == "gemini" else settings.OPENAI_MODEL
     )
     effort = (model_config or {}).get("effort")
 

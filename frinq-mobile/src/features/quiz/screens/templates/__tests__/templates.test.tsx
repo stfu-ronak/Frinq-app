@@ -277,14 +277,39 @@ describe('OpinionsTemplate', () => {
     pairs: [{ prompt: 'p1', a: 'A1', b: 'B1' }, { prompt: 'p2', a: 'A2', b: 'B2' }],
   };
 
-  it('advances through pairs in sequence and calls onComplete with all answers', () => {
+  it('advances through pairs in sequence and calls onComplete with all picks, no whys when none configured', () => {
     const onComplete = jest.fn();
-    const { getByText } = render(<OpinionsTemplate step={step} onComplete={onComplete} />);
+    const { getByText } = render(<OpinionsTemplate step={step} submissionId="sub-1" onComplete={onComplete} />);
     expect(getByText('p1')).toBeTruthy();
     fireEvent.press(getByText('A1'));
     expect(getByText('p2')).toBeTruthy();
     fireEvent.press(getByText('B2'));
-    expect(onComplete).toHaveBeenCalledWith(['A1', 'B2']);
+    expect(onComplete).toHaveBeenCalledWith(['A1', 'B2'], []);
+  });
+
+  it('runs a batched why-phase after every pick when pairs have whyPrompt', () => {
+    const whyStep: OpinionsStep = {
+      id: 'opinions', kind: 'opinions', section: 'x', answerKey: 'opinions', whyAnswerKey: 'opinions_why',
+      pairs: [
+        { prompt: 'p1', a: 'A1', b: 'B1', whyPrompt: 'why1?' },
+        { prompt: 'p2', a: 'A2', b: 'B2', whyPrompt: 'why2?' },
+      ],
+    };
+    const onComplete = jest.fn();
+    const { getByText, getByPlaceholderText, queryByText } = render(
+      <OpinionsTemplate step={whyStep} submissionId="sub-1" onComplete={onComplete} />,
+    );
+    fireEvent.press(getByText('A1'));
+    fireEvent.press(getByText('B2'));
+    // Picks phase done — batched why-phase starts, not interleaved with picks.
+    expect(queryByText('p1')).toBeNull();
+    expect(getByText('why1?')).toBeTruthy();
+    fireEvent.changeText(getByPlaceholderText('genuinely curious...'), 'because reasons');
+    fireEvent.press(getByText('continue'));
+    expect(getByText('why2?')).toBeTruthy();
+    fireEvent.changeText(getByPlaceholderText('genuinely curious...'), 'other reasons');
+    fireEvent.press(getByText('continue'));
+    expect(onComplete).toHaveBeenCalledWith(['A1', 'B2'], ['because reasons', 'other reasons']);
   });
 });
 
@@ -297,27 +322,43 @@ describe('PreferencesTemplate', () => {
     ],
   };
 
-  it('disables continue until every slider has a value', () => {
-    const { getByRole, getAllByLabelText, rerender } = render(
+  it('shows one statement per screen and disables continue until it has a value', () => {
+    const { getByRole, getByText, queryByText, rerender } = render(
       <PreferencesTemplate step={step} values={[undefined, undefined]} onChange={jest.fn()} onContinue={jest.fn()} />,
     );
+    expect(getByText('s1')).toBeTruthy();
+    expect(queryByText('s2')).toBeNull(); // not all sliders on one page
     expect(getByRole('button', { name: 'continue' }).props.accessibilityState.disabled).toBe(true);
-    rerender(<PreferencesTemplate step={step} values={[50, 75]} onChange={jest.fn()} onContinue={jest.fn()} />);
+    rerender(<PreferencesTemplate step={step} values={[50, undefined]} onChange={jest.fn()} onContinue={jest.fn()} />);
     expect(getByRole('button', { name: 'continue' }).props.accessibilityState.disabled).toBe(false);
-    // Every slider always renders a "middle" dot as one of its 5 fixed
-    // positions — one per slider — regardless of which value is selected.
-    const middleDots = getAllByLabelText('middle');
-    expect(middleDots).toHaveLength(step.sliders.length);
-    expect(middleDots[0].props.accessibilityState.selected).toBe(true); // slider 0's value is 50
   });
 
-  it('tapping a snap point reports its index and value', () => {
+  it('advances to the next statement on continue, then fires onContinue once after the last', () => {
+    const onContinue = jest.fn();
+    const { getByRole, getByText, queryByText, rerender } = render(
+      <PreferencesTemplate step={step} values={[50, undefined]} onChange={jest.fn()} onContinue={onContinue} />,
+    );
+    fireEvent.press(getByRole('button', { name: 'continue' }));
+    expect(queryByText('s1')).toBeNull();
+    expect(getByText('s2')).toBeTruthy();
+    expect(onContinue).not.toHaveBeenCalled();
+
+    rerender(<PreferencesTemplate step={step} values={[50, 75]} onChange={jest.fn()} onContinue={onContinue} />);
+    fireEvent.press(getByRole('button', { name: 'continue' }));
+    expect(onContinue).toHaveBeenCalledTimes(1);
+  });
+
+  it('tapping a snap point reports the current slider index and value', () => {
     const onChange = jest.fn();
-    const { getAllByLabelText } = render(
-      <PreferencesTemplate step={step} values={[undefined, undefined]} onChange={onChange} onContinue={jest.fn()} />,
+    const { getAllByLabelText, getByRole } = render(
+      <PreferencesTemplate step={step} values={[50, undefined]} onChange={onChange} onContinue={jest.fn()} />,
     );
     fireEvent.press(getAllByLabelText('strongly right')[0]);
     expect(onChange).toHaveBeenCalledWith(0, 100);
+
+    fireEvent.press(getByRole('button', { name: 'continue' }));
+    fireEvent.press(getAllByLabelText('strongly left')[0]);
+    expect(onChange).toHaveBeenCalledWith(1, 0);
   });
 });
 

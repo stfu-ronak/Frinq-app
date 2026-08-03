@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { LegalAcceptanceScreen } from '../screens/LegalAcceptanceScreen';
 
@@ -26,6 +27,10 @@ jest.mock('../pendingAcceptance', () => ({
 
 const fakeApiClient = { request: jest.fn() };
 
+function flatten(style: unknown) {
+  return StyleSheet.flatten(style as never) as Record<string, number | string | undefined>;
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockUseSession.mockReturnValue({ apiClient: fakeApiClient, authenticated: false });
@@ -41,13 +46,60 @@ describe('LegalAcceptanceScreen — preauth mode', () => {
     expect(getByRole('button', { name: 'Accept' }).props.accessibilityState.disabled).toBe(false);
   });
 
-  it('stays disabled if fetching current legal versions fails', async () => {
+  it('keeps Accept available when the initial legal-version fetch fails', async () => {
     mockFetchCurrentLegal.mockRejectedValueOnce(new Error('network'));
     const { getByRole } = render(
       <LegalAcceptanceScreen mode={{ kind: 'preauth', onContinue: jest.fn() }} />,
     );
     await waitFor(() => expect(mockFetchCurrentLegal).toHaveBeenCalled());
-    expect(getByRole('button', { name: 'Accept' }).props.accessibilityState.disabled).toBe(true);
+    expect(getByRole('button', { name: 'Accept' }).props.accessibilityState.disabled).toBe(false);
+  });
+
+  it('continues preauth onboarding with the local legal version when the fetch remains unavailable', async () => {
+    mockFetchCurrentLegal.mockRejectedValue(new Error('network'));
+    const onContinue = jest.fn();
+    const { getByRole } = render(
+      <LegalAcceptanceScreen mode={{ kind: 'preauth', onContinue }} />,
+    );
+    fireEvent.press(getByRole('button', { name: 'Accept' }));
+    await waitFor(() => expect(onContinue).toHaveBeenCalled());
+    expect(mockSavePendingAcceptance).toHaveBeenCalledWith({ termsVersion: 'draft-1', privacyVersion: 'draft-1', locale: 'en-IN' });
+  });
+
+  it('continues immediately when the legal check is still pending', async () => {
+    mockFetchCurrentLegal.mockImplementation(() => new Promise(() => undefined));
+    const onContinue = jest.fn();
+    const { getByRole } = render(
+      <LegalAcceptanceScreen mode={{ kind: 'preauth', onContinue }} />,
+    );
+
+    fireEvent.press(getByRole('button', { name: 'Accept' }));
+
+    await waitFor(() => expect(onContinue).toHaveBeenCalled());
+    expect(mockSavePendingAcceptance).toHaveBeenCalledWith({ termsVersion: 'draft-1', privacyVersion: 'draft-1', locale: 'en-IN' });
+  });
+
+  it('shows only the reference Accept action below the privacy content', async () => {
+    const { getByRole, queryByText, queryByRole } = render(
+      <LegalAcceptanceScreen mode={{ kind: 'preauth', onContinue: jest.fn() }} />,
+    );
+    expect(getByRole('button', { name: 'Accept' })).toBeTruthy();
+    expect(queryByText('change or reject')).toBeNull();
+    expect(queryByRole('link', { name: 'Terms of Service' })).toBeNull();
+    await waitFor(() => expect(mockFetchCurrentLegal).toHaveBeenCalled());
+  });
+
+  it('uses the reference privacy copy, palette, and compact primary button', async () => {
+    const { getByText, getByRole } = render(
+      <LegalAcceptanceScreen mode={{ kind: 'preauth', onContinue: jest.fn() }} />,
+    );
+
+    expect(flatten(getByText('your privacy matters').props.style)).toMatchObject({ color: '#621407', fontSize: 28, lineHeight: 42 });
+    expect(getByText('We store and process data from your device to provide features in the app and improve your experience')).toBeTruthy();
+    expect(flatten(getByRole('button', { name: 'Accept' }).props.style)).toMatchObject({
+      width: '86%', minHeight: 52, borderRadius: 12,
+    });
+    await waitFor(() => expect(mockFetchCurrentLegal).toHaveBeenCalled());
   });
 
   it('saves a pending acceptance and hands off, without calling the API directly', async () => {

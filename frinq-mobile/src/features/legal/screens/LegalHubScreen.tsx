@@ -20,7 +20,7 @@ const DOCS: ReadonlyArray<{
 }> = [
   { key: 'terms', label: 'Terms of Service', path: '/terms', acceptedAtField: 'terms_accepted_at' },
   { key: 'privacy', label: 'Privacy Policy', path: '/privacy', acceptedAtField: 'privacy_accepted_at' },
-  { key: 'community-rules', label: 'Community Rules', path: '/community-rules' },
+  { key: 'community-rules', label: 'Frinq Squad Rules', path: '/community-rules' },
 ];
 
 /** Native accessible summaries plus current-acceptance state, with an

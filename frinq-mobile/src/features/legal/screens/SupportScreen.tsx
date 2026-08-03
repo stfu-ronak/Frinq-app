@@ -71,7 +71,7 @@ export function SupportScreen() {
             onPress={() => navigation.navigate('LegalDocument', { doc: 'community-rules' })}
             accessibilityRole="link"
           >
-            community rules
+            frinq squad rules
           </BodyText>
           .
         </BodyText>

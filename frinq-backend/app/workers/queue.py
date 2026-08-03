@@ -10,7 +10,6 @@ from app.config import settings
 from app.core import metrics
 from app.database import close_pool, init_pool
 from app.utils.logger import logger
-from app.workers.tasks.build_profile import build_profile
 from app.workers.tasks.push import send_community_push
 from app.workers.tasks.quiz_insights import generate_quiz_insights
 
@@ -48,19 +47,9 @@ async def close_queue() -> None:
         _pool = None
 
 
-async def enqueue_build_profile(user_id: UUID) -> str | None:
-    queue = await get_queue()
-    if queue is None:
-        return None
-    job: Any = await queue.enqueue_job("build_profile", str(user_id))
-    if job is None:
-        return None
-    return str(job.job_id)
-
-
 async def enqueue_quiz_insights(submission_id: UUID) -> str | None:
     """Returns None if Redis is unreachable — callers must treat that as
-    'job not queued' (503), same convention as enqueue_build_profile."""
+    'job not queued' (503)."""
     queue = await get_queue()
     if queue is None:
         return None
@@ -94,7 +83,7 @@ async def _on_shutdown(ctx: dict[str, Any]) -> None:
 
 
 class WorkerSettings:
-    functions = [build_profile, generate_quiz_insights, send_community_push]
+    functions = [generate_quiz_insights, send_community_push]
     redis_settings = _redis_settings()
     on_startup = _on_startup
     on_shutdown = _on_shutdown

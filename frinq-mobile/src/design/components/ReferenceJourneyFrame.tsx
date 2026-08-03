@@ -41,7 +41,7 @@ function ReferenceWave({ tone }: Pick<Props, 'tone'>) {
   const stroke = tone === 'maroon' ? color.brand.cream : color.brand.peach;
   return (
     <View pointerEvents="none" style={styles.wave} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <Svg width="100%" height={70} viewBox="0 0 390 70">
+      <Svg width="100%" height={70} viewBox="0 0 390 70" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
         <Path d="M-15 29C32 70 72 70 126 35C178 1 221 13 274 41C328 70 360 61 410 13" stroke={stroke} strokeWidth={1.4} fill="none" />
       </Svg>
     </View>
@@ -54,7 +54,7 @@ const styles = StyleSheet.create({
   maroon: { backgroundColor: color.bg.milestone },
   content: { flex: 1, width: '100%', maxWidth: 520, alignSelf: 'center', paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
   scrollContent: { flexGrow: 1, alignItems: 'center' },
-  back: { position: 'absolute', zIndex: 2, top: spacing.xs, left: spacing.lg, width: touchTarget.preferred, height: touchTarget.preferred, justifyContent: 'center', alignItems: 'center' },
+  back: { position: 'absolute', zIndex: 2, top: spacing.xxl, left: spacing.lg, width: touchTarget.preferred, height: touchTarget.preferred, justifyContent: 'center', alignItems: 'center' },
   backImage: { width: 32, height: 24, tintColor: color.brand.maroon },
   inverted: { tintColor: color.brand.cream },
   wave: { position: 'absolute', left: 0, right: 0, top: 60, zIndex: 0 },

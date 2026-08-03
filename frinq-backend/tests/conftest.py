@@ -19,8 +19,8 @@ from app.api.deps import (
     get_supabase_claims,
 )
 from app.config import settings
+from app.core import quiz_config as quiz_config_module
 from app.main import app as fastapi_app
-from app.workers import queue as queue_module
 
 
 # ─── Fake asyncpg pool ────────────────────────────────────────────────
@@ -206,6 +206,17 @@ class FakeRedis:
 
 # ─── Fixtures ─────────────────────────────────────────────────────────
 
+@pytest.fixture(autouse=True)
+def _reset_quiz_config_cache() -> None:
+    """get_active_quiz_config/set_quiz_config share a module-level 60s cache
+    (a real in-process optimization, not test-only) — without a reset, one
+    test's set_quiz_config call (even against a fake connection) can leak a
+    cached value into an unrelated later test's get_active_quiz_config
+    assertion."""
+    quiz_config_module._cached_config = None
+    quiz_config_module._cache_time = 0
+
+
 @pytest.fixture
 def fake_pool() -> FakePool:
     return FakePool()
@@ -306,19 +317,9 @@ async def client(
     async def _override_claims() -> dict[str, Any]:
         return supabase_claims
 
-    async def _fake_enqueue(user_id: UUID) -> str | None:
-        return f"job-{user_id}"
-
     async def _fake_enqueue_quiz_insights(submission_id: UUID) -> str | None:
         return f"job-{submission_id}"
 
-    monkeypatch.setattr(
-        "app.api.v1.questionnaire.enqueue_build_profile", _fake_enqueue
-    )
-    monkeypatch.setattr(
-        "app.api.v1.profile.enqueue_build_profile", _fake_enqueue
-    )
-    monkeypatch.setattr(queue_module, "enqueue_build_profile", _fake_enqueue)
     monkeypatch.setattr(
         "app.api.v1.quiz.enqueue_quiz_insights", _fake_enqueue_quiz_insights
     )

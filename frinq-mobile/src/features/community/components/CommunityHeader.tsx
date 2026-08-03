@@ -33,7 +33,7 @@ export function CommunityHeader({ communitySlug, connectionState }: Props) {
   return (
     <View style={styles.wrap}>
       <BodyText variant="overline" tone="secondary">
-        your community
+        your frinq squad
       </BodyText>
       <BrandHeading variant="heading" style={styles.title}>
         {humanize(communitySlug)}

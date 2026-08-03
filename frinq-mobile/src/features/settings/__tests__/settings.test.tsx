@@ -59,7 +59,7 @@ describe('SettingsScreen', () => {
     fireEvent.press(await findByLabelText('edit profile'));
     expect(mockNavigate).toHaveBeenCalledWith('EditProfile');
 
-    fireEvent.press(await findByLabelText('community notifications'));
+    fireEvent.press(await findByLabelText('frinq squad notifications'));
     expect(mockNavigate).toHaveBeenCalledWith('CommunitySettings');
 
     fireEvent.press(await findByLabelText('notifications'));

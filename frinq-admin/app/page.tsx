@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { adminFetch } from "@/app/lib/adminFetch";
 import { useAdminAuth, NAV_HEIGHT_PX } from "@/app/components/AdminShell";
 import { AccountsView } from "@/app/components/AccountsView";
+import { Skeleton } from "@/app/components/Skeleton";
 import PasswordModal from "@/app/components/PasswordModal";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -146,6 +147,7 @@ interface Analytics {
   daily_last_30: { day: string; submissions: number; completions: number }[];
   hourly: { hour: number; count: number }[];
   spirit_animals: { name: string; count: number }[];
+  archetype_distribution: { label: string; count: number }[];
   top_tags: { tag: string; count: number }[];
   cities: { city: string; count: number }[];
   social_types: { type: string; count: number }[];
@@ -969,6 +971,8 @@ function UsersView({ submissions, adminKey, onRetry, onDelete, onBulkDelete, onR
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkSendResult, setBulkSendResult] = useState<string | null>(null);
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(0);
 
   async function handleBulkSendFollowup() {
     const pwd = await onRequestPassword();
@@ -1050,6 +1054,13 @@ function UsersView({ submissions, adminKey, onRetry, onDelete, onBulkDelete, onR
     return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
   });
 
+  // Reset to page 1 whenever the filtered set changes shape — otherwise
+  // switching filters/search can strand the admin on a now-empty page.
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  if (safePage !== page) setPage(safePage);
+  const pageItems = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+
   return (
     <div>
       {/* Filters bar */}
@@ -1124,7 +1135,7 @@ function UsersView({ submissions, adminKey, onRetry, onDelete, onBulkDelete, onR
             {filtered.length === 0 && (
               <tr><td colSpan={9} className="px-4 py-10 text-center font-[family-name:var(--font-motive)] text-[#8B7355] text-sm">no users found</td></tr>
             )}
-            {filtered.map(s => {
+            {pageItems.map(s => {
               const isExp = expanded === s.id;
               const isDeleting = deleting === s.id;
               const isConfirming = confirmDelete === s.id;
@@ -1195,9 +1206,26 @@ function UsersView({ submissions, adminKey, onRetry, onDelete, onBulkDelete, onR
           </tbody>
         </table>
       </div>
-      <p className="font-[family-name:var(--font-motive)] text-[9px] text-[#8B7355] mt-2 tracking-[0.1em]">
-        {filtered.length} of {visibleSubmissions.length} · click row to expand
-      </p>
+      <div className="flex items-center justify-between mt-2 flex-wrap gap-2">
+        <p className="font-[family-name:var(--font-motive)] text-[9px] text-[#8B7355] tracking-[0.1em]">
+          {filtered.length} of {visibleSubmissions.length} · click row to expand
+        </p>
+        {pageCount > 1 && (
+          <div className="flex items-center gap-2">
+            <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={safePage === 0}
+              className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.14em] px-2.5 py-1 border border-[rgba(42,24,16,0.18)] text-[#8B7355] hover:text-[#2A1810] transition-colors disabled:opacity-30">
+              prev
+            </button>
+            <span className="font-[family-name:var(--font-motive)] text-[9px] text-[#8B7355] tracking-[0.1em]">
+              page {safePage + 1} of {pageCount}
+            </span>
+            <button onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))} disabled={safePage >= pageCount - 1}
+              className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.14em] px-2.5 py-1 border border-[rgba(42,24,16,0.18)] text-[#8B7355] hover:text-[#2A1810] transition-colors disabled:opacity-30">
+              next
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1266,6 +1294,15 @@ function InsightsView({ analytics: a }: { analytics: Analytics }) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Archetype distribution — generic count breakdown, works for either
+          taxonomy version since it just reads whatever slug got stored. */}
+      {a.archetype_distribution.length > 0 && (
+        <div className="bg-white/50 border border-[rgba(42,24,16,0.08)] p-5">
+          <p className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.18em] text-[#8B7355] mb-4 uppercase">archetype distribution</p>
+          <BarChart data={a.archetype_distribution as unknown as Record<string, unknown>[]} labelKey="label" valueKey="count" />
         </div>
       )}
 
@@ -1370,11 +1407,11 @@ function AdminPageInner() {
   // evict a persisted key over this), or null for a transient failure
   // (network blip, backend cold-start, etc. — a persisted key should
   // survive this, not get evicted).
-  const fetchData = useCallback(async (k: string, silent = false): Promise<boolean | null> => {
+  const fetchData = useCallback(async (k: string, silent = false, bypassCache = false): Promise<boolean | null> => {
     if (!silent) setRefreshing(true);
     try {
       const [aRes, sRes] = await Promise.all([
-        adminFetch(`${API_URL}/api/v1/admin/analytics`, {}, { key: k }),
+        adminFetch(`${API_URL}/api/v1/admin/analytics`, { noCache: bypassCache }, { key: k }),
         adminFetch(`${API_URL}/api/v1/admin/submissions?limit=500`, {}, { key: k }),
       ]);
       // A previously-valid key can be revoked server-side mid-session — bounce
@@ -1459,7 +1496,7 @@ function AdminPageInner() {
 
   const handleRefresh = useCallback(() => {
     if (usersTabOpen) void fetchUsers(adminKey);
-    else void fetchData(adminKey);
+    else void fetchData(adminKey, false, true); // explicit click — bypass the dedup cache
   }, [usersTabOpen, fetchUsers, fetchData, adminKey]);
 
   async function exportCSV() {
@@ -1497,6 +1534,8 @@ function AdminPageInner() {
       { method: "DELETE" }, { key: adminKey, pwd });
     if (res.ok) {
       setSubmissions((prev) => prev.filter((s) => s.id !== id));
+    } else if (res.status === 401) {
+      return; // adminFetch's central handler logs out
     } else if (res.status === 403) {
       // Wrong password — clear cache so the next attempt re-prompts.
       setActionPassword("");
@@ -1513,6 +1552,8 @@ function AdminPageInner() {
       { key: adminKey, pwd });
     if (res.ok) {
       setSubmissions((prev) => prev.filter((s) => !ids.includes(s.id)));
+    } else if (res.status === 401) {
+      return; // adminFetch's central handler logs out
     } else if (res.status === 403) {
       setActionPassword("");
       alert("wrong action password");
@@ -1611,6 +1652,19 @@ function AdminPageInner() {
 
       {/* Content */}
       <main className="px-6 py-6 max-w-5xl mx-auto">
+        {!analytics && ["overview", "analytics", "insights", "funnel"].includes(tab) && (
+          error ? (
+            <div className="flex flex-col items-start gap-3 py-10">
+              <p className="font-[family-name:var(--font-motive)] text-[12px] text-[#7C1C0B]">{error}</p>
+              <button onClick={handleRefresh} disabled={refreshing}
+                className="font-[family-name:var(--font-motive)] text-[10px] tracking-[0.14em] px-3 py-1.5 border border-[rgba(124,28,11,0.3)] text-[#7C1C0B] hover:bg-[rgba(124,28,11,0.05)] transition-colors disabled:opacity-40">
+                {refreshing ? "retrying..." : "retry"}
+              </button>
+            </div>
+          ) : (
+            <Skeleton rows={4} height={80} />
+          )
+        )}
         {analytics && tab === "overview" && <OverviewView analytics={analytics} submissions={submissions} health={observability} />}
         {tab === "users" && (
           <UsersView mode="users" submissions={submissions} adminKey={adminKey}

@@ -1,22 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { Image, StyleSheet, View } from 'react-native';
+import { Image, Platform, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { Platform } from 'react-native';
 import { ReferenceJourneyFrame } from '../../../design/components/ReferenceJourneyFrame';
 import { BrandHeading, BodyText } from '../../../design/components/Text';
 import { PrimaryButton } from '../../../design/components/PrimaryButton';
-import { spacing } from '../../../design/tokens/spacing';
+import { radius, spacing } from '../../../design/tokens/spacing';
 import { useSession } from '../../../services/session/sessionContext';
 import { fetchCurrentLegal, acceptLegal } from '../../auth/authService';
 import { savePendingAcceptance } from '../pendingAcceptance';
-import { PressableScale } from '../../../design/motion/PressableScale';
 
 type Mode =
   | { kind: 'preauth'; onContinue: () => void }
   | { kind: 'returning'; onAccepted: () => void };
 
-/** Reference 17. The single Accept action is the affirmative consent action;
- * the linked policy text remains available before consent is saved. */
+/** Reference 17. Pre-auth users may proceed even while the legal endpoint is
+ * temporarily unavailable, so onboarding never dead-ends on a transient API failure. */
 export function LegalAcceptanceScreen({ mode }: { mode: Mode }) {
   const navigation = useNavigation<any>();
   const { apiClient } = useSession();
@@ -38,17 +36,36 @@ export function LegalAcceptanceScreen({ mode }: { mode: Mode }) {
     return () => { cancelled = true; };
   }, [apiClient]);
 
-  const canAccept = !!termsVersion && !!privacyVersion && !submitting;
-
   async function handleAccept() {
-    if (!canAccept || !termsVersion || !privacyVersion) return;
+    if (submitting) return;
     const locale = 'en-IN';
     const source = Platform.OS === 'ios' ? 'ios' : 'android';
+    setSubmitting(true);
+    setError(null);
+    let currentTermsVersion = termsVersion;
+    let currentPrivacyVersion = privacyVersion;
+
+    if ((!currentTermsVersion || !currentPrivacyVersion) && mode.kind === 'returning') {
+      try {
+        const legal = await fetchCurrentLegal(apiClient);
+        currentTermsVersion = legal.terms_version;
+        currentPrivacyVersion = legal.privacy_version;
+        setTermsVersion(currentTermsVersion);
+        setPrivacyVersion(currentPrivacyVersion);
+      } catch {
+        setSubmitting(false);
+        setError("Couldn't load the current terms. Please try Accept again.");
+        return;
+      }
+    }
 
     if (mode.kind === 'returning') {
-      setSubmitting(true);
-      setError(null);
-      const ok = await acceptLegal(apiClient, { terms_version: termsVersion, privacy_version: privacyVersion, locale, source });
+      if (!currentTermsVersion || !currentPrivacyVersion) {
+        setSubmitting(false);
+        setError("Couldn't load the current terms. Please try Accept again.");
+        return;
+      }
+      const ok = await acceptLegal(apiClient, { terms_version: currentTermsVersion, privacy_version: currentPrivacyVersion, locale, source });
       setSubmitting(false);
       if (!ok) {
         setError("Couldn't save, try again");
@@ -58,42 +75,36 @@ export function LegalAcceptanceScreen({ mode }: { mode: Mode }) {
       return;
     }
 
-    await savePendingAcceptance({ termsVersion, privacyVersion, locale });
+    // Pre-auth must never wait for the network. The best available manifest
+    // version is cached here; OTP later checks the server's current version
+    // before this acceptance is submitted for the newly created account.
+    const cachedTermsVersion = currentTermsVersion ?? 'draft-1';
+    const cachedPrivacyVersion = currentPrivacyVersion ?? 'draft-1';
+    await savePendingAcceptance({ termsVersion: cachedTermsVersion, privacyVersion: cachedPrivacyVersion, locale });
+    setSubmitting(false);
     mode.onContinue();
   }
 
   return (
-    <ReferenceJourneyFrame scroll>
+    <ReferenceJourneyFrame onBack={() => navigation.goBack()}>
       <View style={styles.body}>
         <Image source={require('../../../../Public/Assets/Privacy.png')} style={styles.icon} resizeMode="contain" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
-        <BrandHeading style={styles.heading}>your privacy matters</BrandHeading>
-        <BodyText tone="secondary" style={styles.copy}>your data is protected and used only to make Frinq work for you. please review our terms and privacy policy before you continue.</BodyText>
-        <BodyText tone="secondary" style={styles.age}>By accepting, you confirm that you are 18 or older.</BodyText>
-        <View style={styles.links}>
-          <PressableScale accessibilityRole="link" accessibilityLabel="Terms of Service" onPress={() => navigation.navigate('LegalDocument', { doc: 'terms' })} haptic={false}>
-            <BodyText tone="secondary">Terms of Service</BodyText>
-          </PressableScale>
-          <BodyText tone="secondary"> · </BodyText>
-          <PressableScale accessibilityRole="link" accessibilityLabel="Privacy Policy" onPress={() => navigation.navigate('LegalDocument', { doc: 'privacy' })} haptic={false}>
-            <BodyText tone="secondary">Privacy Policy</BodyText>
-          </PressableScale>
-        </View>
+        <BrandHeading tone="brand" style={styles.heading}>your privacy{`\n`}matters</BrandHeading>
+        <BodyText tone="muted" style={styles.copy}>We store and process data from your device to provide features in the app and improve your experience</BodyText>
+        <BodyText tone="muted" style={styles.details}>You can opt in or out in your privacy setting. find out more in our privacy policy.</BodyText>
       </View>
       {!!error && <BodyText variant="caption" tone="error" accessibilityLiveRegion="polite" style={styles.error}>{error}</BodyText>}
-      <PrimaryButton label={submitting ? 'Saving…' : 'Accept'} onPress={handleAccept} disabled={!canAccept} busy={submitting} style={styles.cta} />
-      <BodyText tone="secondary" style={styles.reject}>change or reject</BodyText>
+      <PrimaryButton label="Accept" onPress={handleAccept} disabled={submitting} busy={submitting} style={styles.cta} />
     </ReferenceJourneyFrame>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: spacing.xxxl },
-  icon: { width: 76, height: 76, marginBottom: spacing.xl },
-  heading: { textAlign: 'center', fontSize: 42, lineHeight: 55, marginBottom: spacing.lg },
-  copy: { maxWidth: 296, textAlign: 'center', fontSize: 17, lineHeight: 26 },
-  age: { maxWidth: 296, textAlign: 'center', marginTop: spacing.xl },
-  links: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', marginTop: spacing.md },
+  body: { flex: 1, alignItems: 'center', paddingTop: 86, paddingBottom: 0 },
+  icon: { width: 62, height: 62, marginBottom: spacing.xxl },
+  heading: { textAlign: 'center', fontSize: 28, lineHeight: 42, marginBottom: spacing.xs },
+  copy: { maxWidth: 310, textAlign: 'center', fontSize: 14, lineHeight: 21 },
+  details: { maxWidth: 310, textAlign: 'center', fontSize: 14, lineHeight: 21, marginTop: spacing.xl },
   error: { marginBottom: spacing.sm, textAlign: 'center' },
-  cta: { alignSelf: 'stretch', marginTop: spacing.md },
-  reject: { textAlign: 'center', marginTop: spacing.md, marginBottom: spacing.xs },
+  cta: { alignSelf: 'center', width: '86%', minHeight: 52, borderRadius: radius.md, marginTop: spacing.md },
 });

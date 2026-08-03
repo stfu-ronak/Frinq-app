@@ -20,9 +20,10 @@ from app.utils.logger import logger
 
 UsageRecorder = Callable[[int, int], Awaitable[None]]
 
-# Model strategy (CLAUDE.md): always claude-sonnet-4-6 unless explicitly
-# approved otherwise.
-CLAUDE_SONNET: str = "claude-sonnet-4-6"
+# Model strategy: always claude-sonnet-5 unless explicitly approved
+# otherwise. Must stay a key in model_pricing.MODEL_INFO — see
+# tests/test_ai/test_model_pricing.py.
+CLAUDE_SONNET: str = "claude-sonnet-5"
 
 _CONCURRENCY: int = 8
 
@@ -37,6 +38,12 @@ def get_client() -> AsyncAnthropic:
     connection rather than tie it up indefinitely."""
     global _client
     if _client is None:
+        # Guard the missing key here, matching openai_client/gemini_client:
+        # without it the empty key reaches AsyncAnthropic() and surfaces as a
+        # bare TypeError, which /ai-test reports as "AI test failed: TypeError"
+        # — indistinguishable from a real bug. Fail with the actual reason.
+        if not settings.ANTHROPIC_API_KEY:
+            raise RuntimeError("ANTHROPIC_API_KEY is not set.")
         _client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY, timeout=60.0)
     return _client
 

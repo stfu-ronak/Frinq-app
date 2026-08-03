@@ -26,35 +26,41 @@ type Props = {
  * drag-and-snap gesture is a motion-polish upgrade, not a correctness gap,
  * and can replace this without changing the answer shape.
  */
-export function SnapSlider({ prompt, leftLabel, leftHint, rightLabel, rightHint, value, onChange }: Props) {
+/** "not me" / "that's so me!" is a fixed convention for this component (per
+ *  the Figma design), not sourced from leftLabel/rightLabel — those two
+ *  props are directional-comparison labels ("what you see" vs "what you
+ *  sense") that don't fit a single self-descriptive statement's scale. */
+const SCALE_LOW = 'not me';
+const SCALE_HIGH = "that's so me!";
+
+export function SnapSlider({ prompt, value, onChange }: Props) {
   const selectedIndex = value === undefined ? -1 : SNAP_VALUES.indexOf(value as (typeof SNAP_VALUES)[number]);
 
   return (
     <View style={styles.wrap}>
-      <BodyText variant="body" style={styles.prompt}>
+      <BodyText variant="display" tone="brand" style={styles.prompt}>
         {prompt}
       </BodyText>
-      <View style={styles.row} accessibilityRole="adjustable" accessibilityLabel={prompt} accessibilityValue={{ min: 0, max: 100, now: value ?? 50 }}>
-        {SNAP_VALUES.map((snapValue, i) => (
-          <PressableScale
-            key={snapValue}
-            accessibilityRole="button"
-            accessibilityLabel={SNAP_LABELS[i]}
-            accessibilityState={{ selected: i === selectedIndex }}
-            onPress={() => onChange(snapValue)}
-            style={styles.dotTarget}
-          >
-            <View style={[styles.dot, i === selectedIndex && styles.dotSelected]} />
-          </PressableScale>
-        ))}
+      <View style={styles.track} accessibilityRole="adjustable" accessibilityLabel={prompt} accessibilityValue={{ min: 0, max: 100, now: value ?? 50 }}>
+        {SNAP_VALUES.map((snapValue, i) => {
+          const selected = i === selectedIndex;
+          return (
+            <PressableScale
+              key={snapValue}
+              accessibilityRole="button"
+              accessibilityLabel={SNAP_LABELS[i]}
+              accessibilityState={{ selected }}
+              onPress={() => onChange(snapValue)}
+              style={styles.dotTarget}
+            >
+              <View style={[styles.dot, selected && styles.dotSelected]} />
+            </PressableScale>
+          );
+        })}
       </View>
       <View style={styles.hintRow}>
-        <BodyText variant="overline" tone="secondary">{leftHint.toUpperCase()}</BodyText>
-        <BodyText variant="overline" tone="secondary">{rightHint.toUpperCase()}</BodyText>
-      </View>
-      <View style={styles.hintRow}>
-        <BodyText variant="caption" tone="secondary">{leftLabel}</BodyText>
-        <BodyText variant="caption" tone="secondary">{rightLabel}</BodyText>
+        <BodyText variant="caption" tone="secondary">{SCALE_LOW}</BodyText>
+        <BodyText variant="caption" tone="secondary">{SCALE_HIGH}</BodyText>
       </View>
     </View>
   );
@@ -62,10 +68,14 @@ export function SnapSlider({ prompt, leftLabel, leftHint, rightLabel, rightHint,
 
 const styles = StyleSheet.create({
   wrap: { marginBottom: spacing.xl },
-  prompt: { marginBottom: spacing.md },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  prompt: { fontSize: 20, lineHeight: 28, textAlign: 'center', marginBottom: spacing.xl },
+  track: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    backgroundColor: color.brand.peach, borderRadius: radius.pill,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.sm,
+  },
   dotTarget: { width: touchTarget.min, height: touchTarget.min, alignItems: 'center', justifyContent: 'center' },
-  dot: { width: 16, height: 16, borderRadius: radius.pill, borderWidth: 1, borderColor: color.border.default, backgroundColor: 'transparent' },
-  dotSelected: { backgroundColor: color.state.selected, borderColor: color.state.selected },
-  hintRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs },
+  dot: { width: 10, height: 10, borderRadius: radius.pill, backgroundColor: color.brand.cream },
+  dotSelected: { width: 22, height: 22, backgroundColor: color.state.selected },
+  hintRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md },
 });

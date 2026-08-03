@@ -81,6 +81,14 @@ def _validate_one_step(step: dict[str, Any]) -> None:
         for pair in pairs:
             if not isinstance(pair, dict) or not all(pair.get(field) for field in ("prompt", "a", "b")):
                 raise InvalidQuizConfigError("opinions pair needs 'prompt', 'a', and 'b'")
+        if any(pair.get("whyPrompt") for pair in pairs):
+            why_key = step.get("whyAnswerKey")
+            if not isinstance(why_key, str) or not why_key:
+                raise InvalidQuizConfigError(
+                    "opinions step needs 'whyAnswerKey' when any pair has 'whyPrompt'"
+                )
+            if why_key in RESERVED_ANSWER_KEYS:
+                raise InvalidQuizConfigError(f"whyAnswerKey {why_key!r} is reserved for onboarding")
         return
 
     if kind == "preferences":
@@ -153,9 +161,23 @@ def validate_steps(steps: list[dict[str, Any]]) -> None:
             if answer_key in seen_keys:
                 raise InvalidQuizConfigError(f"duplicate answerKey: {answer_key!r}")
             seen_keys.add(answer_key)
+        why_key = step.get("whyAnswerKey")
+        if why_key is not None:
+            if why_key in seen_keys:
+                raise InvalidQuizConfigError(f"duplicate answerKey: {why_key!r}")
+            seen_keys.add(why_key)
 
+
+import time
+_cached_config: dict[str, Any] | None = None
+_cache_time = 0
 
 async def get_active_quiz_config(conn: asyncpg.Connection) -> dict[str, Any]:
+    global _cached_config, _cache_time
+    now = time.time()
+    if _cached_config is not None and now - _cache_time < 60:
+        return _cached_config
+
     row = await conn.fetchrow(
         "SELECT version, steps FROM quiz_config WHERE is_active = TRUE"
     )
@@ -164,7 +186,10 @@ async def get_active_quiz_config(conn: asyncpg.Connection) -> dict[str, Any]:
     steps = row["steps"]
     if isinstance(steps, str):
         steps = json.loads(steps)
-    return {"version": row["version"], "steps": steps}
+    
+    _cached_config = {"version": row["version"], "steps": steps}
+    _cache_time = now
+    return _cached_config
 
 
 async def set_quiz_config(conn: asyncpg.Connection, steps: list[dict[str, Any]], created_by: str) -> dict[str, Any]:
@@ -182,4 +207,9 @@ async def set_quiz_config(conn: asyncpg.Connection, steps: list[dict[str, Any]],
     returned_steps = row["steps"]
     if isinstance(returned_steps, str):
         returned_steps = json.loads(returned_steps)
-    return {"version": row["version"], "steps": returned_steps}
+    result = {"version": row["version"], "steps": returned_steps}
+
+    global _cached_config, _cache_time
+    _cached_config = result
+    _cache_time = time.time()
+    return result

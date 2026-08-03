@@ -82,6 +82,7 @@ export function AccountsView({ adminKey, onRequestPassword, onWrongPassword }: {
       if (q.trim()) params.set("q", q.trim());
       if (status !== "all") params.set("status", status);
       const res = await adminFetch(`${API_URL}/api/v1/admin/users?${params}`, {}, { key: adminKey });
+      if (res.status === 401) return; // adminFetch's central handler logs out
       if (!res.ok) { setListError(`error ${res.status}`); return; }
       const data = await res.json();
       setRows(data.users || []);

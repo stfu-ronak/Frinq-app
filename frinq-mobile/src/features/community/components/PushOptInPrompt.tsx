@@ -47,7 +47,7 @@ export function PushOptInPrompt({ visible, apiClient, onDone }: Props) {
     <Dialog
       visible={visible}
       title="stay in the loop?"
-      message="turn on notifications to know when there's new activity in your community."
+      message="turn on notifications to know when there's new activity in your frinq squad."
       onRequestClose={dismiss}
       cancel={{ label: 'not now', onPress: dismiss }}
       confirm={{ label: busy ? 'enabling…' : 'enable notifications', onPress: enable }}

@@ -87,7 +87,7 @@ function fmt(iso: string): string {
 /** Per-step provider/model/effort picker, sourced entirely from the
  *  backend's available_models catalog (app/core/ai/model_pricing.py) — no
  *  pricing or effort-level lists duplicated client-side. */
-function StepConfigCard({ step, label, config, models, onSave, saving, onTest, testing, testResult }: {
+function StepConfigCard({ step, label, config, models, onSave, saving, onTest, testing, testResult, onEditChange }: {
   step: Step;
   label: string;
   config: StepConfig;
@@ -97,6 +97,10 @@ function StepConfigCard({ step, label, config, models, onSave, saving, onTest, t
   onTest: (step: Step, provider: string, modelId: string, effort: string | null) => void;
   testing: boolean;
   testResult: TestResult | null;
+  /** Called whenever the admin edits provider/model away from the currently
+   *  tested selection — clears the stale test-pass badge for this step so it
+   *  can't be mistaken for having tested the new selection. */
+  onEditChange: (step: Step) => void;
 }) {
   const [provider, setProvider] = useState(config.provider);
   const [modelId, setModelId] = useState(config.model_id);
@@ -113,16 +117,19 @@ function StepConfigCard({ step, label, config, models, onSave, saving, onTest, t
     setEffort(config.effort);
   }
 
+  const providers = useMemo(() => Array.from(new Set(models.map((m) => m.provider))), [models]);
   const providerModels = useMemo(() => models.filter((m) => m.provider === provider), [models, provider]);
   const selected = useMemo(() => models.find((m) => m.model_id === modelId), [models, modelId]);
 
   function changeProvider(next: string) {
     setProvider(next as "openai" | "claude" | "gemini");
     const first = models.find((m) => m.provider === next);
-    if (first) {
-      setModelId(first.model_id);
-      setEffort(first.supports_effort ? first.effort_levels[0] ?? null : null);
-    }
+    // A provider with zero catalog models must not leave the previous
+    // provider's modelId selected — that combination doesn't exist and
+    // would 422 on save. Clear it so the admin has to pick a real one.
+    setModelId(first?.model_id ?? "");
+    setEffort(first?.supports_effort ? first.effort_levels[0] ?? null : null);
+    onEditChange(step);
   }
 
   function changeModel(next: string) {
@@ -133,6 +140,12 @@ function StepConfigCard({ step, label, config, models, onSave, saving, onTest, t
     } else if (info && effort && !info.effort_levels.includes(effort)) {
       setEffort(info.effort_levels[0] ?? null);
     }
+    onEditChange(step);
+  }
+
+  function changeEffort(next: string) {
+    setEffort(next);
+    onEditChange(step);
   }
 
   const dirty = provider !== config.provider || modelId !== config.model_id || effort !== config.effort;
@@ -149,9 +162,7 @@ function StepConfigCard({ step, label, config, models, onSave, saving, onTest, t
           <span className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.1em] uppercase text-[#8B7355]">provider</span>
           <select value={provider} onChange={(e) => changeProvider(e.target.value)}
             className="font-[family-name:var(--font-motive)] text-[11px] px-2 py-1.5 border border-[rgba(42,24,16,0.18)] bg-transparent text-[#2A1810]">
-            <option value="openai">openai</option>
-            <option value="claude">claude</option>
-            <option value="gemini">gemini / gemma</option>
+            {providers.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
         </label>
 
@@ -170,7 +181,7 @@ function StepConfigCard({ step, label, config, models, onSave, saving, onTest, t
         {selected?.supports_effort ? (
           <label className="flex flex-col gap-1">
             <span className="font-[family-name:var(--font-motive)] text-[9px] tracking-[0.1em] uppercase text-[#8B7355]">effort</span>
-            <select value={effort ?? ""} onChange={(e) => setEffort(e.target.value)}
+            <select value={effort ?? ""} onChange={(e) => changeEffort(e.target.value)}
               className="font-[family-name:var(--font-motive)] text-[11px] px-2 py-1.5 border border-[rgba(42,24,16,0.18)] bg-transparent text-[#2A1810]">
               {selected.effort_levels.map((lvl) => <option key={lvl} value={lvl}>{lvl}</option>)}
             </select>
@@ -183,7 +194,7 @@ function StepConfigCard({ step, label, config, models, onSave, saving, onTest, t
 
         <button
           onClick={() => onSave(step, provider, modelId, selected?.supports_effort ? effort : null)}
-          disabled={!dirty || saving || testing}
+          disabled={!dirty || !modelId || saving || testing}
           className="mt-2 self-start font-[family-name:var(--font-motive)] text-[9px] tracking-[0.14em] px-3 py-1.5 border border-[rgba(42,24,16,0.3)] text-[#2A1810] hover:bg-[rgba(42,24,16,0.05)] disabled:opacity-40">
           {saving ? "saving…" : "save"}
         </button>
@@ -293,11 +304,11 @@ export function ModelConfigView({ adminKey, onRequestPassword, onWrongPassword }
       const updated: StepConfig = await res.json();
       setConfigs((prev) => (prev ? { ...prev, [step]: updated } : prev));
       setFeedback(`${step === "insights" ? "primary summary" : "safe fallback"} model updated — one combined generation call, next job onward`);
+      setTimeout(() => setFeedback(null), 6000); // only success auto-clears — a failure message stays until the next attempt
     } catch (e) {
       setFeedback(e instanceof Error ? e.message : "network error");
     } finally {
       setSavingStep(null);
-      setTimeout(() => setFeedback(null), 6000);
     }
   }
 
@@ -310,7 +321,7 @@ export function ModelConfigView({ adminKey, onRequestPassword, onWrongPassword }
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ step: "summary", provider, model_id: modelId, effort }) },
         { key: adminKey, pwd });
       if (res.status === 401) { logout(); return; }
-      if (res.status === 403) { onWrongPassword(); setFeedback("wrong action password â€” try again"); return; }
+      if (res.status === 403) { onWrongPassword(); setFeedback("wrong action password — try again"); return; }
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setTestResults((prev) => ({ ...prev, [step]: { ok: false, model_id: modelId, latency_ms: 0, error: data.detail || `error ${res.status}` } }));
@@ -340,7 +351,13 @@ export function ModelConfigView({ adminKey, onRequestPassword, onWrongPassword }
             {STEPS.map(({ id, label }) => (
               <StepConfigCard key={id} step={id} label={label} config={configs[id]} models={models}
                 onSave={saveConfig} saving={savingStep === id}
-                onTest={testConnection} testing={testingStep === id} testResult={testResults[id] ?? null} />
+                onTest={testConnection} testing={testingStep === id} testResult={testResults[id] ?? null}
+                onEditChange={(s) => setTestResults((prev) => {
+                  if (!(s in prev)) return prev;
+                  const next = { ...prev };
+                  delete next[s];
+                  return next;
+                })} />
             ))}
           </div>
         )}

@@ -35,7 +35,7 @@ describe('revoked/reused refresh token at boot', () => {
     const { findByLabelText, queryByTestId } = renderBootJourney();
 
     // Real routeForUser(null, ...) -> authRequired -> real LandingScreen.
-    expect(await findByLabelText('begin')).toBeTruthy();
+    expect(await findByLabelText('Start finding your Frinq')).toBeTruthy();
     expect(queryByTestId('boot-splash')).toBeNull();
   });
 
@@ -53,6 +53,6 @@ describe('revoked/reused refresh token at boot', () => {
     expect(await findByTestId('screen-offline')).toBeTruthy();
     // The whole point of the offline/authRequired distinction: a surviving
     // token that just couldn't be confirmed must never look like a logout.
-    expect(queryByLabelText('begin')).toBeNull();
+    expect(queryByLabelText('Start finding your Frinq')).toBeNull();
   });
 });

@@ -33,7 +33,7 @@ describe('QuizSubmissionService', () => {
     const svc = new QuizSubmissionService(apiClient as any);
 
     const outcome = await svc.finalize('sub-1', {
-      name: 'Ada', city: 'Mumbai', dob: '1999-03-14',
+      name: 'Ada', gender: 'female', pronoun: 'she/her', city: 'Mumbai', dob: '14/03/1999',
       social_linkedin: '', social_instagram: '', custom_answer: 'yes',
     });
 

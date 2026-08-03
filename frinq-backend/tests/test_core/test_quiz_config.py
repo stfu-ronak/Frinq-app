@@ -157,6 +157,40 @@ def test_rejects_invalid_legacy_payloads(step, expected):
         validate_steps([step])
 
 
+def test_rejects_opinions_why_prompt_without_why_answer_key():
+    steps = [{
+        "id": "o", "kind": "opinions", "section": "opinions", "answerKey": "opinions",
+        "pairs": [{"prompt": "on plans:", "a": "plan ahead", "b": "go with it", "whyPrompt": "why?"}],
+    }]
+    with pytest.raises(InvalidQuizConfigError, match="whyAnswerKey"):
+        validate_steps(steps)
+
+
+def test_rejects_why_answer_key_colliding_with_another_steps_answer_key():
+    steps = [
+        {"id": "a", "kind": "text", "section": "custom", "answerKey": "opinions_why", "prompt": "one?"},
+        {
+            "id": "o", "kind": "opinions", "section": "opinions", "answerKey": "opinions",
+            "whyAnswerKey": "opinions_why",
+            "pairs": [{"prompt": "on plans:", "a": "plan ahead", "b": "go with it", "whyPrompt": "why?"}],
+        },
+    ]
+    with pytest.raises(InvalidQuizConfigError, match="duplicate answerKey"):
+        validate_steps(steps)
+
+
+def test_accepts_opinions_with_why_prompt_on_every_pair():
+    steps = [{
+        "id": "o", "kind": "opinions", "section": "opinions", "answerKey": "opinions",
+        "whyAnswerKey": "opinions_why",
+        "pairs": [
+            {"prompt": "on plans:", "a": "plan ahead", "b": "go with it", "whyPrompt": "why?", "whyAllowVoice": True},
+            {"prompt": "on risk:", "a": "safe", "b": "bold", "whyPrompt": "why?"},
+        ],
+    }]
+    validate_steps(steps)  # must not raise
+
+
 def test_migration_020_seed_passes_runtime_validation():
     migration = Path(__file__).parents[2] / "migrations" / "020_quiz_config.sql"
     sql = migration.read_text(encoding="utf-8")

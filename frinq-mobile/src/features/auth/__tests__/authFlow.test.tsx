@@ -19,10 +19,12 @@ jest.mock('../../../services/session/sessionContext', () => ({
 const mockSendOtp = jest.fn();
 const mockVerifyOtp = jest.fn();
 const mockAcceptLegal = jest.fn();
+const mockFetchCurrentLegal = jest.fn();
 jest.mock('../authService', () => ({
   sendOtp: (...args: unknown[]) => mockSendOtp(...args),
   verifyOtp: (...args: unknown[]) => mockVerifyOtp(...args),
   acceptLegal: (...args: unknown[]) => mockAcceptLegal(...args),
+  fetchCurrentLegal: (...args: unknown[]) => mockFetchCurrentLegal(...args),
 }));
 
 const mockLoadPendingAcceptance = jest.fn();
@@ -55,6 +57,7 @@ beforeEach(() => {
   jest.useFakeTimers();
   mockUseSession.mockReturnValue({ apiClient: fakeApiClient, coordinator: fakeCoordinator });
   mockLoadPendingAcceptance.mockResolvedValue(null);
+  mockFetchCurrentLegal.mockResolvedValue({ terms_version: 'v2', privacy_version: 'v2' });
   mockStartQuiz.mockResolvedValue({ submission_id: 'sub-1' });
   mockFlushPendingQuizState.mockResolvedValue(undefined);
 });
@@ -79,6 +82,7 @@ describe('PhoneScreen', () => {
     fireEvent.changeText(getByLabelText('Phone number'), '9876543210');
     fireEvent.press(getByRole('button', { name: 'Request OTP' }));
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('Otp', { phone: '9876543210' }));
+    expect(mockStartQuiz).not.toHaveBeenCalled();
   });
 
   it('shows a rate-limit message and does not navigate on 429', async () => {
@@ -138,6 +142,23 @@ describe('OtpScreen', () => {
     await waitFor(() => expect(fakeCoordinator.setTokens).toHaveBeenCalledWith({ access_token: 'a1', refresh_token: 'r1' }, { signalAuthChange: false }));
     await waitFor(() => expect(mockAcceptLegal).toHaveBeenCalled());
     expect(mockClearPendingAcceptance).toHaveBeenCalled();
+  });
+
+  it('checks the current legal versions after OTP before flushing an offline acceptance', async () => {
+    mockVerifyOtp.mockResolvedValue({
+      ok: true,
+      data: { access_token: 'a1', refresh_token: 'r1', user: {}, prior_session: null },
+    });
+    mockLoadPendingAcceptance.mockResolvedValue({ termsVersion: 'draft-1', privacyVersion: 'draft-1', locale: 'en-IN' });
+    mockFetchCurrentLegal.mockResolvedValue({ terms_version: 'v3', privacy_version: 'v4' });
+    mockAcceptLegal.mockResolvedValue(true);
+
+    const { getByLabelText } = render(<OtpScreen />);
+    fireEvent.changeText(getByLabelText('Enter the 6-digit verification code'), '123456');
+
+    await waitFor(() => expect(mockAcceptLegal).toHaveBeenCalledWith(fakeApiClient, {
+      terms_version: 'v3', privacy_version: 'v4', locale: 'en-IN', source: 'android',
+    }));
   });
 
   it('on success with no pending acceptance: does not call acceptLegal', async () => {

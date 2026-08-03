@@ -72,7 +72,9 @@ function driveStep(screen: ReturnType<typeof render>, step: QuizStep) {
       return;
     case 'date':
       if (step.id === 'age') {
-        fireEvent.changeText(screen.getByLabelText('Birthday'), '14/03/1999');
+        fireEvent.changeText(screen.getByLabelText('Day'), '14');
+        fireEvent.changeText(screen.getByLabelText('Month'), '03');
+        fireEvent.changeText(screen.getByLabelText('Year'), '1999');
         fireEvent.press(screen.getByRole('button', { name: 'Continue birthday' }));
       } else {
         fireEvent.changeText(screen.getByLabelText('day'), '14');
@@ -100,12 +102,20 @@ function driveStep(screen: ReturnType<typeof render>, step: QuizStep) {
       return;
     case 'opinions':
       for (const pair of step.pairs) fireEvent.press(screen.getByText(pair.a));
+      // Batched why-phase: one text+voice sub-question per pair with a
+      // whyPrompt, in pair order, after every pick is made.
+      for (const pair of step.pairs) {
+        if (!pair.whyPrompt) continue;
+        fireEvent.changeText(screen.getByLabelText(pair.whyPrompt), 'a good reason');
+        fireEvent.press(screen.getByRole('button', { name: 'continue' }));
+      }
       return;
     case 'preferences':
+      // One statement per screen — tap 'middle' then continue, once per slider.
       for (let i = 0; i < step.sliders.length; i++) {
-        fireEvent.press(screen.getAllByLabelText('middle')[i]);
+        fireEvent.press(screen.getByLabelText('middle'));
+        fireEvent.press(screen.getByRole('button', { name: 'continue' }));
       }
-      fireEvent.press(screen.getByRole('button', { name: 'continue' }));
       return;
     case 'voiceOrText':
       fireEvent.changeText(screen.getByLabelText(step.heading), 'a short answer');

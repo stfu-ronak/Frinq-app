@@ -5,7 +5,7 @@
      takes over. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/windowBackground" />
-    <item android:width="120dp" android:height="120dp" android:gravity="center">
-        <bitmap android:src="@drawable/launch_logo" android:gravity="center" />
+    <item android:width="132dp" android:height="132dp" android:gravity="center">
+        <bitmap android:src="@drawable/launch_icon" android:gravity="center" />
     </item>
 </layer-list>

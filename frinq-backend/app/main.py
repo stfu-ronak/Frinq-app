@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from __future__ import annotations
+
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -7,6 +9,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.v1 import admin as admin_routes
@@ -17,9 +20,7 @@ from app.api.v1 import health as health_routes
 from app.api.v1 import legal as legal_routes
 from app.api.v1 import moderation as moderation_routes
 from app.api.v1 import otp as otp_routes
-from app.api.v1 import profile as profile_routes
 from app.api.v1 import push as push_routes
-from app.api.v1 import questionnaire as questionnaire_routes
 from app.api.v1 import quiz as quiz_routes
 from app.api.v1 import realtime as realtime_routes
 from app.api.v1 import sessions as sessions_routes
@@ -83,6 +84,7 @@ app = FastAPI(
 )
 
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 # Request body size limit — voice routes have their own 10MB cap inside
@@ -160,8 +162,6 @@ app.include_router(legal_routes.router, prefix=API_V1_PREFIX)
 app.include_router(moderation_routes.router, prefix=API_V1_PREFIX)
 app.include_router(otp_routes.router, prefix=API_V1_PREFIX)
 app.include_router(users_routes.router, prefix=API_V1_PREFIX)
-app.include_router(questionnaire_routes.router, prefix=API_V1_PREFIX)
-app.include_router(profile_routes.router, prefix=API_V1_PREFIX)
 app.include_router(push_routes.router, prefix=API_V1_PREFIX)
 app.include_router(quiz_routes.router, prefix=API_V1_PREFIX)
 app.include_router(realtime_routes.router, prefix=API_V1_PREFIX)

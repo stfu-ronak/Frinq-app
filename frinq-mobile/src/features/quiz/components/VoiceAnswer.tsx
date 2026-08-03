@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Linking, StyleSheet, View } from 'react-native';
+import Svg, { Path, Rect } from 'react-native-svg';
 import { AudioRecorderAdapter, RecordingResult } from '../../../services/audio/AudioRecorderAdapter';
 import { uploadVoiceClip } from '../quizSyncService';
 import { useSession } from '../../../services/session/sessionContext';
@@ -197,27 +198,56 @@ export function VoiceAnswer({ submissionId, questionKey, onStatusChange }: Props
   }
 
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, styles.idleWrap]}>
       <PressableScale
         accessibilityRole="button"
         accessibilityLabel="record a voice answer"
         accessibilityState={{ busy: phase === 'requesting' || phase === 'uploading' }}
         onPress={handleRecordPress}
         disabled={phase === 'requesting' || phase === 'uploading'}
-        style={styles.circleButton}
+        style={styles.micCircle}
       >
-        <BodyText variant="bodyStrong" style={{ color: color.control.primaryText }}>
-          {phase === 'requesting' ? '…' : phase === 'uploading' ? 'saving…' : 'record'}
-        </BodyText>
+        {phase === 'requesting' || phase === 'uploading' ? (
+          <BodyText variant="bodyStrong" tone="brand">
+            {phase === 'uploading' ? '…' : '…'}
+          </BodyText>
+        ) : (
+          <Svg width={32} height={32} viewBox="0 0 24 24" accessibilityElementsHidden importantForAccessibility="no">
+            <Rect x={9} y={2} width={6} height={12} rx={3} fill={color.brand.maroon} />
+            <Path
+              d="M5 11a7 7 0 0 0 14 0M12 18v3"
+              stroke={color.brand.maroon}
+              strokeWidth={1.8}
+              strokeLinecap="round"
+              fill="none"
+            />
+          </Svg>
+        )}
       </PressableScale>
-      <BodyText variant="body" tone="secondary">or just type your answer below (optional)</BodyText>
+      <BodyText variant="caption" tone="secondary">
+        {phase === 'uploading' ? 'saving…' : 'tap to speak'}
+      </BodyText>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: { marginBottom: spacing.lg, gap: spacing.sm },
+  idleWrap: { alignItems: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  micCircle: {
+    width: 104,
+    height: 104,
+    borderRadius: 52,
+    backgroundColor: color.brand.cream,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 3,
+  },
   circleButton: {
     minHeight: touchTarget.preferred,
     paddingHorizontal: spacing.xl,

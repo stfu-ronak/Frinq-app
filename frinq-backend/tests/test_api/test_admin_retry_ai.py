@@ -38,7 +38,12 @@ async def test_retry_ai_queues_durable_job_not_a_background_task(
     assert body["job_id"] == f"job-{submission_id}"
 
     queries = [q for q, _ in fake_pool.store.queries]
-    assert any(q.strip().startswith("UPDATE quiz_submissions SET status='processing'") for q in queries)
+    # Must be 'pending', not 'processing' — the worker's own in-flight guard
+    # (generate_quiz_insights) early-returns without regenerating when it
+    # sees status='processing', so setting that here would permanently
+    # strand the submission exactly where retry-ai is supposed to unstick it.
+    assert any(q.strip().startswith("UPDATE quiz_submissions SET status='pending'") for q in queries)
+    assert not any(q.strip().startswith("UPDATE quiz_submissions SET status='processing'") for q in queries)
     assert any(
         q.strip().startswith("UPDATE users SET onboarding_state='profile_processing'") for q in queries
     )

@@ -59,6 +59,11 @@ MODEL_INFO: Final[dict[str, ModelInfo]] = {
                                  ("minimal", "high"), False),
 }
 
+# The default Gemini model when a step's config doesn't specify one —
+# single source of truth so retiring it from MODEL_INFO fails a test
+# (test_model_pricing.py) instead of silently breaking two call sites.
+GEMINI_DEFAULT: Final[str] = "gemini-3.5-flash-lite"
+
 # Convenience alias some callers may already use.
 MODEL_ALIASES: Final[dict[str, str]] = {
     "claude-haiku-4-5": "claude-haiku-4-5-20251001",

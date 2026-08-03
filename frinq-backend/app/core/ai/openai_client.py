@@ -160,6 +160,113 @@ async def call_openai_json(
     return data["choices"][0]["message"]["content"]
 
 
+class OpenAIStructuredError(RuntimeError):
+    """Wraps an OpenAI Structured Outputs failure with a stable, loggable
+    cause type — never leaks response body content into the message. Lets
+    callers (e.g. admin's /ai-test) surface *which* failure happened
+    (timeout vs. auth vs. rate-limit vs. schema mismatch) instead of every
+    failure looking identical."""
+
+    def __init__(self, message: str, *, cause: Exception):
+        super().__init__(message)
+        self.cause_type = type(cause).__name__
+
+
+async def call_openai_structured(
+    *,
+    system: str,
+    user: str,
+    schema_name: str,
+    schema: dict[str, Any],
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+    max_output_tokens: int = 1500,
+    safety_identifier: str | None = None,
+    prompt_cache_key: str | None = None,
+    usage_recorder: Callable[[int, int], Any] | None = None,
+    max_retries: int = 2,
+) -> dict[str, Any]:
+    """Structured Outputs (strict json_schema) sibling of call_openai_json.
+    Returns the PARSED dict — strict mode guarantees schema-valid JSON, so
+    none of call_openai_json's regex-fallback parsing is needed here.
+
+    Adds a bounded retry loop (call_openai_json/the production summary path
+    have none) on transient failures only — timeout, 5xx, or a malformed
+    response body. Never retries a 4xx (bad request/auth/schema-config
+    errors don't fix themselves). Raises OpenAIStructuredError on exhausted
+    retries or a non-retryable failure.
+    """
+    if not settings.OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY is not set.")
+
+    payload: dict[str, Any] = {
+        "model": model or settings.OPENAI_MODEL,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "max_completion_tokens": max_output_tokens,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {"name": schema_name, "schema": schema, "strict": True},
+        },
+    }
+    resolved_effort = (reasoning_effort if reasoning_effort is not None else settings.OPENAI_REASONING_EFFORT or "").strip()
+    if resolved_effort and resolved_effort != "none":
+        payload["reasoning_effort"] = resolved_effort
+    if safety_identifier is not None:
+        payload["safety_identifier"] = safety_identifier
+    if prompt_cache_key is not None:
+        payload["prompt_cache_key"] = prompt_cache_key
+
+    headers = {
+        "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    sem = _get_semaphore()
+    for attempt in range(max_retries + 1):
+        try:
+            async with sem:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=180.0,
+                    )
+            response.raise_for_status()
+            data = response.json()
+            parsed = json.loads(data["choices"][0]["message"]["content"])
+        except (httpx.TimeoutException, httpx.HTTPStatusError, json.JSONDecodeError, KeyError, IndexError) as exc:
+            retryable = isinstance(exc, (httpx.TimeoutException, json.JSONDecodeError, KeyError, IndexError)) or (
+                isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code >= 500
+            )
+            if not retryable or attempt >= max_retries:
+                raise OpenAIStructuredError(
+                    f"OpenAI structured call failed after {attempt + 1} attempt(s)", cause=exc,
+                ) from exc
+            await asyncio.sleep(0.5 * (attempt + 1))
+            continue
+        else:
+            usage = data.get("usage") or {}
+            input_tokens = usage.get("prompt_tokens", 0)
+            output_tokens = usage.get("completion_tokens", 0)
+            logger.info(
+                "openai.call_structured",
+                model=payload["model"],
+                schema=schema_name,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
+            if usage_recorder is not None:
+                result = usage_recorder(input_tokens, output_tokens)
+                if hasattr(result, "__await__"):
+                    await result
+            return parsed
+    raise AssertionError("unreachable")  # loop always returns or raises
+
+
 def _extract_json(content: str) -> dict[str, Any]:
     content = content.strip()
     try:

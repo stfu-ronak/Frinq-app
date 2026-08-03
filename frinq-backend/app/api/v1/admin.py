@@ -299,7 +299,7 @@ async def retry_ai(
 
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE quiz_submissions SET status='processing', error_msg=NULL, updated_at=now() WHERE id=$1",
+            "UPDATE quiz_submissions SET status='pending', error_msg=NULL, updated_at=now() WHERE id=$1",
             uid,
         )
         await conn.execute(
@@ -698,6 +698,18 @@ async def get_analytics(pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any
                GROUP BY spirit_animal ORDER BY count DESC LIMIT 12"""
         )
 
+        # Archetype distribution (generic — works for either taxonomy version,
+        # since it just groups whatever slug is actually stored per submission).
+        # archetype_slug is the canonical stored column (FK to communities,
+        # migration 012); there is no bare `archetype` column — the `archetype`
+        # field list_submissions returns is read out of the share_card JSON.
+        archetype_distribution = await conn.fetch(
+            """SELECT archetype_slug, COUNT(*) as count
+               FROM quiz_submissions
+               WHERE archetype_slug IS NOT NULL AND status = 'done'
+               GROUP BY archetype_slug ORDER BY count DESC"""
+        )
+
         # Tag frequency
         top_tags = await conn.fetch(
             """SELECT unnest(tags) as tag, COUNT(*) as count
@@ -822,6 +834,7 @@ async def get_analytics(pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any
         ],
         "hourly": [{"hour": int(r["hour"]), "count": int(r["count"])} for r in hourly],
         "spirit_animals": [{"name": r["spirit_animal"], "count": int(r["count"])} for r in spirit_animals],
+        "archetype_distribution": [{"label": r["archetype_slug"], "count": int(r["count"])} for r in archetype_distribution],
         "top_tags": [{"tag": r["tag"], "count": int(r["count"])} for r in top_tags],
         "cities": [{"city": r["city"] or "unknown", "count": int(r["count"])} for r in cities],
         "social_types": [{"type": r["social_type"], "count": int(r["count"])} for r in social_types],
@@ -2079,8 +2092,23 @@ async def test_ai_connection(
             )
     except Exception as exc:
         logger.warning("admin.ai_test.failed", step=body.step, provider=body.provider,
-                       model_id=canonical_model_id, error_code=type(exc).__name__)
-        raise HTTPException(status_code=502, detail=f"AI test failed: {type(exc).__name__}") from exc
+                       model_id=canonical_model_id, error_code=type(exc).__name__,
+                       error_detail=str(exc)[:300])
+        # Surface the message for RuntimeError only — those are the ones WE
+        # raise ourselves with a deliberately safe, actionable string
+        # ("ANTHROPIC_API_KEY is not set.", "gemini_http_401", ...). Every
+        # other exception type still reports only its class name, preserving
+        # the original rule that provider response bodies (which can echo
+        # prompt content) never reach the admin UI. Without this, a missing
+        # key and a genuine code bug were both just "AI test failed:
+        # RuntimeError" — the opacity that made the Gemini CheckViolationError
+        # look like a provider/API problem for far longer than it should have.
+        detail = (
+            f"AI test failed: {type(exc).__name__}: {exc}"
+            if isinstance(exc, RuntimeError) and str(exc)
+            else f"AI test failed: {type(exc).__name__}"
+        )
+        raise HTTPException(status_code=502, detail=detail) from exc
 
     return {
         "ok": True,
@@ -2122,6 +2150,18 @@ async def get_ai_config(pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any
             }
             for model_id, info in MODEL_INFO.items()
         ],
+    }
+
+
+@router.get("/ai-keys-status", dependencies=[Depends(_require_admin)])
+async def get_ai_keys_status() -> dict[str, bool]:
+    """Presence-only check (never echoes key values) — lets the admin UI
+    grey out a provider with no key configured before a switch produces a
+    confusing runtime failure at generation time instead."""
+    return {
+        "openai": bool(settings.OPENAI_API_KEY),
+        "claude": bool(settings.ANTHROPIC_API_KEY),
+        "gemini": bool(settings.GEMINI_API_KEY),
     }
 
 

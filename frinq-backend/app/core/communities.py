@@ -1,8 +1,11 @@
 """Canonical community sync + immutable membership assignment.
 
-communities is synced from app/core/ai/archetypes.py's ARCHETYPES — that
-module is the single source of truth for the 24-entry taxonomy; nothing
-here re-declares names/descriptions.
+communities is synced from app/core/ai/archetypes.py's ARCHETYPES — the
+18-role taxonomy; nothing here re-declares names/descriptions. The 24 old
+communities (pre-2026-07-31, keyed on the legacy kebab-case slugs) are no
+longer synced here but are never deleted either — assignment is permanent
+(see assign_user_to_community below), so they stay inert with their
+existing members rather than being force-migrated to a new role.
 """
 
 from __future__ import annotations
@@ -16,7 +19,8 @@ from app.core.ai.archetypes import ARCHETYPES, get_archetype
 
 
 class UnknownArchetypeError(Exception):
-    """Raised when an archetype_slug isn't one of the 24 taxonomy entries."""
+    """Raised when an archetype_slug isn't a known taxonomy entry (current
+    18-role set or the legacy 24-entry set — see get_archetype)."""
 
 
 class CommunityAssignmentError(Exception):
@@ -33,14 +37,16 @@ class CommunityRow:
 
 
 async def sync_communities(conn: Any) -> int:
-    """Upsert all 24 canonical communities by slug. Returns the count synced."""
+    """Upsert all 18 canonical communities by slug. Returns the count synced.
+    Legacy (pre-taxonomy-swap) community rows are untouched — not upserted,
+    not deleted."""
     for slug, archetype in ARCHETYPES.items():
         await conn.execute(
             "INSERT INTO communities (archetype_slug, name, description) "
             "VALUES ($1, $2, $3) "
             "ON CONFLICT (archetype_slug) DO UPDATE "
             "SET name = EXCLUDED.name, description = EXCLUDED.description",
-            slug, archetype["name"], archetype["description"],
+            slug, archetype["display_name"], archetype["meaning"],
         )
     return len(ARCHETYPES)
 

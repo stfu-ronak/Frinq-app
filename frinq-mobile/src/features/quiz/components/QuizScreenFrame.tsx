@@ -12,6 +12,9 @@ type Props = {
   section: string;
   onBack?: () => void;
   showProgress?: boolean;
+  /** "Question N out of TOTAL" header counter instead of the uppercase
+   *  section label — the text+voice screen's mode. */
+  showStepCounter?: boolean;
   children: React.ReactNode;
   /** Omit to hide the Continue bar entirely (e.g. single-select templates
    *  that advance immediately on selection). */
@@ -25,13 +28,17 @@ type Props = {
  *  content, and an optional Continue action. Templates own their own body;
  *  this owns layout/keyboard-avoidance/large-text scrolling consistently. */
 export function QuizScreenFrame({
-  stepId, section, onBack, showProgress = true, children,
+  stepId, section, onBack, showProgress = true, showStepCounter = false, children,
   continueLabel, onContinue, continueDisabled, continueBusy,
 }: Props) {
   const progress = stepProgress(stepId);
   return (
     <Screen scroll>
-      <QuizHeader section={section} onBack={onBack} />
+      <QuizHeader
+        section={section}
+        onBack={onBack}
+        counterLabel={showStepCounter ? `Question ${progress.step} out of ${progress.total}` : undefined}
+      />
       {showProgress && progress.step > 0 && (
         <QuizProgress step={progress.step} total={progress.total} style={{ marginBottom: spacing.lg }} />
       )}

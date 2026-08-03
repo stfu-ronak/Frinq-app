@@ -64,7 +64,7 @@ export function NotificationSettingsScreen() {
         notifications
       </BrandHeading>
       <BodyText variant="caption" tone="secondary" style={styles.hint}>
-        get notified about new activity in your community.
+        get notified about new activity in your frinq squad.
       </BodyText>
 
       {status === null ? (

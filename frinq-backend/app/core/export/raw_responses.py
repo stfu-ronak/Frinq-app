@@ -62,6 +62,7 @@ _OPINION_WHY = [
     "what makes you think so?  (why — your AI take)",
     "any reason why?  (why — on truth)",
     "care to share why?  (why — people you respect)",
+    "why's that?  (why — on how people show up)",
 ]
 _SLIDERS = [
     ("you trust more", "what you can see", "what you sense"),
@@ -165,6 +166,10 @@ def build_rows(answers: Optional[dict]) -> List[Row]:
     for prompt, opt_a, opt_b in _OPINIONS:
         rows.append((prompt, _paired_pick(stored_op, opt_a, opt_b)))
     why = a.get("opinions_why") or []
+    if isinstance(why, str):
+        # Historical submissions (pre opinions-why-inline) stored one shared
+        # string instead of one answer per pair — don't index into its chars.
+        why = [why]
     for i, q in enumerate(_OPINION_WHY):
         rows.append((q, _text(why[i]) if i < len(why) else EMPTY))
 

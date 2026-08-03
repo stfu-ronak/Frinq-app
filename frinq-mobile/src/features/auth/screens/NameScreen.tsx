@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Image, StyleSheet, TextInput, View } from 'react-native';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { useNavigation } from '@react-navigation/native';
 import { ReferenceJourneyFrame } from '../../../design/components/ReferenceJourneyFrame';
 import { BrandHeading } from '../../../design/components/Text';
@@ -23,7 +24,8 @@ export function NameScreen() {
   return (
     <ReferenceJourneyFrame onBack={() => navigation.goBack()} scroll>
       <View style={styles.body}>
-        <BrandHeading style={styles.heading}>what should we call you?</BrandHeading>
+        <NamePeachFade />
+        <BrandHeading testID="name-heading" tone="brand" style={styles.heading}>what should we{`\n`}call you?</BrandHeading>
         <TextInput
           accessibilityLabel="Your name"
           placeholder="your name"
@@ -37,18 +39,35 @@ export function NameScreen() {
           style={styles.input}
         />
         <PressableScale accessibilityRole="button" accessibilityLabel="Continue with name" accessibilityState={{ disabled: !canContinue }} disabled={!canContinue} onPress={handleContinue} style={[styles.arrow, !canContinue && styles.arrowDisabled]}>
-          <Image source={require('../../../../Public/Assets/Red arrow.png')} style={styles.arrowImage} resizeMode="contain" />
+          <Image testID="name-next-arrow" source={require('../../../../Public/Assets/Red arrow.png')} style={styles.arrowImage} resizeMode="contain" />
         </PressableScale>
       </View>
     </ReferenceJourneyFrame>
   );
 }
 
+function NamePeachFade() {
+  return (
+    <View pointerEvents="none" style={styles.fade}>
+      <Svg testID="name-peach-fade" width="100%" height="100%" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        <Defs>
+          <LinearGradient id="name-peach-fade-gradient" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={color.brand.cream} stopOpacity={0} />
+            <Stop offset="1" stopColor={color.brand.peach} stopOpacity={0.72} />
+          </LinearGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height="100%" fill="url(#name-peach-fade-gradient)" />
+      </Svg>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  body: { flex: 1, alignItems: 'center', paddingTop: 150, paddingBottom: spacing.xl },
-  heading: { textAlign: 'center', fontSize: 42, lineHeight: 55, maxWidth: 340 },
-  input: { width: '100%', minHeight: touchTarget.preferred, borderBottomWidth: 1, borderBottomColor: color.border.subtle, marginTop: spacing.xxxl, fontFamily: 'VastagoGrotesk-Regular', fontSize: 26, lineHeight: 34, color: color.text.primary, textAlign: 'center' },
+  body: { flex: 1, alignItems: 'center', paddingTop: 230, paddingBottom: spacing.xl },
+  fade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '45%' },
+  heading: { textAlign: 'center', fontSize: 28, lineHeight: 42, maxWidth: 280 },
+  input: { width: '100%', minHeight: touchTarget.preferred, borderBottomWidth: 1, borderBottomColor: color.border.subtle, marginTop: 64, fontFamily: 'VastagoGrotesk-Regular', fontSize: 14, lineHeight: 21, color: color.text.primary, textAlign: 'center' },
   arrow: { marginTop: 'auto', minHeight: touchTarget.preferred + 8, justifyContent: 'center', alignItems: 'center' },
-  arrowImage: { width: 220, height: 62 },
+  arrowImage: { width: 130, height: 48 },
   arrowDisabled: { opacity: 0.4 },
 });

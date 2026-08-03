@@ -5,7 +5,8 @@ import { ReferenceJourneyFrame } from '../../../design/components/ReferenceJourn
 import { BrandHeading, BodyText } from '../../../design/components/Text';
 import { PrimaryButton } from '../../../design/components/PrimaryButton';
 import { PressableScale } from '../../../design/motion/PressableScale';
-import { spacing, touchTarget } from '../../../design/tokens/spacing';
+import { color } from '../../../design/tokens/colors';
+import { radius, spacing, touchTarget } from '../../../design/tokens/spacing';
 
 /** Reference 16. This is an explicit in-app security acknowledgement, never a
  * native location request. City is still collected later as a quiz answer. */
@@ -15,24 +16,28 @@ export function LocationPermissionScreen() {
 
   return (
     <ReferenceJourneyFrame onBack={() => navigation.goBack()}>
-      <View style={styles.body}>
+      <View testID="location-permission-body" style={styles.body}>
         <Image source={require('../../../../Public/Assets/location.png')} style={styles.icon} resizeMode="contain" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
-        <BrandHeading style={styles.heading}>location services</BrandHeading>
-        <BodyText tone="secondary" style={styles.copy}>we use your area to help with nearby community activity. your exact device location is never collected.</BodyText>
+        <BrandHeading tone="brand" style={styles.heading}>location services</BrandHeading>
+        <BodyText tone="muted" style={styles.copy}>we use your location to show you potential matches in your area.</BodyText>
+        <View style={styles.actions}>
+          <PrimaryButton label="Set location services" onPress={continueToPrivacy} style={styles.locationAction} />
+          <PressableScale accessibilityRole="button" accessibilityLabel="Not now" onPress={continueToPrivacy} style={styles.skip}>
+            <BodyText style={styles.skipText}>Not now</BodyText>
+          </PressableScale>
+        </View>
       </View>
-      <PrimaryButton label="Set location services" onPress={continueToPrivacy} style={styles.cta} />
-      <PressableScale accessibilityRole="button" accessibilityLabel="Not now" onPress={continueToPrivacy} style={styles.skip}>
-        <BodyText tone="secondary">Not now</BodyText>
-      </PressableScale>
     </ReferenceJourneyFrame>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: spacing.xxxl },
-  icon: { width: 76, height: 76, marginBottom: spacing.xl },
-  heading: { fontSize: 42, lineHeight: 55, textAlign: 'center', marginBottom: spacing.lg },
-  copy: { maxWidth: 286, textAlign: 'center', fontSize: 17, lineHeight: 26 },
-  cta: { alignSelf: 'stretch', marginBottom: spacing.sm },
-  skip: { minHeight: touchTarget.min, alignSelf: 'center', justifyContent: 'center', paddingHorizontal: spacing.lg },
+  body: { flex: 1, alignItems: 'center', paddingTop: 86, paddingBottom: 0 },
+  icon: { width: 62, height: 62, marginBottom: spacing.xxl },
+  heading: { fontSize: 28, lineHeight: 42, textAlign: 'center', marginBottom: spacing.xs },
+  copy: { maxWidth: 310, textAlign: 'center', fontSize: 14, lineHeight: 21 },
+  actions: { width: '100%', alignItems: 'center', marginTop: 'auto' },
+  locationAction: { width: '86%', minHeight: 52, borderRadius: radius.md },
+  skip: { minHeight: touchTarget.min, alignSelf: 'center', justifyContent: 'center', paddingHorizontal: spacing.lg, marginTop: spacing.sm },
+  skipText: { color: color.brand.maroon, fontSize: 16, lineHeight: 24 },
 });

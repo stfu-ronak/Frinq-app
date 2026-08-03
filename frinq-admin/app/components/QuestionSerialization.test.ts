@@ -43,3 +43,31 @@ const sectionedQuestion = quizStepForSave({
   prompt: "Sectioned question?",
 });
 assert.equal(sectionedQuestion.section, "who you are");
+
+const opinionsNoWhy = quizStepForSave({
+  id: "opinions", kind: "opinions", answerKey: "opinions",
+  _pairsText: "on ai: | it will replace us | humans can't be replaced",
+});
+assert.deepEqual(opinionsNoWhy.pairs, [{ prompt: "on ai:", a: "it will replace us", b: "humans can't be replaced" }]);
+assert.equal(opinionsNoWhy.whyAnswerKey, undefined);
+
+const opinionsWithWhy = quizStepForSave({
+  id: "opinions", kind: "opinions", answerKey: "opinions",
+  _pairsText: "on ai: | it will replace us | humans can't be replaced | what makes you think that?",
+});
+assert.deepEqual(opinionsWithWhy.pairs, [{
+  prompt: "on ai:", a: "it will replace us", b: "humans can't be replaced",
+  whyPrompt: "what makes you think that?", whyAllowVoice: true,
+}]);
+assert.equal(opinionsWithWhy.whyAnswerKey, "opinions_why");
+
+const preferences = quizStepForSave({
+  id: "preferences", kind: "preferences", answerKey: "preferences",
+  _optionsText: "you trust more | what you see | see | what you sense | sense",
+});
+assert.deepEqual(preferences.sliders, [{ prompt: "you trust more", leftLabel: "what you see", leftHint: "see", rightLabel: "what you sense", rightHint: "sense" }]);
+
+const voiceOrText = quizStepForSave({ id: "story", kind: "voiceOrText", heading: "tell us a story" });
+assert.equal("_optionsText" in voiceOrText, false);
+assert.equal("_pairsText" in voiceOrText, false);
+assert.equal(voiceOrText.heading, "tell us a story");

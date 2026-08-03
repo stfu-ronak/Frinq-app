@@ -38,7 +38,7 @@ describe('LegalHubScreen', () => {
     const { findAllByText, queryAllByText } = renderWithClient(<LegalHubScreen />);
 
     expect(await findAllByText(/accepted/i)).toHaveLength(2); // terms + privacy only
-    expect(queryAllByText('Community Rules')).toHaveLength(1); // rendered, just no acceptance line
+    expect(queryAllByText('Frinq Squad Rules')).toHaveLength(1); // rendered, just no acceptance line
   });
 
   it('navigates in-app for "view" and opens the real site for "read online"', async () => {
@@ -72,7 +72,7 @@ describe('SupportScreen', () => {
     fireEvent.press(await findByText('privacy policy'));
     expect(mockNavigate).toHaveBeenCalledWith('LegalDocument', { doc: 'privacy' });
 
-    fireEvent.press(await findByText('community rules'));
+    fireEvent.press(await findByText('frinq squad rules'));
     expect(mockNavigate).toHaveBeenCalledWith('LegalDocument', { doc: 'community-rules' });
   });
 });

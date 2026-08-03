@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Image, StyleSheet } from 'react-native';
+import { Animated, View, StyleSheet } from 'react-native';
 import { Screen } from '../design/components/Screen';
 import { BrandHeading, BodyText } from '../design/components/Text';
 import { color } from '../design/tokens/colors';
@@ -39,15 +39,27 @@ export function BootSplash() {
  *  Matches the native pre-JS launch background (android/.../drawable/launch_screen.xml)
  *  so the logo never disappears/reappears as the native window hands off to JS. */
 export function AppLaunchSplash() {
+  const opacity = React.useRef(new Animated.Value(0)).current;
+  const scale = React.useRef(new Animated.Value(0.96)).current;
+
+  React.useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacity, { toValue: 1, duration: 180, useNativeDriver: true }),
+      Animated.spring(scale, { toValue: 1, damping: 18, stiffness: 170, useNativeDriver: true }),
+    ]).start();
+  }, [opacity, scale]);
+
   return (
     <View style={styles.splash} testID="app-launch-splash">
-      <Image
-        source={require('../assets/images/frinq-logo.png')}
-        style={styles.logo}
-        resizeMode="contain"
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-      />
+      <View testID="app-launch-splash-icon">
+        <Animated.Image
+          source={require('../../Public/App_icon.png')}
+          style={[styles.logo, { opacity, transform: [{ scale }] }]}
+          resizeMode="contain"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        />
+      </View>
     </View>
   );
 }

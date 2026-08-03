@@ -29,6 +29,7 @@ OPINION_QUESTIONS: list[tuple[str, str]] = [
     ("ai will take over everything", "humans can't be replaced"),
     ("hard truth always, no sugarcoating", "empathy > bitter truth"),
     ("people with five year plans", "people who live in the moment"),
+    ("word is bond", "action > words"),
 ]
 
 CONNECTION_MAP: dict[str, str] = {

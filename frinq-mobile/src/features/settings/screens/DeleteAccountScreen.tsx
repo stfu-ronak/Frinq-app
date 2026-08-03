@@ -112,7 +112,7 @@ export function DeleteAccountScreen() {
         </BrandHeading>
         <BodyText variant="body" style={styles.paragraph}>
           This permanently deletes your account and cannot be undone. Your quiz answers, Vibe
-          report, and community membership are removed. Messages you sent stay visible to others
+          report, and frinq squad membership are removed. Messages you sent stay visible to others
           but are no longer linked to you.
         </BodyText>
         <BodyText variant="body" style={styles.paragraph}>

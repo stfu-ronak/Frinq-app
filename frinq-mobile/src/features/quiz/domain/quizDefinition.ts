@@ -117,11 +117,18 @@ export interface OpinionPair {
   prompt: string;
   a: string;
   b: string;
+  /** When set, this pair is followed by a text+voice "why" sub-question
+   *  once every pick in the round is done (batched, not interleaved). */
+  whyPrompt?: string;
+  whyAllowVoice?: boolean;
 }
 export interface OpinionsStep extends BaseStep {
   kind: 'opinions';
   answerKey: string;
   pairs: readonly OpinionPair[];
+  /** Required when any pair has a whyPrompt — the draft key the batched
+   *  why-answers (one per whyPrompt pair, in pair order) are saved under. */
+  whyAnswerKey?: string;
 }
 
 export interface SliderDef {
@@ -372,24 +379,23 @@ export const DEFAULT_CONTENT_STEPS: readonly QuizStep[] = [
 
   { id: 'glorious', kind: 'intro', section: 'opinions', heading: "you're almost there.", body: 'time to check your opinions. controversial you ask? it depends.', ctaLabel: 'continue' },
   {
-    id: 'opinions', kind: 'opinions', section: 'opinions', answerKey: 'opinions',
+    id: 'opinions', kind: 'opinions', section: 'opinions', answerKey: 'opinions', whyAnswerKey: 'opinions_why',
     pairs: [
-      { prompt: 'on ai taking over:', a: 'it will replace everything we know.', b: "humans can't truly be replaced." },
-      { prompt: 'when it comes to truth:', a: 'hard truth, always. no sugarcoating.', b: 'empathy matters more than brutal honesty.' },
-      { prompt: 'you respect people who:', a: 'have a five year plan and stick to it.', b: 'live fully in the moment.' },
-      { prompt: 'on how people show up:', a: 'word is bond.', b: 'action > words.' },
+      { prompt: 'on ai taking over:', a: 'it will replace everything we know.', b: "humans can't truly be replaced.", whyPrompt: 'what makes you think that?', whyAllowVoice: true },
+      { prompt: 'when it comes to truth:', a: 'hard truth, always. no sugarcoating.', b: 'empathy matters more than brutal honesty.', whyPrompt: 'why do you feel that way?', whyAllowVoice: true },
+      { prompt: 'you respect people who:', a: 'have a five year plan and stick to it.', b: 'live fully in the moment.', whyPrompt: 'what makes you respect that?', whyAllowVoice: true },
+      { prompt: 'on how people show up:', a: 'word is bond.', b: 'action > words.', whyPrompt: "why's that?", whyAllowVoice: true },
     ],
   },
-  { id: 'opinions_why', kind: 'voiceOrText', section: 'opinions', answerKey: 'opinions_why', heading: 'tell us why', placeholder: 'genuinely curious...' },
 
   { id: 'preferences_intro', kind: 'intro', section: 'preferences', heading: 'four quick questions about how you actually move through the world.', body: 'use the slider. no wrong answers.', ctaLabel: 'continue' },
   {
     id: 'preferences', kind: 'preferences', section: 'preferences', answerKey: 'preferences',
     sliders: [
-      { prompt: 'you trust more', leftLabel: 'what you can see', leftHint: 'see', rightLabel: 'what you sense', rightHint: 'sense' },
-      { prompt: 'you decide things more with', leftLabel: 'your heart', leftHint: 'heart', rightLabel: 'your head', rightHint: 'head' },
-      { prompt: 'you grow more from', leftLabel: 'going deeper', leftHint: 'deeper', rightLabel: 'going wider', rightHint: 'wider' },
-      { prompt: "if you had to pick, you'd rather be", leftLabel: 'kind', leftHint: 'kind', rightLabel: 'honest', rightHint: 'honest' },
+      { prompt: 'i trust what i can see more than what i can’t explain but somehow feel.', leftLabel: 'what you can see', leftHint: 'see', rightLabel: 'what you sense', rightHint: 'sense' },
+      { prompt: "when it's a big decision, my heart usually speaks before my head does.", leftLabel: 'your heart', leftHint: 'heart', rightLabel: 'your head', rightHint: 'head' },
+      { prompt: "i'd rather go deep with a few things than wide across many.", leftLabel: 'going deeper', leftHint: 'deeper', rightLabel: 'going wider', rightHint: 'wider' },
+      { prompt: "if i have to pick one, i'd rather be kind than brutally honest.", leftLabel: 'kind', leftHint: 'kind', rightLabel: 'honest', rightHint: 'honest' },
     ],
   },
 
@@ -462,7 +468,11 @@ export function answerKeysForStep(step: QuizStep): readonly string[] {
     return [step.linkedinAnswerKey, step.instagramAnswerKey];
   }
   const answerKey = answerKeyForStep(step);
-  return answerKey === null ? [] : [answerKey];
+  const keys = answerKey === null ? [] : [answerKey];
+  if (step.kind === 'opinions' && step.whyAnswerKey) {
+    return [...keys, step.whyAnswerKey];
+  }
+  return keys;
 }
 
 /** All answer keys required by the currently installed quiz session. */

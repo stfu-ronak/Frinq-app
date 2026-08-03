@@ -27,7 +27,7 @@ const COPY: Record<LegalDocKey, { title: string; version: string; body: string[]
     ],
   },
   'community-rules': {
-    title: 'Community Rules',
+    title: 'Frinq Squad Rules',
     version: 'draft-1',
     body: [
       'Be kind — this is a small, text-only space for real conversation.',

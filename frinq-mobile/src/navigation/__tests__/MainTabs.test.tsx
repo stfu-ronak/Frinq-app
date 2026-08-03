@@ -68,14 +68,17 @@ beforeEach(() => {
 });
 
 describe('MainTabs', () => {
-  it('starts on the Community tab', async () => {
-    const { findByTestId } = renderTabs();
-    expect(await findByTestId('screen-community')).toBeTruthy();
+  it('starts on the Events tab', async () => {
+    const { findByRole } = renderTabs();
+    expect(await findByRole('button', { name: 'Events' })).toHaveProperty(
+      'props.accessibilityState.selected',
+      true,
+    );
   });
 
   it('switches to Profile, and reaches Settings via the gear icon (no Settings tab)', async () => {
-    const { findByTestId, getByRole, findByText, findByLabelText, queryByRole } = renderTabs();
-    await findByTestId('screen-community');
+    const { getByRole, findByRole, findByText, findByLabelText, queryByRole } = renderTabs();
+    await findByRole('button', { name: 'Events' });
 
     fireEvent.press(getByRole('button', { name: 'Profile' }));
     expect(await findByText('Ada')).toBeTruthy(); // real ProfileScreen content
@@ -86,26 +89,26 @@ describe('MainTabs', () => {
   });
 
   it('marks exactly the active tab as selected via accessibilityState — never color alone', async () => {
-    const { findByTestId, getByRole } = renderTabs();
-    await findByTestId('screen-community');
+    const { findByRole, getByRole } = renderTabs();
+    await findByRole('button', { name: 'Events' });
 
-    expect(getByRole('button', { name: 'Community' }).props.accessibilityState).toMatchObject({ selected: true });
+    expect(getByRole('button', { name: 'Events' }).props.accessibilityState).toMatchObject({ selected: true });
     expect(getByRole('button', { name: 'Profile' }).props.accessibilityState).toMatchObject({ selected: false });
 
     fireEvent.press(getByRole('button', { name: 'Profile' }));
-    expect(getByRole('button', { name: 'Community' }).props.accessibilityState).toMatchObject({ selected: false });
+    expect(getByRole('button', { name: 'Events' }).props.accessibilityState).toMatchObject({ selected: false });
     expect(getByRole('button', { name: 'Profile' }).props.accessibilityState).toMatchObject({ selected: true });
   });
 
   it('navigates from Settings through the Legal hub into a LegalDocument route with the right doc param', async () => {
-    const { findByTestId, getByRole, findByLabelText, findByText } = renderTabs();
-    await findByTestId('screen-community');
+    const { findByRole, getByRole, findByLabelText, findByText } = renderTabs();
+    await findByRole('button', { name: 'Events' });
 
     fireEvent.press(getByRole('button', { name: 'Profile' }));
     fireEvent.press(await findByLabelText('settings'));
     fireEvent.press(await findByLabelText('legal'));
-    fireEvent.press(await findByLabelText('view Community Rules in app'));
+    fireEvent.press(await findByLabelText('view Frinq Squad Rules in app'));
 
-    expect(await findByText('Community Rules')).toBeTruthy();
+    expect(await findByText('Frinq Squad Rules')).toBeTruthy();
   });
 });

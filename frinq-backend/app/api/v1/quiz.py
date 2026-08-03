@@ -224,6 +224,7 @@ async def save_partial(
         )
     if result == "UPDATE 0":
         raise HTTPException(status_code=404, detail="submission not found")
+
     return {"ok": True}
 
 

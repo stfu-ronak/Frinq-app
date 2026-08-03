@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAdminAuth } from "@/app/components/AdminShell";
 import { adminFetch } from "@/app/lib/adminFetch";
+import { Skeleton } from "@/app/components/Skeleton";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -147,7 +148,7 @@ export default function EventsPage() {
       {error && <p className="mb-4 font-[family-name:var(--font-motive)] text-[11px] text-[#7C1C0B]">{error}</p>}
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)] gap-6">
         <section className="flex flex-col gap-5">
-          {loading ? <p className="text-sm text-[#8B7355]">loading events...</p> : events.length === 0 ? <p className="text-sm text-[#8B7355]">no events yet</p> : <>
+          {loading ? <Skeleton rows={4} height={72} /> : events.length === 0 ? <p className="text-sm text-[#8B7355]">no events yet</p> : <>
             <div><p className="section-label mb-2">upcoming · {upcoming.length}</p><div className="flex flex-col gap-2">{upcoming.map((event) => <EventCard key={event.id} event={event} now={now} selected={selectedId === event.id} onSelect={() => selectEvent(event)} />)}</div></div>
             <div><p className="section-label mb-2">past · {past.length}</p><div className="flex flex-col gap-2">{past.map((event) => <EventCard key={event.id} event={event} now={now} selected={selectedId === event.id} onSelect={() => selectEvent(event)} />)}</div></div>
           </>}
