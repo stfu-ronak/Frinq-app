@@ -155,15 +155,22 @@ export function ReferenceOnboardingTemplate({ step, value, answers, onAnswer, on
     const linkedin = answerString(answers, step.linkedinAnswerKey);
     const instagram = answerString(answers, step.instagramAnswerKey);
     return (
-      <ReferenceJourneyFrame onBack={onBack} scroll>
+      <ReferenceJourneyFrame
+        onBack={onBack}
+        scroll
+        footer={(
+          <>
+            <Arrow label="Continue social verification" onPress={onContinue} />
+            <PressableScale accessibilityRole="button" accessibilityLabel="Skip social verification" onPress={() => { onAnswer({ linkedin: '', instagram: '' }); onContinue(); }} style={styles.skip}><BodyText tone="secondary">skip</BodyText></PressableScale>
+          </>
+        )}
+      >
         <View style={styles.creamBody}>
           <BrandHeading testID="reference-onboarding-heading" tone="brand" style={styles.heading}>{heading}</BrandHeading>
           <BodyText tone="secondary" style={styles.socialCopyTop}>we verify every person manually, men and women alike. a profile link is all we need to confirm you're real. we won't show it to matches.</BodyText>
           <TextInput accessibilityLabel="LinkedIn profile" placeholder="your LinkedIn profile" placeholderTextColor={color.text.muted} value={linkedin} onChangeText={(v) => onAnswer({ linkedin: v, instagram })} style={[styles.underlineInput, { marginTop: 40 }]} />
           <TextInput accessibilityLabel="Instagram profile" placeholder="your Instagram profile" placeholderTextColor={color.text.muted} value={instagram} onChangeText={(v) => onAnswer({ linkedin, instagram: v })} style={[styles.underlineInput, { marginTop: 40 }]} />
           <BodyText tone="secondary" style={styles.socialCopyBottom}>Our team reviews this within 24 hours. unverified profiles are shown lower in matches.</BodyText>
-          <Arrow label="Continue social verification" onPress={onContinue} />
-          <PressableScale accessibilityRole="button" accessibilityLabel="Skip social verification" onPress={() => { onAnswer({ linkedin: '', instagram: '' }); onContinue(); }} style={styles.skip}><BodyText tone="secondary">skip</BodyText></PressableScale>
         </View>
       </ReferenceJourneyFrame>
     );
