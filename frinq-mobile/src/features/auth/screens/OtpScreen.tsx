@@ -5,7 +5,7 @@ import { ReferenceJourneyFrame } from '../../../design/components/ReferenceJourn
 import { BrandHeading, BodyText } from '../../../design/components/Text';
 import { OtpField } from '../../../design/components/OtpField';
 import { ArrowButton } from '../../../design/components/ArrowButton';
-import { PrimaryButton } from '../../../design/components/PrimaryButton';
+import { ReferenceCtaFooter } from '../components/ReferenceCtaFooter';
 import { spacing } from '../../../design/tokens/spacing';
 import { useSession } from '../../../services/session/sessionContext';
 import { sendOtp, verifyOtp, acceptLegal, fetchCurrentLegal } from '../authService';
@@ -146,16 +146,15 @@ export function OtpScreen() {
           disabled={cooldown > 0}
           style={styles.resend}
         />
+        <ReferenceCtaFooter label="Confirm" onPress={() => handleVerify(code)} disabled={code.length !== 6} busy={loading} />
       </View>
-      <PrimaryButton label="Confirm" onPress={() => handleVerify(code)} disabled={code.length !== 6} busy={loading} style={styles.confirm} />
     </ReferenceJourneyFrame>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { flex: 1, alignItems: 'center', paddingTop: 90 },
+  body: { flex: 1, alignItems: 'center', paddingTop: 90, paddingBottom: 0 },
   heading: { fontSize: 28, lineHeight: 42, textAlign: 'center', marginBottom: spacing.md },
   copy: { textAlign: 'center', fontSize: 14, lineHeight: 21, marginBottom: spacing.xxl },
   resend: { alignSelf: 'center', marginTop: spacing.xl },
-  confirm: { alignSelf: 'center', width: '86%', minHeight: 52, borderRadius: 12, marginTop: spacing.lg },
 });

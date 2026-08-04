@@ -148,7 +148,7 @@ export function QuizStepScreen() {
 
   switch (step.kind) {
     case 'intro':
-      return <IntroTemplate step={step} onContinue={advanceOrFinish} />;
+      return <IntroTemplate step={step} onContinue={advanceOrFinish} onBack={previousStep(step.id) ? goBack : undefined} />;
 
     case 'text':
       if (step.allowVoice) {
@@ -264,7 +264,7 @@ export function QuizStepScreen() {
       return (
         <QuizScreenFrame
           stepId={step.id}
-          section={step.section}
+          headerVariant="counter"
           onBack={previousStep(step.id) ? goBack : undefined}
           continueLabel="continue"
           onContinue={() => { send({ type: 'ANSWER', key: step.answerKey, value: localSlider }); advanceOrFinish(); }}

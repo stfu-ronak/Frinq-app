@@ -58,6 +58,6 @@ describe('reference credential pages', () => {
     const heading = StyleSheet.flatten(getByTestId('otp-heading').props.style as never) as Record<string, number | string | undefined>;
     const confirm = StyleSheet.flatten(getByRole('button', { name: 'Confirm' }).props.style as never) as Record<string, number | string | undefined>;
     expect(heading).toMatchObject({ color: '#621407', fontSize: 28, lineHeight: 42 });
-    expect(confirm).toMatchObject({ width: '86%', minHeight: 52, borderRadius: 12 });
+    expect(confirm).toMatchObject({ width: '76%', minHeight: 48, borderRadius: 12 });
   });
 });

@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
 import { NativeSyntheticEvent, StyleSheet, TextInput, TextInputKeyPressEventData, View, ViewStyle } from 'react-native';
 import { color } from '../tokens/colors';
-import { radius, spacing, touchTarget } from '../tokens/spacing';
+import { radius, spacing } from '../tokens/spacing';
 import { typeScale } from '../tokens/typography';
 import { BodyText } from './Text';
 
@@ -61,7 +61,7 @@ export function OtpField({ value, onChangeText, length = 6, error, autoFocus, co
             maxLength={1}
             accessibilityElementsHidden
             importantForAccessibility="no"
-            style={[styles.box, { borderColor: error ? color.state.error : d ? color.border.default : color.border.subtle }, typeScale.title]}
+            style={[styles.box, { borderColor: error ? color.state.error : d ? color.border.default : color.bg.inputMuted }, typeScale.title]}
           />
         ))}
       </View>
@@ -75,13 +75,15 @@ export function OtpField({ value, onChangeText, length = 6, error, autoFocus, co
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', justifyContent: 'space-between' },
+  row: { flexDirection: 'row', gap: spacing.md },
   box: {
-    width: touchTarget.preferred,
-    height: touchTarget.preferred + 4,
+    width: 49,
+    height: 49,
     borderWidth: 1,
     borderRadius: radius.md,
     textAlign: 'center',
+    textAlignVertical: 'center',
+    paddingTop: 4,
     color: color.text.primary,
     backgroundColor: color.brand.cream,
   },

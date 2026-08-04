@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, View, ViewStyle, StyleSheet } from 'react-native';
+import { ScrollView, StatusBar, View, ViewStyle, StyleSheet } from 'react-native';
 import { SafeAreaView, Edge } from 'react-native-safe-area-context';
 import { color } from '../tokens/colors';
 import { spacing } from '../tokens/spacing';
@@ -30,6 +30,7 @@ export function Screen({ children, background = 'canvas', scroll = false, maxWid
   const inner = <View style={[styles.inner, { maxWidth }, style]}>{children}</View>;
   return (
     <SafeAreaView style={[styles.fill, { backgroundColor: BG[background] }]} edges={edges}>
+      <StatusBar barStyle={background === 'milestone' ? 'light-content' : 'dark-content'} backgroundColor={BG[background]} />
       {scroll ? (
         <ScrollView
           contentContainerStyle={styles.scrollContent}

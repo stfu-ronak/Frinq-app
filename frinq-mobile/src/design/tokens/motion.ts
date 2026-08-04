@@ -31,4 +31,15 @@ export const motion = {
   reduced: { duration: duration.instant, easing: easing.standard, translateY: 0, pressScale: 1, staggerStep: 0 },
 } as const;
 
+/** Landing splash entrance (Figma node 163:247): logo scales/fades in first,
+ *  tagline fades in alongside it, arrow pill fades in last once the logo has
+ *  settled. Timings are the source design's keyframe percentages of its 2s
+ *  timeline, converted to ms. */
+export const splashIntro = {
+  logoOpacity: { duration: 870, easing: [0.5, 0, 0.5, 1] as const },
+  logoScale: { duration: 500, easing: easing.decelerate, startScale: 1.2 },
+  tagline: { delay: 150, duration: 750, easing: easing.decelerate },
+  arrow: { delay: 870, duration: 500, easing: easing.decelerate },
+} as const;
+
 export type MotionRecipe = keyof typeof motion;

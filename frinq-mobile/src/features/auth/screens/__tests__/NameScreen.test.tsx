@@ -12,10 +12,12 @@ function flatten(style: unknown) {
 
 describe('NameScreen', () => {
   it('keeps the reference-scale two-line question and supplied arrow artwork', () => {
-    const { getByTestId, UNSAFE_getByProps } = render(<NameScreen />);
+    const { getByTestId, getByLabelText, getByRole, queryByTestId } = render(<NameScreen />);
 
     expect(flatten(getByTestId('name-heading').props.style)).toMatchObject({ color: '#621407', fontSize: 28, lineHeight: 42, maxWidth: 280 });
     expect(getByTestId('name-next-arrow').type).toBe('Image');
-    expect(UNSAFE_getByProps({ testID: 'name-peach-fade' })).toBeTruthy();
+    expect(flatten(getByLabelText('Your name').props.style)).toMatchObject({ textAlign: 'center' });
+    expect(flatten(getByRole('button', { name: 'Continue with name' }).props.style)).toMatchObject({ marginBottom: 60 });
+    expect(queryByTestId('name-peach-fade')).toBeNull();
   });
 });

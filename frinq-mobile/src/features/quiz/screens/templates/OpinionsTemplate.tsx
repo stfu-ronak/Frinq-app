@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View } from 'react-native';
 import { QuizScreenFrame } from '../../components/QuizScreenFrame';
-import { ChoicePill } from '../../../../design/components/ChoicePill';
+import { BoxChoice, BoxChoiceDivider } from '../../../../design/components/BoxChoice';
 import { BodyText } from '../../../../design/components/Text';
 import { QuizProgress } from '../../../../design/components/QuizProgress';
 import { TextField } from '../../../../design/components/TextField';
@@ -53,7 +53,7 @@ export function OpinionsTemplate({ step, submissionId, onComplete, onBack }: Pro
     }
 
     return (
-      <QuizScreenFrame stepId={step.id} section={step.section} onBack={index === 0 ? onBack : () => setIndex((i) => Math.max(0, i - 1))} showProgress={false}>
+      <QuizScreenFrame stepId={step.id} onBack={index === 0 ? onBack : () => setIndex((i) => Math.max(0, i - 1))} headerVariant="counter">
         <QuizProgress step={index + 1} total={step.pairs.length} style={{ marginBottom: spacing.lg }} />
         <BodyText variant="overline" tone="secondary" style={{ marginBottom: spacing.sm }}>
           pick your side
@@ -62,8 +62,9 @@ export function OpinionsTemplate({ step, submissionId, onComplete, onBack }: Pro
           {pair.prompt}
         </BodyText>
         <View style={{ gap: spacing.md }}>
-          <ChoicePill label={pair.a} selected={false} onPress={() => choose(pair.a)} />
-          <ChoicePill label={pair.b} selected={false} onPress={() => choose(pair.b)} />
+          <BoxChoice label={pair.a} selected={false} onPress={() => choose(pair.a)} />
+          <BoxChoiceDivider />
+          <BoxChoice label={pair.b} selected={false} onPress={() => choose(pair.b)} />
         </View>
       </QuizScreenFrame>
     );
@@ -93,7 +94,7 @@ export function OpinionsTemplate({ step, submissionId, onComplete, onBack }: Pro
   }
 
   return (
-    <QuizScreenFrame stepId={`${step.id}_why`} section={step.section} onBack={goBackWithinStep} showProgress={false} continueLabel="continue" onContinue={continueWhy} continueDisabled={!valid}>
+    <QuizScreenFrame stepId={`${step.id}_why`} onBack={goBackWithinStep} headerVariant="counter" continueLabel="continue" onContinue={continueWhy} continueDisabled={!valid}>
       <QuizProgress step={whyIndex + 1} total={whyPairs.length} style={{ marginBottom: spacing.lg }} />
       <BodyText variant="subheading" style={{ marginBottom: spacing.lg }}>
         {whyPair.whyPrompt}

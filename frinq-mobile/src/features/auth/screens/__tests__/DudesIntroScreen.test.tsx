@@ -18,7 +18,8 @@ describe('DudesIntroScreen', () => {
     expect(art.props.resizeMethod).toBe('scale');
     expect(flatten(art.props.style)).toMatchObject({ height: 270, marginTop: 104, flex: 0 });
     expect(flatten(getByRole('button', { name: "Let's go" }).props.style)).toMatchObject({
-      width: '86%', minHeight: 52, borderRadius: 12, marginTop: 'auto',
+      width: '76%', minHeight: 48, borderRadius: 12,
     });
+    expect(flatten(getByTestId('reference-cta-actions').props.style)).toMatchObject({ marginTop: 'auto' });
   });
 });

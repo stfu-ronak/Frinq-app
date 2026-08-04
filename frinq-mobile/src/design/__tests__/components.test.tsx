@@ -118,8 +118,18 @@ describe('touch target minimums (44/48dp token, not just spot-checked)', () => {
     }
   });
 
+  it('OtpField uses Figma\'s 49px boxes, 12px gaps, and a light inactive outline', () => {
+    const { UNSAFE_getAllByType, UNSAFE_getAllByProps } = render(<OtpField value="" onChangeText={jest.fn()} length={6} />);
+    const boxes = UNSAFE_getAllByType(TextInput);
+    expect(boxes.every((box) => {
+      const style = flatten(box.props.style);
+      return style.width === 49 && style.height === 49 && String(style.borderColor) === '#ECECEC';
+    })).toBe(true);
+    expect(flatten(UNSAFE_getAllByProps({ accessibilityLabel: 'Enter the 6-digit verification code' })[0].props.style)).toMatchObject({ gap: 12 });
+  });
+
   it('QuizHeader back button has a real accessible name and meets the preferred minimum size', () => {
-    const { getByLabelText } = render(<QuizHeader section="quiz" onBack={jest.fn()} />);
+    const { getByLabelText } = render(<QuizHeader onBack={jest.fn()} />);
     const back = getByLabelText('Go back');
     const style = flatten(back.props.style);
     expect(style.width).toBeGreaterThanOrEqual(touchTarget.preferred);

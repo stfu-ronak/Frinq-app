@@ -96,14 +96,20 @@ export function ReferenceOnboardingTemplate({ step, value, answers, onAnswer, on
   if (step.id === 'city') {
     const cities = ['Delhi', 'Gurgaon', 'Mumbai', 'Pune', 'Banglore', 'Hyderabad', 'Indore'];
     return (
-      <ReferenceJourneyFrame onBack={onBack} scroll>
+      <ReferenceJourneyFrame
+        onBack={onBack}
+        scroll
+        footer={(
+          <>
+            <Arrow label="Continue city" onPress={onContinue} disabled={typeof value !== 'string' || value.trim().length < 2} />
+            <PressableScale accessibilityRole="button" accessibilityLabel="Skip city" onPress={() => { onAnswer(''); onContinue(); }} style={styles.skip}><BodyText tone="secondary">skip</BodyText></PressableScale>
+          </>
+        )}
+      >
         <View style={styles.creamBody}>
           <BrandHeading testID="reference-onboarding-heading" tone="brand" style={styles.heading}>{heading}</BrandHeading>
           <TextInput accessibilityLabel="City" placeholder="your city..." placeholderTextColor={color.text.muted} value={(value as string) ?? ''} onChangeText={onAnswer} style={[styles.underlineInput, { marginTop: 80 }]} />
           <View style={styles.cityGrid}>{cities.map((city) => <Choice key={city} compact label={city} selected={value === city} onPress={() => onAnswer(city)} />)}</View>
-          <BodyText tone="secondary" style={styles.socialCopy}>Our team reviews this within 24 hours. unverified profiles are shown lower in matches.</BodyText>
-          <Arrow label="Continue city" onPress={onContinue} disabled={typeof value !== 'string' || value.trim().length < 2} />
-          <PressableScale accessibilityRole="button" accessibilityLabel="Skip city" onPress={() => { onAnswer(''); onContinue(); }} style={styles.skip}><BodyText tone="secondary">skip</BodyText></PressableScale>
         </View>
       </ReferenceJourneyFrame>
     );
@@ -119,7 +125,11 @@ export function ReferenceOnboardingTemplate({ step, value, answers, onAnswer, on
       onAnswer(`${d}/${m}/${y}`);
     };
     return (
-      <ReferenceJourneyFrame onBack={onBack} scroll>
+      <ReferenceJourneyFrame
+        onBack={onBack}
+        scroll
+        footer={<Arrow label="Continue birthday" onPress={onContinue} disabled={!day || !month || !year || year.length < 4} />}
+      >
         <View style={styles.creamBody}>
           <BrandHeading testID="reference-onboarding-heading" tone="brand" style={styles.heading}>{heading}</BrandHeading>
           <View style={{ marginTop: 60, alignItems: 'center', gap: 24 }}>
@@ -136,7 +146,6 @@ export function ReferenceOnboardingTemplate({ step, value, answers, onAnswer, on
               <BodyText tone="secondary" style={styles.birthdayLabel}>year</BodyText>
             </View>
           </View>
-          <Arrow label="Continue birthday" onPress={onContinue} disabled={!day || !month || !year || year.length < 4} />
         </View>
       </ReferenceJourneyFrame>
     );
@@ -200,7 +209,6 @@ const styles = StyleSheet.create({
   cityGrid: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 12, marginTop: spacing.xl },
   birthdayInput: { width: 120, minHeight: 40, borderBottomWidth: 1, borderBottomColor: color.border.subtle, textAlign: 'center', fontFamily: 'VastagoGrotesk-Regular', fontSize: 26, lineHeight: 34, color: color.text.primary, paddingBottom: 4 },
   birthdayLabel: { fontSize: 14, marginTop: 4 },
-  socialCopy: { textAlign: 'center', fontSize: 13, lineHeight: 18, marginTop: spacing.xl, maxWidth: 310 },
   socialCopyTop: { textAlign: 'center', fontSize: 15, lineHeight: 22, marginTop: spacing.xl, maxWidth: 310 },
   socialCopyBottom: { textAlign: 'center', fontSize: 13, lineHeight: 18, marginTop: 40, maxWidth: 310 },
   arrow: { marginTop: 'auto', minHeight: touchTarget.preferred + 8, justifyContent: 'center', alignItems: 'center' },

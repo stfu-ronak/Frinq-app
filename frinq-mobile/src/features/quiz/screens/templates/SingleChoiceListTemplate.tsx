@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { QuizScreenFrame } from '../../components/QuizScreenFrame';
 import { SimpleStepFrame } from '../../components/SimpleStepFrame';
-import { ChoicePill } from '../../../../design/components/ChoicePill';
-import { BodyText } from '../../../../design/components/Text';
+import { BodyText, BrandHeading } from '../../../../design/components/Text';
+import { BoxChoice, BoxChoiceDivider } from '../../../../design/components/BoxChoice';
 import { PressableScale } from '../../../../design/motion/PressableScale';
+import { fontFamily } from '../../../../design/tokens/typography';
 import { color } from '../../../../design/tokens/colors';
-import { radius, spacing } from '../../../../design/tokens/spacing';
+import { radius, spacing, touchTarget } from '../../../../design/tokens/spacing';
 import { SingleChoiceListStep } from '../../domain/quizDefinition';
 
 type Props = {
@@ -20,19 +21,20 @@ type Props = {
   onBack?: () => void;
 };
 
-function BoxOption({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
+/** Plain outlined pill, no icon/description — Figma "Frame 409" ("what is
+ *  your social type?" and similar "who you are" MCQ lists): a faded maroon
+ *  outline and faded-brown light-weight label at rest, filled maroon +
+ *  cream label when selected. */
+function PlainPillOption({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
   return (
     <PressableScale
       accessibilityRole="radio"
       accessibilityLabel={label}
       accessibilityState={{ selected }}
       onPress={onPress}
-      style={[
-        styles.box,
-        { borderColor: color.border.default, backgroundColor: selected ? color.bg.surface : 'transparent' },
-      ]}
+      style={[styles.plainPill, { borderColor: selected ? color.border.default : color.border.pill, backgroundColor: selected ? color.state.selected : 'transparent' }]}
     >
-      <BodyText variant="heading">{label}</BodyText>
+      <BodyText style={{ ...styles.plainPillText, color: selected ? color.text.onMaroon : color.text.pillLabel }}>{label}</BodyText>
     </PressableScale>
   );
 }
@@ -46,8 +48,8 @@ export function SingleChoiceListTemplate({ step, value, onSelect, onBack }: Prop
     <View style={{ gap: spacing.md }} accessibilityRole="radiogroup">
       {step.options.map((opt, i) => (
         <React.Fragment key={opt.value}>
-          {i > 0 && <BodyText variant="bodyStrong" style={styles.orDivider}>or</BodyText>}
-          <BoxOption
+          {i > 0 && <BoxChoiceDivider />}
+          <BoxChoice
             label={opt.label}
             selected={(isSimple ? pending : value) === opt.value}
             onPress={() => (isSimple ? setPending(opt.value) : onSelect(opt.value))}
@@ -56,14 +58,13 @@ export function SingleChoiceListTemplate({ step, value, onSelect, onBack }: Prop
       ))}
     </View>
   ) : (
-    <View style={{ gap: spacing.sm }} accessibilityRole="radiogroup">
+    <View style={{ gap: spacing.md }} accessibilityRole="radiogroup">
       {step.options.map((opt) => (
-        <ChoicePill
+        <PlainPillOption
           key={opt.value}
           label={opt.label}
           selected={(isSimple ? pending : value) === opt.value}
           onPress={() => (isSimple ? setPending(opt.value) : onSelect(opt.value))}
-          style={styles.fullWidthPill}
         />
       ))}
     </View>
@@ -84,24 +85,25 @@ export function SingleChoiceListTemplate({ step, value, onSelect, onBack }: Prop
   }
 
   return (
-    <QuizScreenFrame stepId={step.id} section={step.section} onBack={onBack}>
-      <BodyText variant="subheading" style={{ marginBottom: spacing.lg }}>
+    <QuizScreenFrame stepId={step.id} onBack={onBack} headerVariant="glow">
+      <BrandHeading variant="display" tone="brand" style={styles.heading}>
         {step.prompt}
-      </BodyText>
+      </BrandHeading>
       {options}
     </QuizScreenFrame>
   );
 }
 
 const styles = StyleSheet.create({
-  fullWidthPill: { width: '100%', paddingVertical: spacing.md },
-  box: {
-    minHeight: 110,
-    borderWidth: 1,
-    borderRadius: radius.lg,
+  heading: { fontSize: 32, lineHeight: 48, textAlign: 'center', marginBottom: spacing.xxl },
+  plainPill: {
+    width: '100%',
+    minHeight: touchTarget.min,
+    borderWidth: 0.5,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.lg,
   },
-  orDivider: { alignSelf: 'center' },
+  plainPillText: { fontFamily: fontFamily.bodyLight, fontSize: 20 },
 });

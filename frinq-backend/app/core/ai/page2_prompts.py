@@ -10,8 +10,8 @@ from __future__ import annotations
 from typing import Any, Final
 
 
-PAGE2_PROMPT_VERSION: Final[str] = "frinq-page2-2026-07-27-luna-v2-descriptive-cards"
-PAGE2_MODEL: Final[str] = "gpt-5.6-luna"
+PAGE2_PROMPT_VERSION: Final[str] = "frinq-page2-2026-07-30-terra-v4-direct-sentences"
+PAGE2_MODEL: Final[str] = "gpt-5.6-terra"
 PAGE2_REASONING_EFFORT: Final[str] = "medium"
 
 
@@ -310,17 +310,23 @@ VOICE AND FIT
   room for company and space".
 - Prefer small, recognisable moments and social verbs over trait labels. Write
   "you text first after a good day" instead of "you maintain connection".
+- Say the direct thing first. If a sentence is built around an indirect or
+  abstract construction, rewrite it as the plain statement a friend would
+  actually say, even when the indirect version is grammatically correct.
+  Write "you don't need a late night out or nonstop talking to feel close
+  to someone" instead of "you make room for friendship that does not need
+  constant talk or a late night to matter". Write "you like going home
+  early and picking the talk up again another day" instead of "you need
+  the ease of going home early and picking up again later". Link ideas the
+  way a friend actually talks — with "but", "so", "and", "because" — not
+  by nesting one idea inside another with "that", "which", or an "-ing"
+  phrase standing in for a verb.
 - Each paragraph should contain at least one detail that could only come from
   this person's answers. Paraphrase it; never quote private text.
 - Make the reader recognise themselves, not admire a flattering description.
 - Prefer everyday words such as "time alone", "busy", "honest", "help", and
   "plan". Avoid words like "decompress", "polished", "maintain", "navigate",
   "dynamic", "nuanced", "capacity", "tendency", and "social battery".
-- Avoid long or formal words such as "recognise", "concrete", "connection",
-  "conversation", "selective", "unexpected", "practical", "comfortable",
-  "pressure", "respect", and "perform" when a simpler word works. Use
-  "notice", "bond", "talk", "picky", "surprise", "useful", "easy", "stress",
-  "care about", and "act" instead.
 - Use complete, natural sentences. Do not write like keywords, tags, notes, a
   caption generator, or a personality-test label. A friend would explain the
   thought properly, with "because", "so", and "when" showing the link between
@@ -328,7 +334,7 @@ VOICE AND FIT
 - Keep the rhythm conversational rather than making every sentence the same
   length. Some sentences can be short for emphasis; the full thought must
   still be grammatically complete.
-- You may add one or two light, human emphasis stretches in the whole report,
+- You may add FOUR TO FIVE light, human emphasis stretches in the whole report,
   such as "exactlyyyy" or "keeeep", only where a friend would naturally do it.
   Never stretch more than one word in a sentence, never stretch names, and do
   not use fake misspellings, chat abbreviations, or shortcuts.
@@ -336,7 +342,7 @@ VOICE AND FIT
   show," or any equivalent recap.
 - Do not quote private answer text in public copy.
 - Use complete sentences. No chips, fragments, headings, bullets, em dashes,
-  semicolons, emoji, hashtags, therapy language, or forced internet slang.
+  semicolons, emoji, hashtags.
 - Most sentences should be 12-24 words and explain a full thought.
 - The quick-row cards should feel full but easy to scan: 2 sentences each,
   never a slogan or a list.

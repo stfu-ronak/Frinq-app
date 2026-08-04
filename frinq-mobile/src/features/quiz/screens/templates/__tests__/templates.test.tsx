@@ -296,7 +296,7 @@ describe('OpinionsTemplate', () => {
       ],
     };
     const onComplete = jest.fn();
-    const { getByText, getByPlaceholderText, queryByText } = render(
+    const { getByText, getByRole, getByPlaceholderText, queryByText } = render(
       <OpinionsTemplate step={whyStep} submissionId="sub-1" onComplete={onComplete} />,
     );
     fireEvent.press(getByText('A1'));
@@ -305,10 +305,10 @@ describe('OpinionsTemplate', () => {
     expect(queryByText('p1')).toBeNull();
     expect(getByText('why1?')).toBeTruthy();
     fireEvent.changeText(getByPlaceholderText('genuinely curious...'), 'because reasons');
-    fireEvent.press(getByText('continue'));
+    fireEvent.press(getByRole('button', { name: 'continue' }));
     expect(getByText('why2?')).toBeTruthy();
     fireEvent.changeText(getByPlaceholderText('genuinely curious...'), 'other reasons');
-    fireEvent.press(getByText('continue'));
+    fireEvent.press(getByRole('button', { name: 'continue' }));
     expect(onComplete).toHaveBeenCalledWith(['A1', 'B2'], ['because reasons', 'other reasons']);
   });
 });
@@ -372,7 +372,7 @@ describe('slider step (QuizStepScreen inline case)', () => {
     return (
       <QuizScreenFrame
         stepId={step.id}
-        section={step.section}
+        headerVariant="counter"
         continueLabel="continue"
         onContinue={() => onContinue(value)}
         continueDisabled={value === undefined}

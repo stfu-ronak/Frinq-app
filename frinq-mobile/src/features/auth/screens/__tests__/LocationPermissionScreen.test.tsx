@@ -11,14 +11,16 @@ function flatten(style: unknown) {
 
 describe('LocationPermissionScreen', () => {
   it('matches the location reference copy, palette, and two-action layout', () => {
-    const { getByText, getByRole, getByTestId } = render(<LocationPermissionScreen />);
+    const { getByText, getByRole, getByTestId, queryByText, UNSAFE_getByProps } = render(<LocationPermissionScreen />);
 
-    expect(flatten(getByText('location services').props.style)).toMatchObject({ color: '#621407', fontSize: 28, lineHeight: 42 });
+    expect(queryByText('location services')).toBeNull();
+    expect(getByTestId('location-title-art').type).toBe('Image');
+    expect(flatten(UNSAFE_getByProps({ testID: 'location-pin-art' }).props.style)).toMatchObject({ width: 43, height: 61 });
     expect(getByText('we use your location to show you potential matches in your area.')).toBeTruthy();
     expect(flatten(getByRole('button', { name: 'Set location services' }).props.style)).toMatchObject({
-      width: '86%', minHeight: 52, borderRadius: 12,
+      width: '76%', minHeight: 48, borderRadius: 12,
     });
-    expect(flatten(getByRole('button', { name: 'Not now' }).props.style)).toMatchObject({ marginTop: 8 });
+    expect(flatten(getByRole('button', { name: 'Not now' }).props.style)).toMatchObject({ marginTop: 16 });
     expect(flatten(getByTestId('location-permission-body').props.style)).toMatchObject({ paddingBottom: 0 });
   });
 });

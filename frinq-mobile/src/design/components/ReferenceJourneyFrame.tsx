@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { color } from '../tokens/colors';
@@ -12,16 +12,25 @@ type Props = {
   onBack?: () => void;
   wave?: boolean;
   scroll?: boolean;
+  /** Rendered outside the scrollable area, pinned to the same bottom Y on
+   *  every screen that supplies one — independent of how tall the scrollable
+   *  content above it is. Without this, a screen with less content than the
+   *  viewport bottoms its last child out via flex, while a screen with more
+   *  content triggers real scrolling and its last child lands wherever the
+   *  content ends instead — the same "Next" arrow drifting to a different
+   *  height page to page. Only used by `scroll` screens. */
+  footer?: React.ReactNode;
 };
 
 /** Shared canvas for the reference-led pre-quiz journey. It supplies layout
  * only; individual screens own their copy, art and live controls. */
-export function ReferenceJourneyFrame({ children, tone = 'cream', onBack, wave = false, scroll = false }: Props) {
+export function ReferenceJourneyFrame({ children, tone = 'cream', onBack, wave = false, scroll = false, footer }: Props) {
   const maroon = tone === 'maroon';
   const body = <View style={styles.content}>{children}</View>;
 
   return (
     <SafeAreaView testID="reference-journey-frame" style={[styles.fill, maroon ? styles.maroon : styles.cream]} edges={['top', 'bottom', 'left', 'right']}>
+      <StatusBar barStyle={maroon ? 'light-content' : 'dark-content'} backgroundColor={maroon ? color.bg.milestone : color.bg.canvas} />
       {onBack && (
         <PressableScale accessibilityRole="button" accessibilityLabel="Go back" onPress={onBack} haptic={false} style={styles.back}>
           <Image source={require('../../../Public/Assets/Back arrow.png')} style={[styles.backImage, maroon && styles.inverted]} resizeMode="contain" />
@@ -29,9 +38,12 @@ export function ReferenceJourneyFrame({ children, tone = 'cream', onBack, wave =
       )}
       {wave && <ReferenceWave tone={tone} />}
       {scroll ? (
-        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
-          {body}
-        </ScrollView>
+        <>
+          <ScrollView style={styles.scrollFlex} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
+            {body}
+          </ScrollView>
+          {!!footer && <View style={styles.footerWrap}>{footer}</View>}
+        </>
       ) : body}
     </SafeAreaView>
   );
@@ -53,7 +65,9 @@ const styles = StyleSheet.create({
   cream: { backgroundColor: color.bg.canvas },
   maroon: { backgroundColor: color.bg.milestone },
   content: { flex: 1, width: '100%', maxWidth: 520, alignSelf: 'center', paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
+  scrollFlex: { flex: 1 },
   scrollContent: { flexGrow: 1, alignItems: 'center' },
+  footerWrap: { width: '100%', maxWidth: 520, alignSelf: 'center', paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
   back: { position: 'absolute', zIndex: 2, top: spacing.xxl, left: spacing.lg, width: touchTarget.preferred, height: touchTarget.preferred, justifyContent: 'center', alignItems: 'center' },
   backImage: { width: 32, height: 24, tintColor: color.brand.maroon },
   inverted: { tintColor: color.brand.cream },

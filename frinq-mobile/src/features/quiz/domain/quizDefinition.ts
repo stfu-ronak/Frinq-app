@@ -111,6 +111,9 @@ export interface RapidFireStep extends BaseStep {
   answerKey: string;
   pairs: readonly RapidFirePair[];
   secondsPerPair: number;
+  /** Static framing question shown above every pair (Figma node 163:2121) —
+   *  the pairs are all behavioral either/or traits, so one caption fits all. */
+  prompt?: string;
 }
 
 export interface OpinionPair {
@@ -205,17 +208,18 @@ export const ONBOARDING_PREFIX: readonly QuizStep[] = [
  *  Also the fallback when fetching the admin-authored set fails. */
 export const DEFAULT_CONTENT_STEPS: readonly QuizStep[] = [
   {
-    id: 'social_type', kind: 'singleChoiceCard', section: 'who you are', answerKey: 'social_type',
+    id: 'social_type', kind: 'singleChoiceList', section: 'who you are', answerKey: 'social_type',
     prompt: 'what is your social type?',
     options: [
-      { value: 'introvert', label: 'introvert', description: 'i like to be alone mostly. people drain my energy.' },
-      { value: 'selective extrovert', label: 'selective extrovert', description: 'very selective about who i let in. everyone passes a filter.' },
-      { value: 'ambivert', label: 'ambivert', description: "i like people but i need my space equally. it's a balance." },
-      { value: 'extrovert', label: 'extrovert', description: 'people give me energy. alone too long and i start to unravel.' },
+      { value: 'introvert', label: 'introvert' },
+      { value: 'extrovert', label: 'extrovert' },
+      { value: 'ambivert', label: 'ambivert' },
+      { value: 'selective introvert', label: 'selective introvert' },
     ],
   },
   {
     id: 'scene', kind: 'multiChoiceTags', section: 'who you are', answerKey: 'scene', prompt: "what's your scene?", min: 1,
+    layout: 'list',
     options: [
       "i don't drink or smoke.", 'a beer or two. socially.', 'hard drinks when i drink.',
       "i smoke or vape. that's my thing.", 'weed is how i decompress.', 'some combination depending on the night.',
@@ -363,6 +367,7 @@ export const DEFAULT_CONTENT_STEPS: readonly QuizStep[] = [
   { id: 'rapid_intro', kind: 'intro', section: 'rapid-fire', heading: 'okay, that was heavy. let’s dial it back.', body: 'rapid fire. 10 seconds each. go with your gut.', ctaLabel: 'tap anywhere to begin' },
   {
     id: 'rapid_fire', kind: 'rapidFire', section: 'rapid-fire', answerKey: 'rapid', secondsPerPair: 10,
+    prompt: 'what kind of person are you?',
     pairs: [
       { a: 'confront immediately', b: 'take time to process' },
       { a: 'deep 2 am talks', b: 'random bakchodi' },

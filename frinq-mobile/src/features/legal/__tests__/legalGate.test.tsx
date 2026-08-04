@@ -79,25 +79,26 @@ describe('LegalAcceptanceScreen — preauth mode', () => {
     expect(mockSavePendingAcceptance).toHaveBeenCalledWith({ termsVersion: 'draft-1', privacyVersion: 'draft-1', locale: 'en-IN' });
   });
 
-  it('shows only the reference Accept action below the privacy content', async () => {
-    const { getByRole, queryByText, queryByRole } = render(
+  it('shows the reference Accept action plus a "change or reject" link to view the privacy document', async () => {
+    const { getByRole, queryByRole } = render(
       <LegalAcceptanceScreen mode={{ kind: 'preauth', onContinue: jest.fn() }} />,
     );
     expect(getByRole('button', { name: 'Accept' })).toBeTruthy();
-    expect(queryByText('change or reject')).toBeNull();
     expect(queryByRole('link', { name: 'Terms of Service' })).toBeNull();
+    fireEvent.press(getByRole('button', { name: 'change or reject' }));
+    expect(mockNavigate).toHaveBeenCalledWith('LegalDocument', { doc: 'privacy' });
     await waitFor(() => expect(mockFetchCurrentLegal).toHaveBeenCalled());
   });
 
-  it('uses the reference privacy copy, palette, and compact primary button', async () => {
+  it('uses the reference privacy copy, palette, and the shared reference-journey button geometry', async () => {
     const { getByText, getByRole } = render(
       <LegalAcceptanceScreen mode={{ kind: 'preauth', onContinue: jest.fn() }} />,
     );
 
-    expect(flatten(getByText('your privacy matters').props.style)).toMatchObject({ color: '#621407', fontSize: 28, lineHeight: 42 });
+    expect(flatten(getByText('your privacy matters').props.style)).toMatchObject({ color: '#621407', fontSize: 32, lineHeight: 40 });
     expect(getByText('We store and process data from your device to provide features in the app and improve your experience')).toBeTruthy();
     expect(flatten(getByRole('button', { name: 'Accept' }).props.style)).toMatchObject({
-      width: '86%', minHeight: 52, borderRadius: 12,
+      width: '76%', minHeight: 48, borderRadius: 12,
     });
     await waitFor(() => expect(mockFetchCurrentLegal).toHaveBeenCalled());
   });

@@ -7,10 +7,11 @@ see their module docstrings.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
-from typing import Any, Callable
+from typing import Any, Callable, Final
 
 from app.config import settings
 from app.core.ai import failover
@@ -34,6 +35,33 @@ _HARD_WORDS = re.compile(r"\b(nuanced|concrete|tendency|reciprocal|prolonged|cat
 _LETTER_STRETCH = re.compile(r"\b[a-z]*([a-z])\1{3,}[a-z]*\b", re.I)
 _FIELDS = ("typeDefinition", "quickRows.bring", "quickRows.notice", "quickRows.connect", "quickRows.care", "detailedOpening", "portrait.0", "portrait.1", "portrait.2", "portrait.3", "portrait.4", "portrait.5", "shareCaption")
 _QUICK_ROW_WORDS = {"bring": (30, 48), "notice": (30, 48), "connect": (30, 48), "care": (30, 48)}
+# The frontend writes this literal sentinel (story/opinions_why pages) when
+# someone answers by voice and never types a transcript -- there is no
+# speech-to-text step anywhere in this pipeline yet (the `transcripts` param
+# below is real plumbing, but no live call site ever passes it). Without
+# this filter the sentinel string itself gets sent to the model as if it
+# were the person's actual answer.
+_VOICE_PLACEHOLDER = "[voice response]"
+# Base output-token ceilings, raised from the original 5200/7200: "medium"
+# reasoning effort can spend a large, variable share of the budget on
+# reasoning tokens before any visible text comes out, and the tighter
+# ceilings were routinely truncating stage2 mid-JSON in production
+# (Responses API status="incomplete", reason="max_output_tokens").
+_STAGE1_BASE_TOKENS: Final[int] = 6500
+_STAGE2_BASE_TOKENS: Final[int] = 9000
+# Stage1 runs at "low" reasoning effort (mechanical evidence-tagging, not
+# creative writing); stage2 keeps the configured effort (default "medium")
+# since it writes the actual user-facing voice.
+_STAGE1_MAX_ROUNDS: Final[int] = 3
+_STAGE1_REASONING_EFFORT: Final[str] = "low"
+_STAGE2_MAX_REPAIRS: Final[int] = 3
+# A submission stuck in retries across three providers' worth of latency
+# has no other ceiling on total wall-clock time -- give up after this long
+# so a hung generation doesn't tie up a shared provider semaphore slot (and
+# therefore every other concurrent submission) indefinitely; the existing
+# primary/fallback + circuit breaker in generate_page2_summary_with_fallback
+# treats a timeout the same as any other failure.
+_OVERALL_DEADLINE: Final[float] = 150.0
 
 
 def _clean(value: Any, pii: PIIContext) -> Any:
@@ -55,7 +83,7 @@ def build_page2_input(answers: dict[str, Any], transcripts: dict[str, Any] | Non
     for field, value in enriched.items():
         if field not in SOURCE_FIELDS:
             continue
-        if field in _IDENTITY or value in (None, "", []):
+        if field in _IDENTITY or value in (None, "", [], _VOICE_PLACEHOLDER):
             continue
         modality = "voice_transcript" if field in transcript_values and transcript_values[field] else "text"
         if modality == "voice_transcript":
@@ -119,7 +147,7 @@ def validate_stage2(data: dict[str, Any], evidence: dict[str, Any]) -> list[str]
     if len(_LETTER_STRETCH.findall(all_text)) > 2: errors.append("too many conversational letter stretches")
     for field, text in _public_fields(report).items():
         if not isinstance(text, str) or not text.strip() or text != text.lower(): errors.append(f"{field} must be non-empty lowercase copy")
-        if text and text[-1] not in ".!?\"'’:)‘": errors.append(f"{field} must end as a sentence")
+        if text and text[-1] not in ".!?\"'”:)’": errors.append(f"{field} must end as a sentence")
     emap = data.get("evidenceMap", []); mapped = [x.get("reportField") for x in emap]
     if set(mapped) != set(_FIELDS) or len(mapped) != 13: errors.append("evidenceMap must cover each public field exactly once")
     valid_ids = {x.get("id") for x in evidence.get("evidence", [])}; counts: dict[str, int] = {}

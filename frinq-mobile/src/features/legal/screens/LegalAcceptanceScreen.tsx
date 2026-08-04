@@ -3,8 +3,8 @@ import { Image, Platform, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { ReferenceJourneyFrame } from '../../../design/components/ReferenceJourneyFrame';
 import { BrandHeading, BodyText } from '../../../design/components/Text';
-import { PrimaryButton } from '../../../design/components/PrimaryButton';
-import { radius, spacing } from '../../../design/tokens/spacing';
+import { ReferenceCtaFooter } from '../../auth/components/ReferenceCtaFooter';
+import { spacing } from '../../../design/tokens/spacing';
 import { useSession } from '../../../services/session/sessionContext';
 import { fetchCurrentLegal, acceptLegal } from '../../auth/authService';
 import { savePendingAcceptance } from '../pendingAcceptance';
@@ -90,11 +90,18 @@ export function LegalAcceptanceScreen({ mode }: { mode: Mode }) {
       <View style={styles.body}>
         <Image source={require('../../../../Public/Assets/Privacy.png')} style={styles.icon} resizeMode="contain" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
         <BrandHeading tone="brand" style={styles.heading}>your privacy{`\n`}matters</BrandHeading>
-        <BodyText tone="muted" style={styles.copy}>We store and process data from your device to provide features in the app and improve your experience</BodyText>
-        <BodyText tone="muted" style={styles.details}>You can opt in or out in your privacy setting. find out more in our privacy policy.</BodyText>
+        <BodyText tone="muted" variant="intro" style={styles.copy}>We store and process data from your device to provide features in the app and improve your experience</BodyText>
+        <BodyText tone="muted" variant="intro" style={styles.details}>You can opt in or out in your privacy setting. find out more in our privacy policy.</BodyText>
+        {!!error && <BodyText variant="caption" tone="error" accessibilityLiveRegion="polite" style={styles.error}>{error}</BodyText>}
+        <ReferenceCtaFooter
+          label="Accept"
+          onPress={handleAccept}
+          disabled={submitting}
+          busy={submitting}
+          secondaryLabel="change or reject"
+          onSecondaryPress={() => navigation.navigate('LegalDocument', { doc: 'privacy' })}
+        />
       </View>
-      {!!error && <BodyText variant="caption" tone="error" accessibilityLiveRegion="polite" style={styles.error}>{error}</BodyText>}
-      <PrimaryButton label="Accept" onPress={handleAccept} disabled={submitting} busy={submitting} style={styles.cta} />
     </ReferenceJourneyFrame>
   );
 }
@@ -102,9 +109,8 @@ export function LegalAcceptanceScreen({ mode }: { mode: Mode }) {
 const styles = StyleSheet.create({
   body: { flex: 1, alignItems: 'center', paddingTop: 86, paddingBottom: 0 },
   icon: { width: 62, height: 62, marginBottom: spacing.xxl },
-  heading: { textAlign: 'center', fontSize: 28, lineHeight: 42, marginBottom: spacing.xs },
-  copy: { maxWidth: 310, textAlign: 'center', fontSize: 14, lineHeight: 21 },
-  details: { maxWidth: 310, textAlign: 'center', fontSize: 14, lineHeight: 21, marginTop: spacing.xl },
+  heading: { textAlign: 'center', fontSize: 32, lineHeight: 40, marginBottom: spacing.xs },
+  copy: { maxWidth: 310, textAlign: 'center' },
+  details: { maxWidth: 310, textAlign: 'center', marginTop: spacing.xl },
   error: { marginBottom: spacing.sm, textAlign: 'center' },
-  cta: { alignSelf: 'center', width: '86%', minHeight: 52, borderRadius: radius.md, marginTop: spacing.md },
 });

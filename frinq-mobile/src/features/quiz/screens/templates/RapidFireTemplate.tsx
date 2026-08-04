@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { QuizScreenFrame } from '../../components/QuizScreenFrame';
-import { ChoicePill } from '../../../../design/components/ChoicePill';
 import { RapidFireTimer } from '../../../../design/components/RapidFireTimer';
-import { BodyText } from '../../../../design/components/Text';
+import { BodyText, BrandHeading } from '../../../../design/components/Text';
 import { PressableScale } from '../../../../design/motion/PressableScale';
-import { spacing, touchTarget } from '../../../../design/tokens/spacing';
+import { fontFamily } from '../../../../design/tokens/typography';
+import { spacing, touchTarget, radius } from '../../../../design/tokens/spacing';
 import { color } from '../../../../design/tokens/colors';
 import { RapidFireStep } from '../../domain/quizDefinition';
 
@@ -17,6 +17,23 @@ type Props = {
   onComplete: (answers: string[]) => void;
   onBack?: () => void;
 };
+
+/** Bespoke rectangular choice, distinct from BoxChoice — Figma node 163:2121
+ *  ("Rapid Fire" is this app's one visually-different quiz screen): 327x98,
+ *  radius 12, thin maroon outline, filled maroon + white text when picked. */
+function RapidChoice({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
+  return (
+    <PressableScale
+      accessibilityRole="radio"
+      accessibilityLabel={label}
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={[styles.choice, { backgroundColor: selected ? color.control.primaryBg : 'transparent' }]}
+    >
+      <BodyText style={{ ...styles.choiceText, color: selected ? color.control.primaryText : color.brand.maroon }}>{label}</BodyText>
+    </PressableScale>
+  );
+}
 
 function DotProgress({ total, current }: { total: number; current: number }) {
   return (
@@ -78,32 +95,47 @@ export function RapidFireTemplate({ step, onComplete, onBack }: Props) {
   if (done) return null; // onComplete already fired; parent navigates away
 
   return (
-    <QuizScreenFrame stepId={step.id} section={step.section} onBack={index === 0 ? onBack : undefined} showProgress={false}>
+    <QuizScreenFrame
+      stepId={step.id}
+      headerVariant="counter"
+      onBack={index === 0 ? onBack : undefined}
+      footer={
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel="Next"
+          accessibilityState={{ disabled: !chosen }}
+          disabled={!chosen}
+          onPress={() => chosen && choose(chosen)}
+          style={styles.next}
+        >
+          <BodyText style={{ ...styles.nextText, color: chosen ? color.brand.maroon : color.text.disabled }}>Next</BodyText>
+        </PressableScale>
+      }
+    >
+      <BrandHeading variant="display" tone="brand" style={styles.title}>Rapid Fire</BrandHeading>
       <DotProgress total={step.pairs.length} current={index} />
       <RapidFireTimer secondsLeft={secondsLeft} total={step.secondsPerPair} style={styles.timer} />
+      {!!step.prompt && (
+        <BodyText style={styles.prompt}>{step.prompt}</BodyText>
+      )}
       <View style={{ gap: spacing.md }}>
-        <ChoicePill label={pair.a} selected={chosen === pair.a} onPress={() => setChosen(pair.a)} />
-        <ChoicePill label={pair.b} selected={chosen === pair.b} onPress={() => setChosen(pair.b)} />
+        <RapidChoice label={pair.a} selected={chosen === pair.a} onPress={() => setChosen(pair.a)} />
+        <RapidChoice label={pair.b} selected={chosen === pair.b} onPress={() => setChosen(pair.b)} />
       </View>
-      <PressableScale
-        accessibilityRole="button"
-        accessibilityLabel="Next"
-        accessibilityState={{ disabled: !chosen }}
-        disabled={!chosen}
-        onPress={() => chosen && choose(chosen)}
-        style={styles.next}
-      >
-        <BodyText variant="bodyStrong" tone={chosen ? 'primary' : 'disabled'}>Next</BodyText>
-      </PressableScale>
     </QuizScreenFrame>
   );
 }
 
 const styles = StyleSheet.create({
+  title: { fontSize: 24, lineHeight: 48, textAlign: 'center', marginBottom: spacing.lg },
   dotsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.xl },
   dotCol: { alignItems: 'center', gap: spacing.xxs },
   dot: { width: 8, height: 8, borderRadius: 999, backgroundColor: color.border.subtle },
   dotDone: { backgroundColor: color.state.selected },
   timer: { alignSelf: 'center', marginBottom: spacing.xl },
-  next: { minHeight: touchTarget.min, alignSelf: 'center', justifyContent: 'center', marginTop: spacing.lg },
+  prompt: { fontFamily: fontFamily.body, fontSize: 20, textAlign: 'center', marginBottom: spacing.lg },
+  choice: { width: '100%', minHeight: 98, borderWidth: 1, borderColor: color.brand.maroon, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.lg },
+  choiceText: { fontFamily: fontFamily.bodyMedium, fontSize: 14, textAlign: 'center' },
+  next: { minHeight: touchTarget.preferred, alignSelf: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl },
+  nextText: { fontFamily: fontFamily.bodySemiBold, fontSize: 20 },
 });

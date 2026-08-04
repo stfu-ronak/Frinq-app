@@ -30,10 +30,8 @@ export function VoiceOrTextTemplate({ step, submissionId, value, onChange, onCon
   return (
     <QuizScreenFrame
       stepId={step.id}
-      section={step.section}
       onBack={onBack}
-      showProgress={false}
-      showStepCounter
+      headerVariant="counter"
       continueLabel="continue"
       onContinue={onContinue}
       continueDisabled={!valid}

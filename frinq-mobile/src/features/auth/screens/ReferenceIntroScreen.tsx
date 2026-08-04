@@ -1,57 +1,95 @@
-import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useEffect } from 'react';
+import { Image, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import Svg, { Path } from 'react-native-svg';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { ReferenceJourneyFrame } from '../../../design/components/ReferenceJourneyFrame';
-import { BrandHeading, BodyText } from '../../../design/components/Text';
 import { PressableScale } from '../../../design/motion/PressableScale';
-import { color } from '../../../design/tokens/colors';
-import { radius, spacing } from '../../../design/tokens/spacing';
+import { useReducedMotion } from '../../../design/motion/useReducedMotion';
+import { spacing, touchTarget } from '../../../design/tokens/spacing';
+import { motion } from '../../../design/tokens/motion';
 
 /** Reference 3: explains Frinq's real-world connection premise. */
 export function ReferenceIntroScreen() {
   const navigation = useNavigation<any>();
   return (
-    <ReferenceJourneyFrame tone="maroon" onBack={() => navigation.goBack()}>
+    <ReferenceJourneyFrame tone="maroon">
       <View style={styles.body}>
         <ReferenceIntroPattern />
-        <BrandHeading testID="reference-intro-logo" tone="onMaroon" style={styles.logo}>frinq</BrandHeading>
-        <BrandHeading testID="reference-intro-heading" tone="onMaroon" style={styles.heading}>match with{`\n`}the right people{`\n`}for real life{`\n`}activities.</BrandHeading>
+        <Image testID="reference-intro-logo" source={require('../../../../Public/Assets/frinq.png')} style={styles.logo} resizeMode="contain" />
+        <View style={styles.headingWrap}>
+          <Image
+            testID="reference-intro-heading"
+            source={require('../../../../Public/Assets/match with the right people for real life activities..png')}
+            style={styles.heading}
+            resizeMode="contain"
+          />
+        </View>
         <PressableScale accessibilityRole="button" accessibilityLabel="Find your Frinq" onPress={() => navigation.navigate('DudesIntro')} style={styles.cta}>
-          <BodyText variant="bodyStrong" style={styles.ctaText}>Find your Frinq</BodyText>
+          <Image source={require('../../../../Public/Assets/Frame 406 (1).png')} style={styles.ctaImage} resizeMode="contain" />
         </PressableScale>
       </View>
     </ReferenceJourneyFrame>
   );
 }
 
+const AnimatedImage = Animated.createAnimatedComponent(Image);
+
+/** The 5 concentric lobed rings behind the heading, exported individually
+ *  (Public/Assets/Union[-N].png), smallest-to-largest, each bottom-anchored. */
+const RING_ASSETS = [
+  { testID: 'reference-intro-lobed-pattern', source: require('../../../../Public/Assets/Union.png'), aspectRatio: 402 / 495 },
+  { source: require('../../../../Public/Assets/Union-1.png'), aspectRatio: 402 / 563 },
+  { source: require('../../../../Public/Assets/Union-2.png'), aspectRatio: 402 / 627 },
+  { source: require('../../../../Public/Assets/Union-3.png'), aspectRatio: 402 / 691 },
+  { source: require('../../../../Public/Assets/Union-4.png'), aspectRatio: 402 / 783 },
+];
+
 function ReferenceIntroPattern() {
-  const lobePath = 'M195 205 C145 205 105 245 105 300 C45 300 0 345 0 405 C0 465 45 510 105 510 C105 565 145 605 195 605 C245 605 285 565 285 510 C345 510 390 465 390 405 C390 345 345 300 285 300 C285 245 245 205 195 205 Z';
   return (
-    <View pointerEvents="none" style={styles.pattern}>
-      <Svg testID="reference-intro-pattern" width="100%" height="100%" viewBox="0 0 390 844" preserveAspectRatio="xMidYMid slice" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-        {[0.8, 1, 1.23, 1.47, 1.71].map((scale, index) => (
-          <Path
-            key={scale}
-            testID={index === 0 ? 'reference-intro-lobed-pattern' : undefined}
-            d={lobePath}
-            transform={`translate(195 405) scale(${scale}) translate(-195 -405)`}
-            stroke={color.brand.peach}
-            strokeOpacity={0.3}
-            strokeWidth={0.55}
-            fill="none"
-          />
-        ))}
-      </Svg>
+    <View testID="reference-intro-pattern" pointerEvents="none" style={styles.pattern} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      {RING_ASSETS.map((ring, index) => (
+        <AnimatedRing key={index} index={index} testID={ring.testID} source={ring.source} aspectRatio={ring.aspectRatio} />
+      ))}
+    </View>
+  );
+}
+
+/** Smallest ring blooms in first, each larger ring following with a stagger
+ *  step — a small-to-big reveal outward from the centre. The percent-width +
+ *  aspectRatio sizing lives on the plain outer View (proven to resolve
+ *  correctly, unlike putting both on the animated node itself — see the
+ *  heading/CTA fix below); the animated Image just fills that box. */
+function AnimatedRing({ source, aspectRatio, index, testID }: { source: number; aspectRatio: number; index: number; testID?: string }) {
+  const reduced = useReducedMotion();
+  const scale = useSharedValue(reduced ? 1 : 0.6);
+
+  useEffect(() => {
+    if (reduced) return;
+    scale.value = withDelay(index * motion.enter.staggerStep, withTiming(1, { duration: motion.enter.duration, easing: Easing.bezier(...motion.enter.easing) }));
+  }, [reduced, index, scale]);
+
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
+  return (
+    <View style={[styles.ringWrap, { aspectRatio }]}>
+      <AnimatedImage testID={testID} source={source} style={[styles.ring, animatedStyle]} resizeMode="stretch" />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { flex: 1, alignItems: 'center', justifyContent: 'space-between', paddingTop: 56, paddingBottom: spacing.xxl },
-  pattern: { ...StyleSheet.absoluteFill, overflow: 'hidden' },
-  logo: { fontSize: 18, lineHeight: 30, textAlign: 'center' },
-  heading: { width: '100%', fontSize: 28, lineHeight: 42, textAlign: 'center', marginTop: 'auto', marginBottom: 'auto' },
-  cta: { width: '86%', minHeight: 52, borderRadius: radius.md, backgroundColor: color.brand.cream, alignItems: 'center', justifyContent: 'center' },
-  ctaText: { color: color.brand.maroon, fontSize: 22, lineHeight: 28 },
+  body: { flex: 1, alignItems: 'center', justifyContent: 'space-between', paddingTop: 56, paddingBottom: 0 },
+  // Cancels ReferenceJourneyFrame's content padding so the rings bleed flush
+  // to the device edges instead of sitting inset inside the padded column.
+  pattern: { position: 'absolute', top: 0, bottom: 0, left: -spacing.xl, right: -spacing.xl, overflow: 'hidden' },
+  ringWrap: { position: 'absolute', bottom: 0, left: 0, width: '100%' },
+  ring: { width: '100%', height: '100%' },
+  logo: { width: 100, height: 100 / (260 / 144), alignSelf: 'center' },
+  headingWrap: { width: '82%', aspectRatio: 1007 / 897, marginTop: 'auto', marginBottom: 'auto' },
+  heading: { width: '100%', height: '100%' },
+  // Matches ReferenceCtaFooter's geometry/offset (76% width, and the same
+  // bottom reserve used when a screen has no secondary link below its CTA)
+  // so this image-based button lines up with the rest of the reference journey.
+  cta: { width: '76%', aspectRatio: 1228 / 192, marginBottom: touchTarget.min + spacing.lg, alignItems: 'center', justifyContent: 'center' },
+  ctaImage: { width: '100%', height: '100%' },
 });

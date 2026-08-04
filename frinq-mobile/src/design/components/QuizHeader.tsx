@@ -1,44 +1,39 @@
 import React from 'react';
-import { StyleSheet, View, ViewStyle } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
-import { color } from '../tokens/colors';
+import { Image, StyleSheet, View } from 'react-native';
 import { spacing, touchTarget } from '../tokens/spacing';
 import { BodyText } from './Text';
 import { PressableScale } from '../motion/PressableScale';
 import { WaveDivider } from './WaveDivider';
-import { GradientBlob } from './GradientBlob';
 
 type Props = {
-  section: string;
   onBack?: () => void;
-  style?: ViewStyle;
-  /** When set, replaces the uppercase section label with this text verbatim
-   *  (e.g. "Question 23 out of 36") — the text+voice screen's counter mode. */
+  /** "Question N out of Total" — every quiz-proper question (Rapid Fire,
+   *  Opinions, Voice/Text, Preferences) shows this; "who you are"-style MCQ
+   *  screens (card/list/tags, glow header) show nothing here. */
   counterLabel?: string;
 };
 
-/** Quiz section header with an optional back affordance, the shared wave
- *  accent, and gradient glow — every quiz screen (Rapid Fire included)
- *  renders through this one component, so all of them stay visually
- *  consistent for free. The section label is a screen-reader header; the
- *  chevron art and wave/glow are decorative. */
-export function QuizHeader({ section, onBack, style, counterLabel }: Props) {
+/** Fixed (non-scrolling) chrome shared by every quiz question: back arrow,
+ *  optional progress counter, and the decorative wave — Figma nodes
+ *  163:1663/163:1686 (back arrow position) and "Line 14" (the wave). The
+ *  glow (Figma "Ellipse 40") is a separate sibling in QuizScreenFrame, not
+ *  rendered here — this wrapper doesn't clip overflow, that one does. */
+export function QuizHeader({ onBack, counterLabel }: Props) {
   return (
     <View style={styles.wrap}>
-      <GradientBlob />
-      <View style={[styles.row, style]}>
+      <View style={styles.row}>
         {onBack ? (
           <PressableScale accessibilityRole="button" accessibilityLabel="Go back" onPress={onBack} haptic={false} style={styles.back}>
-            <Svg width={20} height={16} viewBox="0 0 20 16" accessibilityElementsHidden importantForAccessibility="no">
-              <Path d="M8 1.5L1.5 8L8 14.5M2 8H19" stroke={color.text.primary} strokeWidth={1.5} fill="none" />
-            </Svg>
+            <Image source={require('../../../Public/Assets/Back arrow.png')} style={styles.backImage} resizeMode="contain" />
           </PressableScale>
         ) : (
           <View style={styles.back} />
         )}
-        <BodyText variant="overline" tone="secondary" accessibilityRole="header" style={styles.section}>
-          {counterLabel ?? section.toUpperCase()}
-        </BodyText>
+        {!!counterLabel && (
+          <BodyText variant="caption" tone="muted" accessibilityRole="header" style={styles.counter}>
+            {counterLabel}
+          </BodyText>
+        )}
         <View style={styles.back} />
       </View>
       <WaveDivider />
@@ -47,8 +42,9 @@ export function QuizHeader({ section, onBack, style, counterLabel }: Props) {
 }
 
 const styles = StyleSheet.create({
-  wrap: { overflow: 'hidden' },
-  row: { flexDirection: 'row', alignItems: 'center', minHeight: touchTarget.preferred },
-  back: { width: touchTarget.preferred, height: touchTarget.preferred, justifyContent: 'center' },
-  section: { flex: 1, textAlign: 'center', letterSpacing: 2, paddingHorizontal: spacing.sm },
+  wrap: { width: '100%' },
+  row: { flexDirection: 'row', alignItems: 'center', minHeight: touchTarget.preferred, paddingHorizontal: spacing.lg },
+  back: { width: touchTarget.preferred, height: touchTarget.preferred, justifyContent: 'center', alignItems: 'flex-start' },
+  backImage: { width: 28, height: 13 },
+  counter: { flex: 1, textAlign: 'center', paddingHorizontal: spacing.sm },
 });

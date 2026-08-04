@@ -10,19 +10,18 @@ function flatten(style: unknown) {
 }
 
 describe('ReferenceIntroScreen', () => {
-  it('renders the supplied lobed-line artwork behind its content', () => {
-    const { UNSAFE_getByProps } = render(<ReferenceIntroScreen />);
+  it('renders the supplied lobed-ring artwork behind its content, no back arrow', () => {
+    const { UNSAFE_getByProps, queryByLabelText } = render(<ReferenceIntroScreen />);
     expect(UNSAFE_getByProps({ testID: 'reference-intro-pattern' })).toBeTruthy();
     expect(UNSAFE_getByProps({ testID: 'reference-intro-lobed-pattern' })).toBeTruthy();
+    expect(queryByLabelText('Go back')).toBeNull();
   });
 
-  it('uses the compact reference scale and rectangular CTA proportions', () => {
+  it('uses artwork (not drawn text) for the logo, heading, and CTA', () => {
     const { getByTestId, getByRole } = render(<ReferenceIntroScreen />);
 
-    expect(flatten(getByTestId('reference-intro-logo').props.style)).toMatchObject({ fontSize: 18, lineHeight: 30 });
-    expect(flatten(getByTestId('reference-intro-heading').props.style)).toMatchObject({ fontSize: 28, lineHeight: 42 });
-    expect(flatten(getByRole('button', { name: 'Find your Frinq' }).props.style)).toMatchObject({
-      width: '86%', minHeight: 52, borderRadius: 12,
-    });
+    expect(getByTestId('reference-intro-logo').type).toBe('Image');
+    expect(getByTestId('reference-intro-heading').type).toBe('Image');
+    expect(flatten(getByRole('button', { name: 'Find your Frinq' }).props.style)).toMatchObject({ width: '76%' });
   });
 });

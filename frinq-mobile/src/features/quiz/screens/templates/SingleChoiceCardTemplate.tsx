@@ -3,6 +3,7 @@ import { View } from 'react-native';
 import { QuizScreenFrame } from '../../components/QuizScreenFrame';
 import { ChoiceCard } from '../../../../design/components/ChoiceCard';
 import { TextField } from '../../../../design/components/TextField';
+import { BrandHeading } from '../../../../design/components/Text';
 import { spacing } from '../../../../design/tokens/spacing';
 import { SingleChoiceCardStep } from '../../domain/quizDefinition';
 
@@ -30,12 +31,15 @@ export function SingleChoiceCardTemplate({ step, value, onSelect, onBack }: Prop
   return (
     <QuizScreenFrame
       stepId={step.id}
-      section={step.section}
       onBack={onBack}
+      headerVariant="glow"
       continueLabel={step.allowCustom ? 'continue' : undefined}
       onContinue={step.allowCustom ? () => onSelect(isKnownOption ? value : customText.trim()) : undefined}
       continueDisabled={step.allowCustom ? !canContinue : undefined}
     >
+      <BrandHeading variant="display" tone="brand" style={{ fontSize: 32, lineHeight: 48, textAlign: 'center', marginBottom: spacing.xl }}>
+        {step.prompt}
+      </BrandHeading>
       <View style={{ gap: spacing.md }}>
         {step.options.map((opt) => (
           <ChoiceCard

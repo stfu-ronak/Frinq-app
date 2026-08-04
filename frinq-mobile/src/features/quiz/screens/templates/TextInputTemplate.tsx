@@ -44,8 +44,8 @@ export function TextInputTemplate({ step, value, onChange, onContinue, onBack }:
   return (
     <QuizScreenFrame
       stepId={step.id}
-      section={step.section}
       onBack={onBack}
+      headerVariant="counter"
       continueLabel="continue"
       onContinue={onContinue}
       continueDisabled={!valid}

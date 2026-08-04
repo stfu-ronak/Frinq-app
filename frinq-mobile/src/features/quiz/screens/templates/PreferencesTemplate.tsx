@@ -43,9 +43,8 @@ export function PreferencesTemplate({ step, values, onChange, onContinue, onBack
   return (
     <QuizScreenFrame
       stepId={step.id}
-      section={step.section}
       onBack={index > 0 || onBack ? handleBack : undefined}
-      showProgress={false}
+      headerVariant="counter"
       continueLabel="continue"
       onContinue={handleContinue}
       continueDisabled={values[index] === undefined}

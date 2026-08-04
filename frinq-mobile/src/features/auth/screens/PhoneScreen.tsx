@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { Image, StyleSheet, TextInput, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { ReferenceJourneyFrame } from '../../../design/components/ReferenceJourneyFrame';
-import { BrandHeading, BodyText } from '../../../design/components/Text';
-import { PrimaryButton } from '../../../design/components/PrimaryButton';
+import { BodyText } from '../../../design/components/Text';
+import { ReferenceCtaFooter } from '../components/ReferenceCtaFooter';
 import { color } from '../../../design/tokens/colors';
-import { radius, spacing, touchTarget } from '../../../design/tokens/spacing';
+import { radius, spacing } from '../../../design/tokens/spacing';
 import { useSession } from '../../../services/session/sessionContext';
 import { sendOtp } from '../authService';
 import { track } from '../../../services/telemetry/analytics';
@@ -36,26 +36,28 @@ export function PhoneScreen() {
   return (
     <ReferenceJourneyFrame onBack={() => navigation.goBack()} scroll>
       <View style={styles.body}>
-        <BrandHeading testID="phone-heading" tone="brand" style={styles.heading}>your number</BrandHeading>
+        <Image testID="phone-heading" source={require('../../../../Public/Assets/your number (1).png')} style={styles.heading} resizeMode="contain" accessibilityLabel="your number" />
         <View style={styles.phoneRow}>
-          <BodyText style={styles.country}>+91</BodyText>
-          <TextInput accessibilityLabel="Phone number" placeholder="854 5454 6161" placeholderTextColor={color.text.muted} keyboardType="phone-pad" value={digits} onChangeText={(value) => setDigits(value.replace(/\D/g, '').slice(0, 10))} style={styles.input} />
+          <View testID="phone-country-code" style={styles.country}>
+            <BodyText style={styles.countryText}>+91</BodyText>
+          </View>
+          <TextInput accessibilityLabel="Phone number" placeholder="85454 54616" placeholderTextColor={color.text.muted} keyboardType="phone-pad" value={digits} onChangeText={(value) => setDigits(value.replace(/\D/g, '').slice(0, 10))} style={styles.input} />
         </View>
         {!!error && <BodyText variant="caption" tone="error" style={styles.error}>{error}</BodyText>}
         <Image testID="phone-art" source={require('../../../../Public/Assets/telephone 1.png')} style={styles.phoneArt} resizeMode="contain" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+        <ReferenceCtaFooter label={loading ? 'Sending…' : 'Request OTP'} onPress={handleSubmit} disabled={!canSubmit} busy={loading} />
       </View>
-      <PrimaryButton label={loading ? 'Sending…' : 'Request OTP'} onPress={handleSubmit} disabled={!canSubmit} busy={loading} style={styles.cta} />
     </ReferenceJourneyFrame>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { flex: 1, alignItems: 'center', paddingTop: 86 },
-  heading: { fontSize: 28, lineHeight: 42, textAlign: 'center', marginBottom: spacing.xxxl },
+  body: { flex: 1, alignItems: 'center', paddingTop: 86, paddingBottom: 0 },
+  heading: { width: 210, height: 46, marginBottom: spacing.xxxl },
   phoneRow: { width: '100%', flexDirection: 'row', gap: spacing.sm },
-  country: { width: 70, minHeight: touchTarget.preferred, borderRadius: radius.sm, backgroundColor: color.bg.surface, textAlign: 'center', textAlignVertical: 'center', paddingTop: 12 },
-  input: { flex: 1, minHeight: touchTarget.preferred, borderWidth: 1, borderColor: color.border.subtle, borderRadius: radius.sm, paddingHorizontal: spacing.md, fontFamily: 'VastagoGrotesk-Regular', fontSize: 14, color: color.text.primary },
+  country: { width: 87, height: 49, borderRadius: radius.md, backgroundColor: color.bg.inputMuted, alignItems: 'center', justifyContent: 'center' },
+  countryText: { color: color.text.muted, fontSize: 20, lineHeight: 24, textAlign: 'center' },
+  input: { flex: 1, height: 49, borderWidth: 1, borderColor: color.bg.inputMuted, borderRadius: radius.md, paddingHorizontal: spacing.md, fontFamily: 'VastagoGrotesk-Regular', fontSize: 20, lineHeight: 24, color: color.text.primary, textAlignVertical: 'center' },
   error: { alignSelf: 'stretch', marginTop: spacing.sm },
-  phoneArt: { width: '100%', height: 160, marginTop: 140, flex: 0 },
-  cta: { alignSelf: 'center', width: '86%', minHeight: 52, borderRadius: radius.md, marginTop: spacing.lg },
+  phoneArt: { width: '100%', height: 192, marginTop: 140, flex: 0 },
 });

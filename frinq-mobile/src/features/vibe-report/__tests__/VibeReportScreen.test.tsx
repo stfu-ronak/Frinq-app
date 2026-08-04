@@ -34,6 +34,15 @@ jest.mock('../shareVibeCard', () => ({
   shareVibeCard: (...args: unknown[]) => mockShareVibeCard(...args),
 }));
 
+// The envelope's full opening sequence takes 3.6s of real animation time
+// (matching the actual on-device feel) — under reduced motion it hands off
+// to the report almost immediately instead, which is what these tests want:
+// exercising the functional reveal/share flow, not sitting through the
+// animation. A real device with reduced-motion on gets this exact path.
+jest.mock('../../../design/motion/useReducedMotion', () => ({
+  useReducedMotion: () => true,
+}));
+
 const USER = { id: 'user-1', phone: '9876543210' };
 
 function fullReport(overrides: Partial<VibeReport> = {}): VibeReport {
@@ -105,30 +114,36 @@ describe('VibeReportScreen', () => {
     expect(getByTestId('boot-splash')).toBeTruthy();
   });
 
-  it('renders the card, quote, insights, deep-summary sections, and tags when the report is done', async () => {
+  it('opens on the envelope, with the report hidden behind it until it is tapped', async () => {
     mockUseSession.mockReturnValue({ apiClient: mockApiClient(fullReport()) });
-    const { findByText, getByLabelText } = renderScreen();
+    const { findByRole, queryByText } = renderScreen();
 
-    expect(await findByText('you make people feel safe')).toBeTruthy();
-    expect(getByLabelText('Your Frinq archetype: Soft Anchor')).toBeTruthy();
-    expect(await findByText('You show up before anyone asks.')).toBeTruthy();
-    expect(await findByText('Steady wins.')).toBeTruthy();
-    expect(await findByText('steady')).toBeTruthy();
+    expect(await findByRole('button', { name: /open your friend read/i })).toBeTruthy();
+    // The written portrait only mounts once the envelope hands off.
+    expect(queryByText(/the bigger picture/i)).toBeNull();
   });
 
-  it('omits deep-summary sections gracefully when deep_summary is missing', async () => {
+  it('reveals the deck and the written portrait after the envelope is opened', async () => {
+    mockUseSession.mockReturnValue({ apiClient: mockApiClient(fullReport()) });
+    const { findByRole, findByText } = renderScreen();
+
+    fireEvent.press(await findByRole('button', { name: /open your friend read/i }));
+
+    // Lead card + the legacy-mapped portrait paragraphs.
+    expect(await findByText('the soft anchor')).toBeTruthy();
+    expect(await findByText(/the bigger picture/i)).toBeTruthy();
+    expect(await findByText('You carry more than you show.')).toBeTruthy();
+  });
+
+  it('still renders a usable read when deep_summary is missing entirely', async () => {
     mockUseSession.mockReturnValue({ apiClient: mockApiClient(fullReport({ deep_summary: null })) });
-    const { findByText, queryByText } = renderScreen();
+    const { findByRole, findByText, queryByText } = renderScreen();
 
-    expect(await findByText('grounded')).toBeTruthy(); // insights still render
-    expect(queryByText('Steady wins.')).toBeNull(); // closing_line section omitted, not shown empty
-    expect(queryByText('the read')).toBeNull();
-  });
+    fireEvent.press(await findByRole('button', { name: /open your friend read/i }));
 
-  it('renders without an illustration for an archetype with no curated asset yet', async () => {
-    mockUseSession.mockReturnValue({ apiClient: mockApiClient(fullReport({ archetype: 'Wild Card', share_card: null })) });
-    const { findByLabelText } = renderScreen();
-    expect(await findByLabelText('Your Frinq archetype: Wild Card')).toBeTruthy();
+    // Falls back to share_card copy for the type definition.
+    expect(await findByText('the soft anchor')).toBeTruthy();
+    expect(queryByText('Steady wins.')).toBeNull();
   });
 
   it('expands long AI-generated text without crashing', async () => {
@@ -136,8 +151,11 @@ describe('VibeReportScreen', () => {
     mockUseSession.mockReturnValue({
       apiClient: mockApiClient(fullReport({ deep_summary: { narrative: [longText] } })),
     });
-    const { findByText } = renderScreen();
-    expect(await findByText(longText)).toBeTruthy();
+    const { findByRole, findByText } = renderScreen();
+
+    fireEvent.press(await findByRole('button', { name: /open your friend read/i }));
+    // The portrait capitalizes each paragraph's first letter for readability.
+    expect(await findByText(`X${longText.slice(1)}`)).toBeTruthy();
   });
 
   it('shows a stale-membership message and offers retry when status is not done', async () => {
@@ -171,15 +189,18 @@ describe('VibeReportScreen', () => {
     expect(await findByRole('alert')).toBeTruthy();
   });
 
-  it('shares the card via shareVibeCard on button press', async () => {
+  it('shares the visible card via shareVibeCard, captioned with that card', async () => {
     mockShareVibeCard.mockResolvedValue({ status: 'shared' });
     mockUseSession.mockReturnValue({ apiClient: mockApiClient(fullReport()) });
 
     const { findByRole } = renderScreen();
-    const shareButton = await findByRole('button', { name: /share your vibe/i });
-    fireEvent.press(shareButton);
+    fireEvent.press(await findByRole('button', { name: /open your friend read/i }));
 
-    await waitFor(() => expect(mockShareVibeCard).toHaveBeenCalledWith(expect.anything(), 'Soft Anchor', 'the quiet force in every room'));
-    // heroQuote prefers deep_summary.report_quote over headline/share_quote — same text shown on screen.
+    fireEvent.press(await findByRole('button', { name: /share this card: your type/i }));
+
+    // shareCaption prefers share_quote, and the type name is the deck's title.
+    await waitFor(() =>
+      expect(mockShareVibeCard).toHaveBeenCalledWith(expect.anything(), 'the soft anchor', 'the one everyone trusts'),
+    );
   });
 });
