@@ -1,0 +1,125 @@
+# Review/testing deployment — NOT production.
+#
+# Same three components as app.yaml, with three deliberate differences so a
+# reviewer can actually use the build:
+#   1. APP_ENV=development. In production, app/core/production_guard.py refuses
+#      to boot unless TEST_PHONES is empty and SKIP_OTP_VERIFICATION is false —
+#      and with no Twilio credentials configured, nobody could log in at all.
+#   2. Azure vars present on both api and worker. app.yaml predates the Azure
+#      provider; without these the summary job calls api.openai.com with an
+#      Azure key and every generation fails.
+#   3. Worker AI defaults point at azure/gpt-5.6-terra rather than the stale
+#      openai/gpt-5.5. (The live values come from the ai_model_config table;
+#      these are only the fallback when a step has no row.)
+#
+# Deploy: DO -> Create App -> GitHub -> Edit App Spec -> paste this.
+# Everything marked SECRET is typed into the DO dashboard, never committed.
+#
+# Before this becomes real: switch to app.yaml, set APP_ENV=production, add
+# Twilio credentials, and satisfy the production guard's full checklist.
+
+name: frinq-backend-review
+region: blr
+
+jobs:
+  - name: migrate
+    kind: PRE_DEPLOY
+    github:
+      repo: dhairya2003vashishtha/Frinq-app
+      branch: main
+      deploy_on_push: true
+      source_dir: frinq-backend
+    build_command: pip install -r requirements.txt
+    run_command: PYTHONPATH=. python scripts/predeploy.py
+    instance_size_slug: apps-s-1vcpu-1gb
+    envs:
+      - key: DATABASE_URL
+        type: SECRET
+
+services:
+  - name: api
+    github:
+      repo: dhairya2003vashishtha/Frinq-app
+      branch: main
+      deploy_on_push: true
+      source_dir: frinq-backend
+    build_command: pip install -r requirements.txt
+    run_command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --proxy-headers
+    http_port: 8080
+    instance_size_slug: apps-s-1vcpu-1gb
+    instance_count: 1
+    health_check:
+      http_path: /health/ready
+    envs:
+      - key: APP_ENV
+        value: development
+      - key: DEPLOYMENT_VERSION
+        value: review
+      # Test login: any 10-digit number + DUMMY_OTP. Only works because
+      # APP_ENV is not production (see app/core/otp.py:_skip_all_otp).
+      - key: SKIP_OTP_VERIFICATION
+        value: "true"
+      - key: DUMMY_OTP
+        value: "123456"
+      - key: DEV_PHONE
+        value: "8000000001"
+      - key: TEST_PHONES
+        value: "8000000001,8000000002,8000000003"
+      - key: CHAT_DISABLED
+        value: "false"
+      - key: OTP_REQUESTS_DISABLED
+        value: "false"
+      - key: QUIZ_STARTS_DISABLED
+        value: "false"
+      - key: CORS_ORIGINS
+        value: "https://localhost,capacitor://localhost"
+      - key: AZURE_OPENAI_ENDPOINT
+        value: "https://frinq-us-resource.services.ai.azure.com/openai/v1"
+      - key: DATABASE_URL
+        type: SECRET
+      - key: REDIS_URL
+        type: SECRET
+      - key: SECRET_KEY
+        type: SECRET
+      - key: SESSION_HASH_PEPPER
+        type: SECRET
+      - key: RATE_LIMIT_PEPPER
+        type: SECRET
+      - key: ADMIN_KEY
+        type: SECRET
+      - key: ADMIN_ACTION_PASSWORD
+        type: SECRET
+      # azure_client falls back to OPENAI_API_KEY, so the Azure key can go here.
+      - key: OPENAI_API_KEY
+        type: SECRET
+
+workers:
+  - name: worker
+    github:
+      repo: dhairya2003vashishtha/Frinq-app
+      branch: main
+      deploy_on_push: true
+      source_dir: frinq-backend
+    build_command: pip install -r requirements.txt
+    run_command: arq app.workers.queue.WorkerSettings
+    instance_size_slug: apps-s-1vcpu-1gb
+    instance_count: 1
+    envs:
+      - key: APP_ENV
+        value: development
+      - key: INSIGHTS_PROVIDER
+        value: azure
+      - key: OPENAI_MODEL
+        value: gpt-5.6-terra
+      - key: OPENAI_REASONING_EFFORT
+        value: medium
+      - key: AZURE_OPENAI_ENDPOINT
+        value: "https://frinq-us-resource.services.ai.azure.com/openai/v1"
+      - key: PUSH_SENDS_DISABLED
+        value: "true"
+      - key: DATABASE_URL
+        type: SECRET
+      - key: REDIS_URL
+        type: SECRET
+      - key: OPENAI_API_KEY
+        type: SECRET
