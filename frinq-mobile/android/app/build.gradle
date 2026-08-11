@@ -110,6 +110,19 @@ android {
             keyPassword 'android'
         }
     }
+    // One ABI instead of four. arm64-v8a covers every Android phone shipped
+    // since ~2018; the universal APK was 123 MB because it carried armeabi-v7a,
+    // x86 and x86_64 as well, none of which a modern handset ever loads.
+    // Re-enable the others (or ship an AAB) when this goes to the Play Store.
+    splits {
+        abi {
+            enable true
+            reset()
+            include "arm64-v8a"
+            universalApk false
+        }
+    }
+
     buildTypes {
         debug {
             signingConfig signingConfigs.debug

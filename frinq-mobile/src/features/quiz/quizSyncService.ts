@@ -19,10 +19,15 @@ export interface QuizSubmitResult {
   job_id?: string | null;
 }
 
-/** POST /api/v1/quiz/start — the ONLY pre-auth quiz endpoint. Reuses an
- *  existing non-terminal submission for the same phone if one exists. */
+/** POST /api/v1/quiz/start — the only quiz endpoint that ALSO works pre-auth.
+ *  Auth is left on (the default): the client attaches a bearer token only when
+ *  it has one, so this stays anonymous before OTP and identifies the caller
+ *  after it. That matters because the quiz now starts after auth, and a row
+ *  created without a user_id can never be completed (the backend's
+ *  phone-backfill at OTP verify has already run by then). Reuses an existing
+ *  non-terminal submission for the same phone if one exists. */
 export async function startQuiz(apiClient: ApiClient, phone: string): Promise<{ submission_id: string }> {
-  return apiClient.request({ path: '/api/v1/quiz/start', method: 'POST', body: { phone }, auth: false });
+  return apiClient.request({ path: '/api/v1/quiz/start', method: 'POST', body: { phone } });
 }
 
 /** PATCH /api/v1/quiz/partial/{id} — debounced local-edit sync. Never marks

@@ -36,6 +36,18 @@ class Settings(BaseSettings):
     # set the client drops the custom temperature (see openai_client.py).
     OPENAI_REASONING_EFFORT: str = "medium"
 
+    # Azure AI Foundry (v1) — OpenAI-COMPATIBLE surface: same request body and
+    # Bearer auth as api.openai.com; only the host differs (model in body carries
+    # the deployment name). NOT the classic <res>.openai.azure.com/deployments
+    # shape. Selected per-step via the admin panel provider = "azure".
+    #   endpoint: https://<resource>.services.ai.azure.com/openai/v1
+    AZURE_OPENAI_ENDPOINT: str = ""
+    AZURE_OPENAI_API_KEY: str = ""
+    # Optional JSON map of model id -> Azure deployment name, for when the
+    # deployment wasn't named after the model. Unmapped ids are used as-is,
+    # which is the common case (deployment named after the model).
+    AZURE_OPENAI_DEPLOYMENTS: str = ""
+
     # Google Gemini/Gemma. Keys are backend-only and never returned by admin.
     GEMINI_API_KEY: str = ""
 
@@ -47,7 +59,7 @@ class Settings(BaseSettings):
     # insights.py) is kept fully intact but idle — flip this back to
     # "claude" to reactivate it with zero code changes. The deep-report
     # half (mirror/hidden-pattern/etc.) is OpenAI-only, no toggle.
-    INSIGHTS_PROVIDER: Literal["openai", "claude", "gemini"] = "openai"
+    INSIGHTS_PROVIDER: Literal["openai", "azure", "claude", "gemini"] = "openai"
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"

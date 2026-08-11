@@ -7,10 +7,9 @@ import { QuizProvider } from '../features/quiz/quizContext';
 import { QuizStepScreen, QuizStepRouteParams } from '../features/quiz/screens/QuizStepScreen';
 import { QuizSubmissionService } from '../features/quiz/quizSubmissionService';
 import { startQuiz, partialSave as partialSaveApi } from '../features/quiz/quizSyncService';
-import { fetchQuizConfig } from '../features/quiz/quizConfigService';
 import { getEncryptedStore } from '../storage/encryptedStorage';
 import { QuizDraftRepository, setDynamicAnswerKeys } from '../storage/quizDraftRepository';
-import { answerKeyForStep, DEFAULT_CONTENT_STEPS, FIRST_STEP_ID, nextStep, ONBOARDING_PREFIX, QuizStep, setContentSteps } from '../features/quiz/domain/quizDefinition';
+import { answerKeyForStep, DEFAULT_CONTENT_STEPS, FIRST_STEP_ID, nextStep, QuizStep, setContentSteps } from '../features/quiz/domain/quizDefinition';
 import { BootSplash } from './placeholders';
 import { ErrorState } from '../design/components/ErrorState';
 
@@ -21,12 +20,6 @@ interface ResolvedQuiz {
   userId: string;
   initialStepId: string;
   repo: QuizDraftRepository;
-}
-
-function isValidContentSteps(steps: readonly QuizStep[]): boolean {
-  if (steps.length === 0) return false;
-  const onboardingIds = new Set(ONBOARDING_PREFIX.map((step) => step.id));
-  return steps.every((step) => typeof step.id === 'string' && !onboardingIds.has(step.id));
 }
 
 /**
@@ -56,15 +49,11 @@ export function QuizNavigator({ onQuizComplete }: { onQuizComplete: () => void }
         queryKey: ['currentUser'],
         queryFn: () => apiClient.request<UserResponse>({ path: '/api/v1/users/me' }),
       });
-      let contentSteps: readonly QuizStep[];
-      try {
-        const config = await fetchQuizConfig(apiClient);
-        if (!isValidContentSteps(config.steps)) throw new Error('invalid_quiz_config');
-        contentSteps = config.steps;
-      } catch {
-        // Offline / backend hiccup — quiz still works with today's compiled-in content.
-        contentSteps = DEFAULT_CONTENT_STEPS;
-      }
+      // Admin-authored quiz config is decoupled from the mobile client for
+      // now (its variant/kind fields were drifting from the app's design and
+      // producing mismatched question UI) — always use today's compiled-in
+      // content until that's revisited.
+      const contentSteps: readonly QuizStep[] = DEFAULT_CONTENT_STEPS;
       if (cancelled) return;
       setContentSteps(contentSteps);
       setDynamicAnswerKeys(contentSteps.flatMap((step) => {
@@ -135,7 +124,32 @@ export function QuizNavigator({ onQuizComplete }: { onQuizComplete: () => void }
       partialSave={(id, answers, lastRoute) => partialSaveApi(apiClient, id, answers, lastRoute)}
       onQuizComplete={handleQuizComplete}
     >
-      <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }} initialRouteName="Step">
+      {/* gestureEnabled: false — swipe-back would pop the route without going
+          through QuizStepScreen's goBack(), which is the only path that also
+          rewinds QuizMachine's internal step pointer. A gesture-popped route
+          desyncs the two (visible step reverts, machine's pointer doesn't),
+          so the next NEXT computes off the stale pointer and persists a
+          lastRoute ahead of what's on screen. The explicit back arrow and
+          Android hardware-back both already route through goBack(). */}
+      {/* animationTypeForReplace is declared STATICALLY here, not set
+          imperatively right before the replace call. QuizStepScreen's goBack()
+          falls back to replace() whenever there's no push history (a resumed
+          mid-quiz session mounts a single-entry stack), and a
+          navigation.setOptions() issued in the same tick as the replace does
+          not reliably apply to the outgoing screen first — so back animated
+          like a forward push. The only replace this navigator ever performs
+          IS that back-fallback, so pinning 'pop' here is always correct.
+          animationDuration trims the default for a snappier back/next. */}
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+          animation: 'slide_from_right',
+          animationTypeForReplace: 'pop',
+          animationDuration: 220,
+          gestureEnabled: false,
+        }}
+        initialRouteName="Step"
+      >
         <Stack.Screen name="Step" component={QuizStepScreen} initialParams={{ stepId: resolved.initialStepId }} />
       </Stack.Navigator>
     </QuizProvider>

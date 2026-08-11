@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { BootState } from '../app/boot/bootMachine';
 import { OfflineBanner } from '../design/components/OfflineBanner';
@@ -8,6 +8,7 @@ import { QuizNavigator } from './QuizNavigator';
 import { MainTabs } from './MainTabs';
 import { LegalGateNavigator } from './LegalGateNavigator';
 import { ProcessingScreen } from '../features/vibe-report/screens/ProcessingScreen';
+import { VibeReportScreen } from '../features/vibe-report/screens/VibeReportScreen';
 import { ErrorState } from '../design/components/ErrorState';
 import { AppLaunchSplash, Placeholder } from './placeholders';
 
@@ -65,10 +66,27 @@ export function RootNavigator({
   const offline = useIsOffline();
   const screen = screenForState(state);
 
+  // The summary reveal sits BETWEEN processing and the main app: finishing the
+  // quiz should open the envelope, not drop the user on the Events tab with
+  // their read buried in Profile. It's deliberately local state rather than a
+  // BootState case — the server has no "has seen their reveal" concept, and
+  // screenForState stays a pure function of what the server said. A cold start
+  // after this goes straight to main; Profile can always reopen the report.
+  const [revealPending, setRevealPending] = useState(false);
+  const prevScreen = useRef(screen);
+  useEffect(() => {
+    if (prevScreen.current === 'processing' && screen === 'main') setRevealPending(true);
+    prevScreen.current = screen;
+  }, [screen]);
+
+  const body = screen === 'main' && revealPending
+    ? <VibeReportScreen onContinue={() => setRevealPending(false)} />
+    : renderScreen(screen, { onLegalAccepted, onQuizComplete, onProcessingComplete, onOfflineRetry });
+
   return (
     <View style={styles.fill}>
       <OfflineBanner visible={offline} />
-      <View style={styles.fill}>{renderScreen(screen, { onLegalAccepted, onQuizComplete, onProcessingComplete, onOfflineRetry })}</View>
+      <View style={styles.fill}>{body}</View>
     </View>
   );
 }

@@ -55,7 +55,11 @@ async def set_model_config(
         raise InvalidModelConfigError(f"unknown model_id: {model_id!r}")
     info = get_model_info(model_id)
     assert info is not None  # is_known_model just confirmed this resolves
-    if info.provider != provider:
+    # "azure" serves the SAME OpenAI model catalogue over different plumbing
+    # (deployment in the URL, api-key header), so an openai-family model is
+    # legitimately reachable via either provider. Every other pairing must
+    # still match exactly.
+    if info.provider != provider and not (provider == "azure" and info.provider == "openai"):
         raise InvalidModelConfigError(f"model {model_id!r} belongs to provider {info.provider!r}, not {provider!r}")
     if effort is not None and not effort_supported(model_id, effort):
         raise InvalidModelConfigError(f"model {model_id!r} does not support effort={effort!r}")

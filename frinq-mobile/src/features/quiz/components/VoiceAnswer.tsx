@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Linking, StyleSheet, View } from 'react-native';
-import Svg, { Path, Rect } from 'react-native-svg';
+import Svg, { Circle, Defs, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
+import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { AudioRecorderAdapter, RecordingResult } from '../../../services/audio/AudioRecorderAdapter';
+import { AudioPlayerAdapter } from '../../../services/audio/AudioPlayerAdapter';
 import { uploadVoiceClip } from '../quizSyncService';
 import { useSession } from '../../../services/session/sessionContext';
 import { PressableScale } from '../../../design/motion/PressableScale';
+import { useReducedMotion } from '../../../design/motion/useReducedMotion';
 import { BodyText } from '../../../design/components/Text';
 import { spacing, radius, touchTarget } from '../../../design/tokens/spacing';
 import { color } from '../../../design/tokens/colors';
@@ -22,17 +25,122 @@ type Props = {
   onStatusChange?: (hasSavedRecording: boolean) => void;
 };
 
+const WAVEFORM_BAR_COUNT = 5;
+
+/** A short vertical bar that breathes up and down on a staggered loop while
+ *  `active`, and eases flat when it isn't — the in-circle "recording in
+ *  progress" indicator replacing the static mic glyph. Reduce-motion drops
+ *  the loop entirely (flat bars still read as "recording" via the caption
+ *  text next to them, so no information is lost). */
+function WaveformBar({ index, active }: { index: number; active: boolean }) {
+  const height = useSharedValue(6);
+
+  useEffect(() => {
+    if (!active) {
+      height.value = withTiming(6, { duration: 150 });
+      return;
+    }
+    const duration = 260 + index * 45;
+    height.value = withRepeat(withTiming(24, { duration }), -1, true);
+  }, [active, index, height]);
+
+  const animatedStyle = useAnimatedStyle(() => ({ height: height.value }));
+  return <Animated.View style={[styles.waveformBar, animatedStyle]} />;
+}
+
+function RecordingWaveform({ active }: { active: boolean }) {
+  const reduced = useReducedMotion();
+  return (
+    <View style={styles.waveformRow} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      {Array.from({ length: WAVEFORM_BAR_COUNT }, (_, i) => (
+        <WaveformBar key={i} index={i} active={active && !reduced} />
+      ))}
+    </View>
+  );
+}
+
+function PauseGlyph() {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 24 24" accessibilityElementsHidden importantForAccessibility="no">
+      <Rect x={6} y={4} width={4} height={16} rx={1.5} fill={color.brand.maroon} />
+      <Rect x={14} y={4} width={4} height={16} rx={1.5} fill={color.brand.maroon} />
+    </Svg>
+  );
+}
+
+function ResumeGlyph() {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 24 24" accessibilityElementsHidden importantForAccessibility="no">
+      <Path d="M6 4l14 8-14 8V4z" fill={color.brand.maroon} />
+    </Svg>
+  );
+}
+
+function StopGlyph() {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 24 24" accessibilityElementsHidden importantForAccessibility="no">
+      <Rect x={5} y={5} width={14} height={14} rx={2} fill={color.brand.maroon} />
+    </Svg>
+  );
+}
+
+function PlayGlyph() {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 24 24" accessibilityElementsHidden importantForAccessibility="no">
+      <Path d="M6 4l14 8-14 8V4z" fill={color.brand.maroon} />
+    </Svg>
+  );
+}
+
+function RecordGlyph() {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 24 24" accessibilityElementsHidden importantForAccessibility="no">
+      <Circle cx={12} cy={12} r={7} fill={color.brand.maroon} />
+    </Svg>
+  );
+}
+
+function MicGlyph() {
+  return (
+    <Svg width={32} height={32} viewBox="0 0 24 24" accessibilityElementsHidden importantForAccessibility="no">
+      <Rect x={9} y={2} width={6} height={12} rx={3} fill={color.brand.maroon} />
+      <Path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke={color.brand.maroon} strokeWidth={1.8} strokeLinecap="round" fill="none" />
+    </Svg>
+  );
+}
+
+/** Shown INSIDE the circle when a save fails — the failure reads in the same
+ *  spot the mic occupies, rather than collapsing the circle into a text-only
+ *  layout and shifting everything below it. */
+function ErrorGlyph() {
+  return (
+    <Svg width={32} height={32} viewBox="0 0 24 24" accessibilityElementsHidden importantForAccessibility="no">
+      <Circle cx={12} cy={12} r={10} stroke={color.state.error} strokeWidth={1.8} fill="none" />
+      <Path d="M12 7v6M12 16v1.5" stroke={color.state.error} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
 /** Optional voice recording alongside a quiz text answer. Independent of the
  *  typed answer for VALIDATION purposes — a saved recording is reported via
  *  onStatusChange so the parent can treat it as an alternative to typed text,
- *  but this component itself never reads or writes the typed answer. */
+ *  but this component itself never reads or writes the typed answer.
+ *
+ *  A finished take stays in the recorder's cache (not deleted right after
+ *  upload) so "play" can preview the exact clip that was submitted — it's
+ *  only deleted when a new recording starts or this component unmounts. */
 export function VoiceAnswer({ submissionId, questionKey, onStatusChange }: Props) {
   const { apiClient } = useSession();
   const adapterRef = useRef<AudioRecorderAdapter | undefined>(undefined);
   if (!adapterRef.current) adapterRef.current = new AudioRecorderAdapter();
   const adapter = adapterRef.current;
+  const playerRef = useRef<AudioPlayerAdapter | undefined>(undefined);
+  if (!playerRef.current) playerRef.current = new AudioPlayerAdapter();
+  const player = playerRef.current;
 
   const [phase, setPhase] = useState<Phase>('idle');
+  const [paused, setPaused] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
   const pendingRef = useRef<RecordingResult | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
@@ -48,6 +156,7 @@ export function VoiceAnswer({ submissionId, questionKey, onStatusChange }: Props
   useEffect(() => {
     return () => {
       clearInterval(timerRef.current);
+      player.stop();
       // Skip disposal mid-upload — dispose() deletes the cache file, which
       // would race the in-flight upload still reading it. The upload's own
       // completion (success or error) is what cleans up in that case; it
@@ -57,9 +166,12 @@ export function VoiceAnswer({ submissionId, questionKey, onStatusChange }: Props
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function armTicker() {
+    timerRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
+  }
   function startTimer() {
     setElapsedSec(0);
-    timerRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
+    armTicker();
   }
   function stopTimer() {
     clearInterval(timerRef.current);
@@ -70,8 +182,6 @@ export function VoiceAnswer({ submissionId, questionKey, onStatusChange }: Props
     setPhase('uploading');
     try {
       await uploadVoiceClip(apiClient, submissionId, questionKey, result.fileUri, result.durationSec);
-      pendingRef.current = null;
-      await adapter.deleteCurrentFile();
       setPhase('success');
     } catch {
       setPhase('error');
@@ -79,16 +189,21 @@ export function VoiceAnswer({ submissionId, questionKey, onStatusChange }: Props
   }
 
   async function handleRecordPress() {
+    player.stop();
+    setIsPlaying(false);
+    pendingRef.current = null;
     setPhase('requesting');
     try {
       const status = await adapter.requestAndStart(
         (autoStopped) => {
           stopTimer();
+          setPaused(false);
           if (autoStopped) void upload(autoStopped);
           else setPhase('error');
         },
         () => {
           stopTimer();
+          setPaused(false);
           setPhase('error');
         },
         () => {
@@ -96,6 +211,7 @@ export function VoiceAnswer({ submissionId, questionKey, onStatusChange }: Props
           // only). Reset to idle so the user can simply record again, rather
           // than returning to a frozen "recording…" screen.
           stopTimer();
+          setPaused(false);
           setPhase('idle');
         },
       );
@@ -112,8 +228,21 @@ export function VoiceAnswer({ submissionId, questionKey, onStatusChange }: Props
     }
   }
 
+  function handlePausePress() {
+    adapter.pause();
+    setPaused(true);
+    stopTimer();
+  }
+
+  function handleResumePress() {
+    adapter.resume();
+    setPaused(false);
+    armTicker();
+  }
+
   async function handleStopPress() {
     stopTimer();
+    setPaused(false);
     const result = await adapter.stop();
     if (result) void upload(result);
     else setPhase('error');
@@ -121,12 +250,24 @@ export function VoiceAnswer({ submissionId, questionKey, onStatusChange }: Props
 
   async function handleCancelPress() {
     stopTimer();
+    setPaused(false);
     await adapter.cancel();
     setPhase('idle');
   }
 
-  async function handleRetryUpload() {
-    if (pendingRef.current) void upload(pendingRef.current);
+  async function handlePlayPress() {
+    if (isPlaying) {
+      player.stop();
+      setIsPlaying(false);
+      return;
+    }
+    if (!pendingRef.current) return;
+    setIsPlaying(true);
+    try {
+      await player.play(pendingRef.current.fileUri, () => setIsPlaying(false));
+    } catch {
+      setIsPlaying(false);
+    }
   }
 
   if (phase === 'permissionDenied') {
@@ -147,86 +288,118 @@ export function VoiceAnswer({ submissionId, questionKey, onStatusChange }: Props
     );
   }
 
-  if (phase === 'error') {
-    return (
-      <View style={styles.wrap}>
-        <BodyText variant="body" tone="error">
-          Couldn't save your voice answer.
-        </BodyText>
-        <View style={styles.row}>
-          <PressableScale accessibilityRole="button" onPress={handleRetryUpload} style={styles.linkButton}>
-            <BodyText variant="bodyStrong" tone="primary">retry upload</BodyText>
-          </PressableScale>
-          <PressableScale accessibilityRole="button" onPress={handleRecordPress} style={styles.linkButton}>
-            <BodyText variant="bodyStrong" tone="primary">re-record</BodyText>
+  // ONE layout for every remaining phase — the circle never disappears and
+  // the side-button slots are always reserved, so the typed-answer field
+  // below never shifts up/down as the phase changes (it previously jumped
+  // between three structurally different layouts).
+  const busy = phase === 'requesting' || phase === 'uploading';
+  const canPlay = (phase === 'success' || phase === 'error') && !!pendingRef.current;
+
+  const leftSlot =
+    phase === 'recording' ? (
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityLabel={paused ? 'resume recording' : 'pause recording'}
+        onPress={paused ? handleResumePress : handlePausePress}
+        style={styles.sideButton}
+      >
+        {paused ? <ResumeGlyph /> : <PauseGlyph />}
+      </PressableScale>
+    ) : phase === 'error' ? (
+      // A failed take offers exactly one action — record again — so both side
+      // slots stay EMPTY (but still rendered, so nothing shifts) and the
+      // circle itself carries the red mark.
+      null
+    ) : canPlay ? (
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityLabel={isPlaying ? 'stop playback' : 'play your recording'}
+        onPress={handlePlayPress}
+        style={styles.sideButton}
+      >
+        {isPlaying ? <StopGlyph /> : <PlayGlyph />}
+      </PressableScale>
+    ) : null;
+
+  const rightSlot =
+    phase === 'recording' ? (
+      <PressableScale accessibilityRole="button" accessibilityLabel="stop recording" onPress={handleStopPress} style={styles.sideButton}>
+        <StopGlyph />
+      </PressableScale>
+    ) : phase === 'success' ? (
+      <PressableScale accessibilityRole="button" accessibilityLabel="re-record" onPress={handleRecordPress} style={styles.sideButton}>
+        <RecordGlyph />
+      </PressableScale>
+    ) : null;
+
+  const caption =
+    phase === 'recording' ? `${paused ? 'paused' : 'recording…'} ${elapsedSec}s`
+      : phase === 'uploading' ? 'saving…'
+      : phase === 'requesting' ? '…'
+      : phase === 'success' ? 'voice answer saved'
+      : phase === 'error' ? 'retry'
+      : 'tap to speak';
+
+  return (
+    <View style={[styles.wrap, styles.idleWrap]} accessibilityLiveRegion="polite">
+      <View style={styles.recordingRow}>
+        <View style={styles.sideSlot}>{leftSlot}</View>
+        <View style={styles.circleStack}>
+          {/* Soft peach glow behind the circle — a plain shadowColor doesn't
+              render as a color on Android (elevation shadows there are always
+              neutral), so this is an actual radial-gradient layer instead. */}
+          <Svg width={160} height={160} style={styles.glow} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <Defs>
+              <RadialGradient id="micGlow" cx="55%" cy="60%" r="55%">
+                <Stop offset="0%" stopColor={color.brand.peach} stopOpacity={0.9} />
+                <Stop offset="100%" stopColor={color.brand.peach} stopOpacity={0} />
+              </RadialGradient>
+            </Defs>
+            <Circle cx={80} cy={80} r={80} fill="url(#micGlow)" />
+          </Svg>
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={phase === 'error' ? 'retry — record again' : 'record a voice answer'}
+            accessibilityState={{ busy }}
+            // After a failure the circle records AGAIN rather than re-uploading
+            // the dead take: a retry the user can hear the result of beats a
+            // silent retry of the same bytes.
+            onPress={handleRecordPress}
+            disabled={busy || phase === 'recording'}
+            style={[styles.micCircle, phase === 'error' && styles.micCircleError]}
+          >
+            {phase === 'recording' ? (
+              <RecordingWaveform active={!paused} />
+            ) : phase === 'error' ? (
+              <ErrorGlyph />
+            ) : busy ? (
+              <BodyText variant="bodyStrong" tone="brand">…</BodyText>
+            ) : (
+              <MicGlyph />
+            )}
           </PressableScale>
         </View>
+        <View style={styles.sideSlot}>{rightSlot}</View>
       </View>
-    );
-  }
-
-  if (phase === 'success') {
-    return (
-      <View style={styles.wrap}>
-        <BodyText variant="body" style={{ color: color.state.success }}>
-          voice answer saved
-        </BodyText>
-        <PressableScale accessibilityRole="button" onPress={handleRecordPress} style={styles.linkButton}>
-          <BodyText variant="bodyStrong" tone="primary">re-record</BodyText>
-        </PressableScale>
-      </View>
-    );
-  }
-
-  if (phase === 'recording') {
-    return (
-      <View style={styles.wrap} accessibilityLiveRegion="polite">
-        <View style={styles.row}>
-          <View style={styles.recDot} />
-          <BodyText variant="body" tone="secondary">recording… {elapsedSec}s</BodyText>
-        </View>
-        <View style={styles.row}>
-          <PressableScale accessibilityRole="button" accessibilityLabel="stop recording" onPress={handleStopPress} style={styles.circleButton}>
-            <BodyText variant="bodyStrong" style={{ color: color.control.primaryText }}>stop</BodyText>
+      {/* Both rows are ALWAYS rendered at a fixed height — the caption and the
+          cancel link change between phases, and if their rows collapsed the
+          divider and the answer box under them would jump. */}
+      <View style={styles.captionRow}>
+        {phase === 'error' ? (
+          <PressableScale accessibilityRole="button" accessibilityLabel="retry recording" onPress={handleRecordPress} style={styles.linkButton}>
+            <BodyText variant="bodyStrong" tone="error">{caption}</BodyText>
           </PressableScale>
+        ) : (
+          <BodyText variant="caption" tone="secondary">{caption}</BodyText>
+        )}
+      </View>
+      <View style={styles.actionRow}>
+        {phase === 'recording' && (
           <PressableScale accessibilityRole="button" accessibilityLabel="cancel recording" onPress={handleCancelPress} style={styles.linkButton}>
             <BodyText variant="bodyStrong" tone="secondary">cancel</BodyText>
           </PressableScale>
-        </View>
-      </View>
-    );
-  }
-
-  return (
-    <View style={[styles.wrap, styles.idleWrap]}>
-      <PressableScale
-        accessibilityRole="button"
-        accessibilityLabel="record a voice answer"
-        accessibilityState={{ busy: phase === 'requesting' || phase === 'uploading' }}
-        onPress={handleRecordPress}
-        disabled={phase === 'requesting' || phase === 'uploading'}
-        style={styles.micCircle}
-      >
-        {phase === 'requesting' || phase === 'uploading' ? (
-          <BodyText variant="bodyStrong" tone="brand">
-            {phase === 'uploading' ? '…' : '…'}
-          </BodyText>
-        ) : (
-          <Svg width={32} height={32} viewBox="0 0 24 24" accessibilityElementsHidden importantForAccessibility="no">
-            <Rect x={9} y={2} width={6} height={12} rx={3} fill={color.brand.maroon} />
-            <Path
-              d="M5 11a7 7 0 0 0 14 0M12 18v3"
-              stroke={color.brand.maroon}
-              strokeWidth={1.8}
-              strokeLinecap="round"
-              fill="none"
-            />
-          </Svg>
         )}
-      </PressableScale>
-      <BodyText variant="caption" tone="secondary">
-        {phase === 'uploading' ? 'saving…' : 'tap to speak'}
-      </BodyText>
+      </View>
     </View>
   );
 }
@@ -235,6 +408,13 @@ const styles = StyleSheet.create({
   wrap: { marginBottom: spacing.lg, gap: spacing.sm },
   idleWrap: { alignItems: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  recordingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.lg },
+  // Always rendered, even when empty — reserving both side slots is what
+  // keeps the circle centered and the content below it from shifting as
+  // buttons appear/disappear between phases.
+  sideSlot: { width: touchTarget.min, height: touchTarget.min, alignItems: 'center', justifyContent: 'center' },
+  circleStack: { width: 160, height: 160, alignItems: 'center', justifyContent: 'center' },
+  glow: { position: 'absolute' },
   micCircle: {
     width: 104,
     height: 104,
@@ -242,21 +422,31 @@ const styles = StyleSheet.create({
     backgroundColor: color.brand.cream,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 3,
   },
-  circleButton: {
-    minHeight: touchTarget.preferred,
-    paddingHorizontal: spacing.xl,
-    borderRadius: radius.pill,
-    backgroundColor: color.control.primaryBg,
+  micCircleError: { borderWidth: 1, borderColor: color.state.error },
+  sideButton: {
+    width: touchTarget.min,
+    height: touchTarget.min,
+    borderRadius: touchTarget.min / 2,
+    backgroundColor: color.brand.cream,
+    borderWidth: 1,
+    borderColor: color.border.subtle,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  captionRow: { height: 22, justifyContent: 'center', alignItems: 'center' },
+  actionRow: { height: touchTarget.min, justifyContent: 'center', alignItems: 'center' },
+  waveformRow: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 24 },
+  waveformBar: { width: 4, borderRadius: 2, backgroundColor: color.brand.maroon },
+  playButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    minHeight: touchTarget.preferred,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.pill,
+    backgroundColor: color.control.primaryBg,
     alignSelf: 'flex-start',
   },
   linkButton: { minHeight: touchTarget.min, justifyContent: 'center' },
-  recDot: { width: 10, height: 10, borderRadius: 999, backgroundColor: color.state.error },
 });

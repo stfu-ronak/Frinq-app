@@ -23,20 +23,16 @@ describe('ReferenceOnboardingTemplate', () => {
     const { getByText, getByRole } = render(
       <ReferenceOnboardingTemplate step={step} value={undefined} answers={{}} onAnswer={jest.fn()} onContinue={jest.fn()} onBack={jest.fn()} />,
     );
-    expect(getByText("now lets figure out\nyour vibe")).toBeTruthy();
+    expect(getByText("now let's figure out\nyour vibe")).toBeTruthy();
     expect(getByRole('button', { name: 'Hell yeah! 🔥' })).toBeTruthy();
   });
 
-  it('stores an explicit empty answer when pronouns are skipped', () => {
-    const step = getStep('pronoun')!;
-    const onAnswer = jest.fn();
-    const onContinue = jest.fn();
-    const { getByRole } = render(
-      <ReferenceOnboardingTemplate step={step} value="" answers={{}} onAnswer={onAnswer} onContinue={onContinue} onBack={jest.fn()} />,
+  it.each(['pronoun', 'city'])('offers no skip on %s — social verification is the only skippable onboarding step now', (id) => {
+    const step = getStep(id)!;
+    const { queryByRole } = render(
+      <ReferenceOnboardingTemplate step={step} value="" answers={{}} onAnswer={jest.fn()} onContinue={jest.fn()} onBack={jest.fn()} />,
     );
-    fireEvent.press(getByRole('button', { name: 'Skip pronouns' }));
-    expect(onAnswer).toHaveBeenCalledWith('');
-    expect(onContinue).toHaveBeenCalledTimes(1);
+    expect(queryByRole('button', { name: /^Skip/ })).toBeNull();
   });
 
   it('stores both empty social values when verification is skipped', () => {
@@ -59,7 +55,9 @@ describe('ReferenceOnboardingTemplate', () => {
     );
     const heading = StyleSheet.flatten(getByTestId('reference-onboarding-heading').props.style as never) as Record<string, number | string | undefined>;
     const choice = StyleSheet.flatten(getByRole('radio', { name: step.options[0].label }).props.style as never) as Record<string, number | string | undefined>;
-    expect(heading).toMatchObject({ color: '#621407', fontSize: 28, lineHeight: 42, maxWidth: 280 });
+    // No explicit lineHeight — Borel's natural metrics reserve descender room;
+    // maxWidth must fit the authored line break or the wrap gets clipped.
+    expect(heading).toMatchObject({ color: '#621407', fontSize: 24, width: '100%' });
     expect(choice).toMatchObject({ width: '55%', minHeight: 52, borderRadius: 999 });
   });
 });

@@ -8,6 +8,8 @@ const mockStop = jest.fn();
 const mockCancel = jest.fn();
 const mockDispose = jest.fn();
 const mockDeleteCurrentFile = jest.fn().mockResolvedValue(undefined);
+const mockPause = jest.fn();
+const mockResume = jest.fn();
 
 jest.mock('../../../../services/audio/AudioRecorderAdapter', () => ({
   AudioRecorderAdapter: jest.fn().mockImplementation(() => ({
@@ -16,7 +18,19 @@ jest.mock('../../../../services/audio/AudioRecorderAdapter', () => ({
     cancel: mockCancel,
     dispose: mockDispose,
     deleteCurrentFile: mockDeleteCurrentFile,
+    pause: mockPause,
+    resume: mockResume,
     isRecording: () => false,
+  })),
+}));
+
+const mockPlay = jest.fn().mockResolvedValue(undefined);
+const mockPlayerStop = jest.fn();
+jest.mock('../../../../services/audio/AudioPlayerAdapter', () => ({
+  AudioPlayerAdapter: jest.fn().mockImplementation(() => ({
+    play: mockPlay,
+    stop: mockPlayerStop,
+    isPlaying: () => false,
   })),
 }));
 
@@ -65,7 +79,7 @@ describe('VoiceAnswer', () => {
 
     // Previously this left the button permanently disabled in 'requesting'
     // with no way out — the fix surfaces a real error state instead.
-    expect(await findByText(/couldn't save your voice answer/i)).toBeTruthy();
+    expect(await findByText('retry')).toBeTruthy();
   });
 
   it('uploads on stop and shows success', async () => {
@@ -79,23 +93,61 @@ describe('VoiceAnswer', () => {
 
     expect(await findByText('voice answer saved')).toBeTruthy();
     expect(mockUploadVoiceClip).toHaveBeenCalledWith('the-api-client', 'sub-1', 'story', 'file:///cache/clip.m4a', 4);
-    expect(mockDeleteCurrentFile).toHaveBeenCalledTimes(1);
+    // The cache file is kept (not deleted right after upload) so "play" can
+    // preview the exact clip that was submitted — it's only cleared on the
+    // next recording or on unmount, never eagerly here.
+    expect(mockDeleteCurrentFile).not.toHaveBeenCalled();
   });
 
-  it('shows an error with retry when upload fails, and retries with the same file', async () => {
+  it('lets the user preview the saved recording, and stop it mid-playback', async () => {
     mockRequestAndStart.mockResolvedValue('Granted');
     mockStop.mockResolvedValue({ fileUri: 'file:///cache/clip.m4a', durationSec: 4 });
-    mockUploadVoiceClip.mockRejectedValueOnce(new Error('network')).mockResolvedValueOnce(undefined);
+    mockUploadVoiceClip.mockResolvedValue(undefined);
 
-    const { findByLabelText, findByText } = render(<VoiceAnswer submissionId="sub-1" questionKey="story" />);
+    const { findByLabelText } = render(<VoiceAnswer submissionId="sub-1" questionKey="story" />);
     fireEvent.press(await findByLabelText('record a voice answer'));
     fireEvent.press(await findByLabelText('stop recording'));
 
-    expect(await findByText(/couldn't save/i)).toBeTruthy();
+    fireEvent.press(await findByLabelText('play your recording'));
+    expect(mockPlay).toHaveBeenCalledWith('file:///cache/clip.m4a', expect.any(Function));
 
-    fireEvent.press(await findByText('retry upload'));
-    expect(await findByText('voice answer saved')).toBeTruthy();
-    expect(mockUploadVoiceClip).toHaveBeenCalledTimes(2);
+    mockPlayerStop.mockClear(); // drop the defensive stop() handleRecordPress fired above
+    fireEvent.press(await findByLabelText('stop playback'));
+    expect(mockPlayerStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('pausing mid-recording calls the adapter and shows resume; resuming picks the take back up', async () => {
+    mockRequestAndStart.mockResolvedValue('Granted');
+
+    const { findByLabelText } = render(<VoiceAnswer submissionId="sub-1" questionKey="story" />);
+    fireEvent.press(await findByLabelText('record a voice answer'));
+
+    fireEvent.press(await findByLabelText('pause recording'));
+    expect(mockPause).toHaveBeenCalledTimes(1);
+
+    fireEvent.press(await findByLabelText('resume recording'));
+    expect(mockResume).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the failure inside the circle with a retry that records again, and no side buttons', async () => {
+    mockRequestAndStart.mockResolvedValue('Granted');
+    mockStop.mockResolvedValue({ fileUri: 'file:///cache/clip.m4a', durationSec: 4 });
+    mockUploadVoiceClip.mockRejectedValue(new Error('network'));
+
+    const { findByLabelText, findByText, queryByLabelText } = render(<VoiceAnswer submissionId="sub-1" questionKey="story" />);
+    fireEvent.press(await findByLabelText('record a voice answer'));
+    fireEvent.press(await findByLabelText('stop recording'));
+
+    // The circle carries the red mark and the only affordance is "retry" —
+    // both side slots stay empty (still rendered, so nothing shifts).
+    expect(await findByText('retry')).toBeTruthy();
+    expect(queryByLabelText('re-record')).toBeNull();
+    expect(queryByLabelText('play your recording')).toBeNull();
+
+    // Retry starts a NEW recording rather than re-uploading the dead take.
+    fireEvent.press(await findByLabelText('retry — record again'));
+    await waitFor(() => expect(mockRequestAndStart).toHaveBeenCalledTimes(2));
+    expect(mockUploadVoiceClip).toHaveBeenCalledTimes(1); // the dead take is NOT re-sent
   });
 
   it('cancels a recording without uploading', async () => {
@@ -143,7 +195,7 @@ describe('VoiceAnswer', () => {
     fireEvent.press(await findByLabelText('stop recording'));
     await waitFor(() => expect(onStatusChange).toHaveBeenCalledWith(true));
 
-    fireEvent.press(await findByText('re-record'));
+    fireEvent.press(await findByLabelText('re-record'));
     await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith(false));
   });
 });

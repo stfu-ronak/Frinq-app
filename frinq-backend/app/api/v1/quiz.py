@@ -20,12 +20,13 @@ used to probe for another user's submission.
 from __future__ import annotations
 
 import json
+import re
 from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.api.deps import CurrentAccount, get_current_account, get_pool
+from app.api.deps import CurrentAccount, get_current_account, get_optional_account, get_pool
 from app.config import settings
 from app.core import metrics
 from app.core.age_gate import AgeGateError, validate_frinq_dob
@@ -69,18 +70,42 @@ def _check_age_gate(answers: dict) -> None:
         raise HTTPException(status_code=422, detail={"code": exc.code}) from exc
 
 
-async def _enqueue_or_503(
-    pool: asyncpg.Pool, submission_id: UUID, user_id: UUID, *, reset_submission_to_error: bool = False,
-) -> str:
-    """Enqueues the durable insights job; on Redis being unreachable, resets
-    the user to 'error' (so the UI can offer retry) and raises 503 instead
-    of leaving the account stuck in 'profile_processing' forever.
+async def _claim_unowned_submission(conn: asyncpg.Connection, submission_id: UUID, account: CurrentAccount) -> None:
+    """Adopt a submission that still has `user_id IS NULL`, but only when its
+    phone is the caller's own.
 
-    reset_submission_to_error is for retry_quiz specifically: without it,
-    a failed enqueue leaves the submission at status='pending', which no
-    longer matches retry_quiz's own `WHERE status='error'` filter — the
-    caller would be locked out of ever retrying again even though the
-    attempt never actually queued."""
+    /quiz/start is pre-auth and inserts an unowned row; OTP verify then
+    backfills user_id by phone. That handoff silently stopped covering the
+    normal path when the journey was reordered so the quiz begins AFTER auth —
+    the backfill has already run by the time the row exists, so it stayed
+    unowned forever and every /quiz/complete answered 404 ("Couldn't submit
+    your answers") with no way to recover.
+
+    The phone equality is what makes this safe: without it an authenticated
+    user could claim any unowned submission by guessing its id. Normalised to
+    the last 10 digits, the same rule OTP verify's backfill uses, so both
+    agree on what "the same phone" means."""
+    digits = re.sub(r"\D", "", account.phone or "")[-10:]
+    if not digits:
+        return
+    await conn.execute(
+        """UPDATE quiz_submissions SET user_id = $1, updated_at = now()
+           WHERE id = $2 AND user_id IS NULL
+             AND RIGHT(regexp_replace(phone, '\\D', '', 'g'), 10) = $3""",
+        account.id, submission_id, digits,
+    )
+
+
+async def _enqueue_or_503(pool: asyncpg.Pool, submission_id: UUID, user_id: UUID) -> str:
+    """Enqueues the durable insights job; on Redis being unreachable, marks
+    BOTH the user and the submission 'error' and raises 503 instead of leaving
+    the account stuck in 'profile_processing' forever.
+
+    The submission reset is unconditional, not just for retry_quiz: retry_quiz
+    filters on `WHERE status='error'`, so a failed enqueue that left the row at
+    'pending' locked the user out of ever retrying — the exact dead end behind
+    the rows sitting at status='pending', error_msg=NULL with the client stuck
+    on "Couldn't submit your answers"."""
     job_id = await enqueue_quiz_insights(submission_id)
     if job_id is None:
         async with pool.acquire() as conn:
@@ -88,11 +113,12 @@ async def _enqueue_or_503(
                 "UPDATE users SET onboarding_state = 'error', updated_at = now() WHERE id = $1",
                 user_id,
             )
-            if reset_submission_to_error:
-                await conn.execute(
-                    "UPDATE quiz_submissions SET status = 'error', updated_at = now() WHERE id = $1",
-                    submission_id,
-                )
+            await conn.execute(
+                "UPDATE quiz_submissions SET status = 'error',"
+                " error_msg = COALESCE(error_msg, 'queue unavailable'), updated_at = now()"
+                " WHERE id = $1",
+                submission_id,
+            )
         raise HTTPException(status_code=503, detail="queue unavailable, try again")
     return job_id
 
@@ -238,6 +264,7 @@ async def get_quiz_config(pool: asyncpg.Pool = Depends(get_pool)) -> dict:
 async def start_quiz(
     request: Request,
     body: QuizStartRequest,
+    account: CurrentAccount | None = Depends(get_optional_account),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict:
     """Create an initial tracking record as soon as user enters their phone
@@ -273,13 +300,23 @@ async def start_quiz(
                 body.phone,
             )
             if existing:
+                # Reused rows get the same ownership treatment as new ones,
+                # for the case where the row predates the caller's session.
+                if account is not None:
+                    await _claim_unowned_submission(conn, existing["id"], account)
                 logger.info("quiz.start_reused", submission_id=str(existing["id"]))
                 return {"submission_id": str(existing["id"])}
 
+        # user_id when we already know who's asking. This endpoint is still
+        # anonymous-capable (it runs before OTP for a first-time user, where
+        # the phone backfill at verify is what links the row) — but the quiz
+        # now starts AFTER auth, and leaving those rows unowned is what made
+        # /quiz/complete 404 forever. See _claim_unowned_submission.
         row = await conn.fetchrow(
-            """INSERT INTO quiz_submissions (phone, answers, is_complete)
-               VALUES ($1, '{}'::jsonb, FALSE)
+            """INSERT INTO quiz_submissions (user_id, phone, answers, is_complete)
+               VALUES ($1, $2, '{}'::jsonb, FALSE)
                RETURNING id""",
+            account.id if account else None,
             body.phone,
         )
     submission_id = str(row["id"])
@@ -305,6 +342,7 @@ async def complete_quiz(
     _check_age_gate(body.answers)
 
     async with pool.acquire() as conn:
+        await _claim_unowned_submission(conn, uid, account)
         current = await conn.fetchrow(
             "SELECT status FROM quiz_submissions WHERE id = $1 AND user_id = $2",
             uid, account.id,
@@ -381,6 +419,6 @@ async def retry_quiz(
                 account.id,
             )
 
-    job_id = await _enqueue_or_503(pool, uid, account.id, reset_submission_to_error=True)
+    job_id = await _enqueue_or_503(pool, uid, account.id)
     logger.info("quiz.retried", submission_id=submission_id, job_id=job_id)
     return {"submission_id": submission_id, "status": "pending", "job_id": job_id}

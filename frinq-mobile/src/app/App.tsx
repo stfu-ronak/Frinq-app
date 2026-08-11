@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import NetInfo from '@react-native-community/netinfo';
 import { useQueryClient } from '@tanstack/react-query';
 import { AppProviders } from './AppProviders';
+import { FontWarmup } from './FontWarmup';
 import { RootNavigator } from '../navigation/RootNavigator';
 import { BootState, routeForUser } from './boot/bootMachine';
 import { bindAppLifecycle } from '../services/lifecycle/appLifecycle';
@@ -130,6 +131,7 @@ export function App({ resolveBoot }: { resolveBoot?: BootResolver }) {
 
   return (
     <AppProviders>
+      <FontWarmup />
       <BootController resolveBoot={resolveBoot} />
     </AppProviders>
   );

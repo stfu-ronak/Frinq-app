@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { QuizScreenFrame } from '../../components/QuizScreenFrame';
-import { QuizProgress } from '../../../../design/components/QuizProgress';
 import { SnapSlider } from '../../components/SnapSlider';
 import { spacing } from '../../../../design/tokens/spacing';
 import { PreferencesStep } from '../../domain/quizDefinition';
@@ -49,7 +48,6 @@ export function PreferencesTemplate({ step, values, onChange, onContinue, onBack
       onContinue={handleContinue}
       continueDisabled={values[index] === undefined}
     >
-      <QuizProgress step={index + 1} total={step.sliders.length} style={{ marginBottom: spacing.lg }} />
       <SnapSlider
         prompt={slider.prompt}
         leftLabel={slider.leftLabel}

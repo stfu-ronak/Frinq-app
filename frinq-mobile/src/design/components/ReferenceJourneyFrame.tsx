@@ -1,6 +1,6 @@
 import React from 'react';
 import { Image, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { color } from '../tokens/colors';
 import { spacing, touchTarget } from '../tokens/spacing';
@@ -20,17 +20,32 @@ type Props = {
    *  content ends instead — the same "Next" arrow drifting to a different
    *  height page to page. Only used by `scroll` screens. */
   footer?: React.ReactNode;
+  /** Full-bleed art rendered UNDER everything, edge to edge and up behind the
+   *  status bar. Screens can't do this from inside `children`: `content` is
+   *  horizontally padded and max-width clamped, and the SafeAreaView's top
+   *  inset means an absolutely-positioned child there starts below the notch —
+   *  which is what left the ready screen's disco gradient with blank margins
+   *  at the top and both sides. */
+  backdrop?: React.ReactNode;
 };
 
 /** Shared canvas for the reference-led pre-quiz journey. It supplies layout
  * only; individual screens own their copy, art and live controls. */
-export function ReferenceJourneyFrame({ children, tone = 'cream', onBack, wave = false, scroll = false, footer }: Props) {
+export function ReferenceJourneyFrame({ children, tone = 'cream', onBack, wave = false, scroll = false, footer, backdrop }: Props) {
   const maroon = tone === 'maroon';
+  const insets = useSafeAreaInsets();
   const body = <View style={styles.content}>{children}</View>;
 
   return (
     <SafeAreaView testID="reference-journey-frame" style={[styles.fill, maroon ? styles.maroon : styles.cream]} edges={['top', 'bottom', 'left', 'right']}>
-      <StatusBar barStyle={maroon ? 'light-content' : 'dark-content'} backgroundColor={maroon ? color.bg.milestone : color.bg.canvas} />
+      <StatusBar barStyle={maroon ? 'light-content' : 'dark-content'} backgroundColor={maroon ? color.bg.milestone : color.bg.canvas} translucent={false} />
+      {/* Negative insets cancel the SafeAreaView padding so the art really does
+          reach the physical screen edges, status bar included. */}
+      {!!backdrop && (
+        <View pointerEvents="none" style={[styles.backdrop, { top: -insets.top, left: -insets.left, right: -insets.right }]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          {backdrop}
+        </View>
+      )}
       {onBack && (
         <PressableScale accessibilityRole="button" accessibilityLabel="Go back" onPress={onBack} haptic={false} style={styles.back}>
           <Image source={require('../../../Public/Assets/Back arrow.png')} style={[styles.backImage, maroon && styles.inverted]} resizeMode="contain" />
@@ -42,7 +57,7 @@ export function ReferenceJourneyFrame({ children, tone = 'cream', onBack, wave =
           <ScrollView style={styles.scrollFlex} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
             {body}
           </ScrollView>
-          {!!footer && <View style={styles.footerWrap}>{footer}</View>}
+          {!!footer && <View testID="reference-journey-footer" style={styles.footerWrap}>{footer}</View>}
         </>
       ) : body}
     </SafeAreaView>
@@ -67,9 +82,10 @@ const styles = StyleSheet.create({
   content: { flex: 1, width: '100%', maxWidth: 520, alignSelf: 'center', paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
   scrollFlex: { flex: 1 },
   scrollContent: { flexGrow: 1, alignItems: 'center' },
-  footerWrap: { width: '100%', maxWidth: 520, alignSelf: 'center', paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
+  footerWrap: { width: '100%', maxWidth: 520, alignSelf: 'center', alignItems: 'center', paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
   back: { position: 'absolute', zIndex: 2, top: spacing.xxl, left: spacing.lg, width: touchTarget.preferred, height: touchTarget.preferred, justifyContent: 'center', alignItems: 'center' },
   backImage: { width: 32, height: 24, tintColor: color.brand.maroon },
   inverted: { tintColor: color.brand.cream },
   wave: { position: 'absolute', left: 0, right: 0, top: 60, zIndex: 0 },
+  backdrop: { position: 'absolute', bottom: 0, zIndex: -1 },
 });

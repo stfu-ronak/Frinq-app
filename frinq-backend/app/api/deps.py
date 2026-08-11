@@ -232,6 +232,25 @@ async def get_current_account(
     )
 
 
+async def get_optional_account(
+    authorization: str | None = Header(default=None),
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> CurrentAccount | None:
+    """get_current_account's checks, but a missing or unusable credential
+    yields None instead of 401 — for the endpoints that legitimately serve
+    both anonymous and signed-in callers (/quiz/start, which runs pre-auth for
+    a first-time user and post-auth for one who already has a session).
+
+    Never use this where the result is trusted for authorization: a None here
+    means "we don't know who this is", not "this is allowed"."""
+    if not authorization:
+        return None
+    try:
+        return await get_current_account(authorization=authorization, pool=pool)
+    except HTTPException:
+        return None
+
+
 def require_admin(
     authorization: str | None = Header(default=None),
 ) -> None:

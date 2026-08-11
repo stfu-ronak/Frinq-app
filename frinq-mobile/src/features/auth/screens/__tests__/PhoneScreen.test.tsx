@@ -3,7 +3,10 @@ import { StyleSheet } from 'react-native';
 import { render } from '@testing-library/react-native';
 import { PhoneScreen } from '../PhoneScreen';
 
-jest.mock('@react-navigation/native', () => ({ useNavigation: () => ({ navigate: jest.fn(), goBack: jest.fn() }) }));
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ navigate: jest.fn(), goBack: jest.fn() }),
+  useRoute: () => ({ params: undefined }),
+}));
 jest.mock('../../../../services/session/sessionContext', () => ({ useSession: () => ({ apiClient: {} }) }));
 jest.mock('../../authService', () => ({ sendOtp: jest.fn() }));
 jest.mock('../../../../services/telemetry/analytics', () => ({ track: jest.fn() }));

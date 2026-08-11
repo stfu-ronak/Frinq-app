@@ -54,6 +54,16 @@ describe('SnapSlider', () => {
     }
   });
 
+  it('reserves a fixed prompt height, so a 2-line and a 3-line statement leave the slider at the same Y', () => {
+    const slot = (prompt: string) =>
+      flatten(render(<SnapSlider {...PROPS} prompt={prompt} value={50} onChange={jest.fn()} />)
+        .getByTestId('snap-slider-prompt-slot').props.style).height;
+
+    const short = slot('i overthink.');
+    expect(short).toBeGreaterThan(0);
+    expect(slot('i overthink every single message before i send it to anyone at all')).toBe(short);
+  });
+
   it('exposes the whole control as one adjustable element with a min/max/now value, not five unrelated buttons', () => {
     const { getByLabelText } = render(<SnapSlider {...PROPS} value={75} onChange={jest.fn()} />);
     const adjustable = getByLabelText(PROPS.prompt);

@@ -4,7 +4,7 @@ import { QuizDraftRepository } from '../../storage/quizDraftRepository';
 import { getEncryptedStore } from '../../storage/encryptedStorage';
 import { loadPendingQuizState, clearPendingQuizState } from './pendingQuizState';
 import { startQuiz } from './quizSyncService';
-import { nextStep } from './domain/quizDefinition';
+import { FIRST_STEP_ID } from './domain/quizDefinition';
 
 /**
  * Runs immediately after OTP verify creates/resumes the account. Merges the
@@ -34,9 +34,14 @@ export async function flushPendingQuizState(
     submissionId = started.submission_id;
   }
 
+  // A genuinely resuming account picks up where it left off; a brand-new one
+  // starts at the very first step. This used to read `nextStep('name')`, but
+  // 'name' is collected outside the quiz step list, so that lookup always
+  // returned null and fell through to 'city' — silently skipping the welcome
+  // screen (and gender/pronoun) for every new signup.
   const lastRoute = priorSession?.last_page && priorSession.last_page !== 'name'
     ? priorSession.last_page
-    : nextStep('name') ?? 'city';
+    : FIRST_STEP_ID;
 
   const store = await getEncryptedStore();
   const repo = new QuizDraftRepository({ store, now: () => Date.now() });

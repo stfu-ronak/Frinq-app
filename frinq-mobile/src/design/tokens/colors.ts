@@ -13,6 +13,15 @@ export const palette = {
   maroon: '#621407',
   cream: '#FFFBF7',
   peach: '#FFE8D6',
+  // Quiz progress wave: an unfilled track a shade lighter than `peach`, and
+  // a filled portion a shade deeper — deliberately still soft, not the full
+  // maroon, so the bar reads as an accent rather than a hard rule.
+  peachTrack: '#FFF1E6',
+  peachDeep: '#F7BE92',
+  // Same wave on a full-bleed maroon milestone screen: a dimmed cream track,
+  // with plain `cream` as the filled lead.
+  creamTrack: 'rgba(255,251,247,0.28)',
+  gridRule: 'rgba(125,37,28,0.05)', // barely-there ruled-paper lines
   brown: '#3C2110',
   gray: '#545454',
   fieldMuted: '#ECECEC', // Figma's neutral country-code fill and inactive OTP outline
@@ -23,9 +32,14 @@ export const palette = {
   pillOutline: 'rgba(98,20,7,0.58)', // faded maroon border, plain-pill MCQ options (Figma "Frame 409")
   pillLabel: 'rgba(60,33,16,0.58)', // faded brown label text, same plain-pill options
   errorRed: '#8B1E1E',
+  nextStepTop: '#9C2A1E',
+  nextStepMid: '#7C1C0B',
+  nextStepBottom: '#580F04',
+  onNextStep: 'rgba(244,238,226,0.85)',
   // Summary/vibe-report palette (Figma "summary-v2" set) — the deck's cards
   // and the envelope reveal use warmer, deeper reds than the quiz chrome.
   summaryCardBg: '#82201F', // deck card body
+  summaryCardWave: 'rgba(255,206,173,0.30)', // engraved wave border, lead card only
   summaryCardLabel: '#FFCEAD', // peach eyebrow label + share glyph on a card
   summarySheen: '#7C1C0B', // radial highlight over the card body
   summaryDotIdle: 'rgba(98,20,7,0.25)', // inactive deck pagination dot
@@ -38,6 +52,7 @@ export const palette = {
   envelopeGlow: '#FFEFA0', // warm light spilling from the opened neck
   successGreen: '#2E5D34',
   white: '#FFFFFF',
+  milestoneCtaFace: '#FFD7BD', // CTA fill on a maroon-themed milestone/break screen (Figma "ahh.. that was heavy questioning")
   scrim: 'rgba(60,33,16,0.45)', // modal backdrop
 } as const;
 
@@ -46,6 +61,7 @@ export const color = {
     maroon: palette.maroon,
     cream: palette.cream,
     peach: palette.peach,
+    peachDeep: palette.peachDeep,
     brown: palette.brown,
   },
   bg: {
@@ -68,6 +84,9 @@ export const color = {
   border: {
     default: palette.maroon, // thin maroon outlines
     subtle: palette.hairline,
+    waveTrack: palette.peachTrack, // unfilled portion of the quiz progress wave
+    waveTrackOnMaroon: palette.creamTrack, // same, on a maroon milestone screen
+    grid: palette.gridRule, // faint vertical rules behind the summary
     focus: palette.maroon, // visible focus ring
     pill: palette.pillOutline,
   },
@@ -83,10 +102,12 @@ export const color = {
     secondaryBg: palette.peach,
     secondaryText: palette.brown,
     disabledBg: palette.hairline,
+    milestoneCtaBg: palette.milestoneCtaFace,
   },
   /** Vibe-report summary screen: the card deck and the envelope reveal. */
   summary: {
     cardBg: palette.summaryCardBg,
+    cardWave: palette.summaryCardWave,
     cardLabel: palette.summaryCardLabel,
     sheen: palette.summarySheen,
     dotIdle: palette.summaryDotIdle,
@@ -97,6 +118,12 @@ export const color = {
     envelopePaperLight: palette.envelopePaperLight,
     envelopeBack: palette.envelopeBack,
     envelopeGlow: palette.envelopeGlow,
+    // Closing "the next step" block on the summary — the web's
+    // linear-gradient(160deg, #9c2a1e, #7c1c0b 55%, #580f04).
+    nextStepTop: palette.nextStepTop,
+    nextStepMid: palette.nextStepMid,
+    nextStepBottom: palette.nextStepBottom,
+    onNextStep: palette.onNextStep,
   },
 } as const;
 

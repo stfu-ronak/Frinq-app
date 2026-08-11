@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { useQuery } from '@tanstack/react-query';
@@ -19,9 +20,12 @@ import { toSummaryPageData } from '../summaryPageData';
 import { shareVibeCard } from '../shareVibeCard';
 import { SummaryCardStack, SummaryCard } from '../components/SummaryCardStack';
 import { SummaryEnvelopeFlow } from '../components/SummaryEnvelopeFlow';
+import { PrimaryButton } from '../../../design/components/PrimaryButton';
 import { BootSplash } from '../../../navigation/placeholders';
 
 const ENTER_EASING = Easing.bezier(0.22, 1, 0.36, 1);
+/** Spacing of the background's vertical rules (design: 16-20px). */
+const GRID_GAP = 18;
 
 /** The four quick-read cards that follow the lead "your type" card, in order.
  *  Labels are the exact Page-2 design copy. */
@@ -45,7 +49,16 @@ function capitalize(text: string): string {
  * blank frame between them), then the deck settles and the longer reading
  * fades in after it.
  */
-export function VibeReportScreen() {
+type VibeReportScreenProps = {
+  /** Supplied only on the FIRST view, straight after the quiz: renders a
+   *  Continue button pinned to the bottom that hands off to the main app.
+   *  Opening the same report later from Profile omits it — there's a back
+   *  button there and nothing to continue to. */
+  onContinue?: () => void;
+};
+
+export function VibeReportScreen({ onContinue }: VibeReportScreenProps = {}) {
+  const { width: windowWidth } = useWindowDimensions();
   const { apiClient } = useSession();
   const reduced = useReducedMotion();
   const [submissionId, setSubmissionId] = useState<string | null>(null);
@@ -164,16 +177,36 @@ export function VibeReportScreen() {
     <View style={styles.fill}>
       {reportMounted && (
         <SafeAreaView style={styles.fill} edges={['top', 'bottom', 'left', 'right']}>
+          {/* Faint vertical rules behind everything — the design's ruled-paper
+              ground. Spacing is fixed in dp (not a fraction of the width) so
+              the texture reads the same on a 360dp phone and a 430dp one. */}
+          <View style={StyleSheet.absoluteFill} pointerEvents="none">
+            <Svg width="100%" height="100%" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+              {Array.from({ length: Math.ceil(windowWidth / GRID_GAP) }, (_, i) => (
+                <Rect key={i} x={i * GRID_GAP} y={0} width={StyleSheet.hairlineWidth} height="100%" fill={color.border.grid} />
+              ))}
+            </Svg>
+          </View>
           <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
             <Animated.View style={headerStyle}>
-              <BodyText style={styles.eyebrow}>your type</BodyText>
-              <BrandHeading variant="display" style={styles.greeting}>Hey {data.firstName || 'friend'},</BrandHeading>
+              {/* Masthead: wordmark left, field-note number right. */}
+              <View style={styles.masthead}>
+                <BrandHeading variant="display" tone="brand" style={styles.wordmark}>frinq</BrandHeading>
+                <BodyText style={styles.fieldNote}>friend field note</BodyText>
+              </View>
+              {/* Lowercase throughout — the design's editorial voice. */}
+              <BrandHeading variant="display" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={styles.greeting}>
+                hey {(data.firstName || 'friend').toLowerCase()},
+              </BrandHeading>
               <BodyText variant="intro" tone="secondary" style={styles.subcopy}>
-                Here&apos;s how you show up with people.
+                here&apos;s your quick read.
               </BodyText>
             </Animated.View>
 
             <Animated.View style={[styles.deck, deckStyle]}>
+              <BrandHeading variant="display" tone="brand" numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.standsOut}>
+                what stands out{`\n`}about you
+              </BrandHeading>
               <SummaryCardStack cards={cards} onShare={handleShare} />
             </Animated.View>
 
@@ -191,6 +224,29 @@ export function VibeReportScreen() {
                   <BodyText style={styles.paragraph}>{capitalize(paragraph)}</BodyText>
                 </View>
               ))}
+              {/* Closing block, mirroring the web's "the next step" card —
+                  minus its "reserve a seat … your details are already filled
+                  in" copy and its two-button reserve/dismiss row. One
+                  Continue, which is the only thing this app does next. */}
+              <View style={styles.nextStep}>
+                <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+                  <Defs>
+                    <LinearGradient id="nextStep" x1="0" y1="0" x2="0.5" y2="1">
+                      <Stop offset="0" stopColor={color.summary.nextStepTop} />
+                      <Stop offset="0.55" stopColor={color.summary.nextStepMid} />
+                      <Stop offset="1" stopColor={color.summary.nextStepBottom} />
+                    </LinearGradient>
+                  </Defs>
+                  <Rect x="0" y="0" width="100%" height="100%" fill="url(#nextStep)" />
+                </Svg>
+                <BodyText style={styles.nextStepEyebrow}>THE NEXT STEP</BodyText>
+                <BrandHeading variant="title" numberOfLines={3} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.nextStepTitle}>
+                  want to meet people this actually fits?
+                </BrandHeading>
+                {!!onContinue && (
+                  <PrimaryButton label="Continue" onPress={onContinue} variant="secondary" style={styles.continueButton} />
+                )}
+              </View>
             </Animated.View>
           </ScrollView>
         </SafeAreaView>
@@ -215,8 +271,23 @@ const styles = StyleSheet.create({
   fill: { flex: 1, backgroundColor: color.bg.canvas },
   envelopeOverlay: { ...StyleSheet.absoluteFill, zIndex: 100 },
   scrollContent: { paddingHorizontal: spacing.xl, paddingTop: spacing.xl, paddingBottom: spacing.xxxl },
-  eyebrow: { fontFamily: fontFamily.bodyMedium, fontSize: 15, color: color.summary.sealRed },
-  greeting: { marginTop: spacing.sm, fontSize: 34, lineHeight: 38 },
+  nextStep: {
+    marginTop: spacing.xxxl,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    alignItems: 'center',
+    paddingHorizontal: 26,
+    paddingVertical: 34,
+  },
+  nextStepEyebrow: { fontFamily: fontFamily.bodyMedium, fontSize: 11, letterSpacing: 1, color: color.summary.onNextStep },
+  nextStepTitle: { marginTop: spacing.md, fontSize: 26, lineHeight: 34, textAlign: 'center', color: color.brand.cream },
+  continueButton: { width: '100%', marginTop: spacing.xl },
+  masthead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  wordmark: { fontSize: 22, lineHeight: 34 },
+  fieldNote: { fontFamily: fontFamily.bodyLight, fontSize: 11, letterSpacing: 0.4, color: color.text.muted },
+  standsOut: { fontSize: 24, lineHeight: 34, textAlign: 'center', marginBottom: spacing.xl },
+  // lineHeight 38 under a 34px Borel cut the ascenders and the comma's tail.
+  greeting: { marginTop: spacing.sm, fontSize: 34, lineHeight: 50 },
   subcopy: { marginTop: spacing.xs },
   deck: { marginTop: spacing.xxxl, marginBottom: spacing.xxxl },
   pullQuote: {

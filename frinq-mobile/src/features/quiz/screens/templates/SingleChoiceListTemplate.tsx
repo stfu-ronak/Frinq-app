@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { QuizScreenFrame } from '../../components/QuizScreenFrame';
 import { SimpleStepFrame } from '../../components/SimpleStepFrame';
-import { BodyText, BrandHeading } from '../../../../design/components/Text';
+import { BodyText, QuestionHeading } from '../../../../design/components/Text';
 import { BoxChoice, BoxChoiceDivider } from '../../../../design/components/BoxChoice';
 import { PressableScale } from '../../../../design/motion/PressableScale';
 import { fontFamily } from '../../../../design/tokens/typography';
@@ -86,16 +86,13 @@ export function SingleChoiceListTemplate({ step, value, onSelect, onBack }: Prop
 
   return (
     <QuizScreenFrame stepId={step.id} onBack={onBack} headerVariant="glow">
-      <BrandHeading variant="display" tone="brand" style={styles.heading}>
-        {step.prompt}
-      </BrandHeading>
+      <QuestionHeading>{step.prompt}</QuestionHeading>
       {options}
     </QuizScreenFrame>
   );
 }
 
 const styles = StyleSheet.create({
-  heading: { fontSize: 32, lineHeight: 48, textAlign: 'center', marginBottom: spacing.xxl },
   plainPill: {
     width: '100%',
     minHeight: touchTarget.min,

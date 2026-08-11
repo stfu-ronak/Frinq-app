@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { ReferenceJourneyFrame } from '../../../design/components/ReferenceJourneyFrame';
@@ -44,9 +45,21 @@ const RING_ASSETS = [
   { source: require('../../../../Public/Assets/Union-4.png'), aspectRatio: 402 / 783 },
 ];
 
+/** The `body` paddingTop + the frame's own safe-area/content padding would
+ *  otherwise box the rings into the area BELOW the status bar, so the bloom
+ *  stopped short of the camera cutout and sat off-centre on the screen.
+ *  Cancelling all four insets makes the pattern a true full-bleed layer,
+ *  which is also what puts its centre on the real screen centre. */
 function ReferenceIntroPattern() {
+  const insets = useSafeAreaInsets();
   return (
-    <View testID="reference-intro-pattern" pointerEvents="none" style={styles.pattern} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+    <View
+      testID="reference-intro-pattern"
+      pointerEvents="none"
+      style={[styles.pattern, { top: -(insets.top + BODY_PADDING_TOP), bottom: -(insets.bottom + spacing.xl) }]}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
       {RING_ASSETS.map((ring, index) => (
         <AnimatedRing key={index} index={index} testID={ring.testID} source={ring.source} aspectRatio={ring.aspectRatio} />
       ))}
@@ -71,18 +84,31 @@ function AnimatedRing({ source, aspectRatio, index, testID }: { source: number; 
   const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
   return (
-    <View style={[styles.ringWrap, { aspectRatio }]}>
-      <AnimatedImage testID={testID} source={source} style={[styles.ring, animatedStyle]} resizeMode="stretch" />
+    <View style={styles.ringWrap}>
+      <View style={[styles.ringBox, { aspectRatio }]}>
+        <AnimatedImage testID={testID} source={source} style={[styles.ring, animatedStyle]} resizeMode="stretch" />
+      </View>
     </View>
   );
 }
 
+const BODY_PADDING_TOP = 56;
+
 const styles = StyleSheet.create({
-  body: { flex: 1, alignItems: 'center', justifyContent: 'space-between', paddingTop: 56, paddingBottom: 0 },
+  body: { flex: 1, alignItems: 'center', justifyContent: 'space-between', paddingTop: BODY_PADDING_TOP, paddingBottom: 0 },
   // Cancels ReferenceJourneyFrame's content padding so the rings bleed flush
   // to the device edges instead of sitting inset inside the padded column.
-  pattern: { position: 'absolute', top: 0, bottom: 0, left: -spacing.xl, right: -spacing.xl, overflow: 'hidden' },
-  ringWrap: { position: 'absolute', bottom: 0, left: 0, width: '100%' },
+  // top/bottom are supplied per-render (safe-area insets aren't static).
+  pattern: { position: 'absolute', left: -spacing.xl, right: -spacing.xl, overflow: 'hidden' },
+  // Every ring is the SAME 402px-wide export, only taller as it grows, so the
+  // set is concentric about one shared centre — they must be centre-anchored,
+  // not bottom-anchored. Pinning `bottom: 0` aligned their bottom edges
+  // instead, which pushed each successive centre upward and made the bloom
+  // read lopsided rather than symmetrical.
+  ringWrap: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, alignItems: 'center', justifyContent: 'center' },
+  // aspectRatio stays on a plain View (see AnimatedRing's note); the animated
+  // Image just fills it.
+  ringBox: { width: '100%' },
   ring: { width: '100%', height: '100%' },
   logo: { width: 100, height: 100 / (260 / 144), alignSelf: 'center' },
   headingWrap: { width: '82%', aspectRatio: 1007 / 897, marginTop: 'auto', marginBottom: 'auto' },

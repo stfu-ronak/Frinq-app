@@ -388,6 +388,22 @@ async def generate_insights(
                     effort=effort,
                     usage_recorder=usage_recorder,
                 )
+            elif provider == "azure":
+                # Same request/response shape as the direct OpenAI branch —
+                # only the host and credential differ. Without this branch an
+                # admin-selected provider='azure' fell through to the `else`
+                # and called api.openai.com with the Azure key.
+                from app.core.ai import azure_client
+
+                raw = await azure_client.call_azure_json(
+                    system=prompts.INSIGHTS_SYSTEM,
+                    user=user_prompt,
+                    model=model_id,
+                    temperature=_TEMPERATURE,
+                    max_tokens=_MAX_TOKENS,
+                    effort=effort,
+                    usage_recorder=usage_recorder,
+                )
             else:
                 raw = await call_openai_json(
                     system=prompts.INSIGHTS_SYSTEM,

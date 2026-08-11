@@ -2,11 +2,10 @@ import { nextLandingRoute } from '../AuthNavigator';
 
 describe('reference pre-auth routing', () => {
   it('starts a new user on the reference introduction, not the former legal or quiz-intro screens', () => {
-    expect(nextLandingRoute({ hasPendingAcceptance: false, hasName: false })).toBe('ReferenceIntro');
+    expect(nextLandingRoute({ hasPendingAcceptance: false })).toBe('ReferenceIntro');
   });
 
-  it('resumes an accepted journey at name or phone without showing a legacy intro', () => {
-    expect(nextLandingRoute({ hasPendingAcceptance: true, hasName: false })).toBe('Name');
-    expect(nextLandingRoute({ hasPendingAcceptance: true, hasName: true })).toBe('Phone');
+  it('resumes an accepted journey straight at phone — name is collected after OTP now, never before it', () => {
+    expect(nextLandingRoute({ hasPendingAcceptance: true })).toBe('Phone');
   });
 });

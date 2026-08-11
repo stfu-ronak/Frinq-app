@@ -130,7 +130,8 @@ describe('VibeReportScreen', () => {
     fireEvent.press(await findByRole('button', { name: /open your friend read/i }));
 
     // Lead card + the legacy-mapped portrait paragraphs.
-    expect(await findByText('the soft anchor')).toBeTruthy();
+    // Displayed title-cased, like the web card's text-transform: capitalize.
+    expect(await findByText('The Soft Anchor')).toBeTruthy();
     expect(await findByText(/the bigger picture/i)).toBeTruthy();
     expect(await findByText('You carry more than you show.')).toBeTruthy();
   });
@@ -142,7 +143,8 @@ describe('VibeReportScreen', () => {
     fireEvent.press(await findByRole('button', { name: /open your friend read/i }));
 
     // Falls back to share_card copy for the type definition.
-    expect(await findByText('the soft anchor')).toBeTruthy();
+    // Displayed title-cased, like the web card's text-transform: capitalize.
+    expect(await findByText('The Soft Anchor')).toBeTruthy();
     expect(queryByText('Steady wins.')).toBeNull();
   });
 

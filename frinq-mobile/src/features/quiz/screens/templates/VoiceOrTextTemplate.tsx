@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { QuizScreenFrame } from '../../components/QuizScreenFrame';
 import { TextField } from '../../../../design/components/TextField';
-import { BodyText } from '../../../../design/components/Text';
+import { BodyText, BrandHeading } from '../../../../design/components/Text';
+import { fontFamily } from '../../../../design/tokens/typography';
+import { color } from '../../../../design/tokens/colors';
 import { spacing } from '../../../../design/tokens/spacing';
 import { VoiceOrTextStep } from '../../domain/quizDefinition';
 import { VoiceAnswer } from '../../components/VoiceAnswer';
@@ -13,6 +16,17 @@ type Props = {
   onChange: (v: string) => void;
   onContinue: () => void;
   onBack?: () => void;
+  /** Override QuizScreenFrame's counter stepId/subIndex — used when this
+   *  template renders as an inline sub-step of another domain step
+   *  (Opinions' per-pair "why" follow-up) rather than its own registry
+   *  entry, so the header counter still resolves against the real step. */
+  stepIdOverride?: string;
+  subIndex?: number;
+  /** Small, muted, cursive echo of an earlier answer this follow-up is
+   *  asking about — Opinions' "what makes you think that?" showing back
+   *  the side just picked ("humans can't truly be replaced."), so the
+   *  context isn't lost between the pick screen and this one. */
+  contextLine?: string;
 };
 
 /**
@@ -24,37 +38,72 @@ type Props = {
  * answer, but a saved recording is a valid answer on its own — Continue must
  * enable for a voice-only response (no typed text), not just a typed one.
  */
-export function VoiceOrTextTemplate({ step, submissionId, value, onChange, onContinue, onBack }: Props) {
+export function VoiceOrTextTemplate({ step, submissionId, value, onChange, onContinue, onBack, stepIdOverride, subIndex, contextLine }: Props) {
   const [hasRecording, setHasRecording] = useState(false);
   const valid = value.trim().length > 0 || hasRecording;
   return (
     <QuizScreenFrame
-      stepId={step.id}
+      stepId={stepIdOverride ?? step.id}
+      subIndex={subIndex}
       onBack={onBack}
       headerVariant="counter"
       continueLabel="continue"
       onContinue={onContinue}
       continueDisabled={!valid}
     >
-      <BodyText variant="display" tone="brand" style={{ fontSize: 22, lineHeight: 30, textAlign: 'center', marginBottom: step.subtext ? spacing.xs : spacing.lg }}>
-        {step.heading}
-      </BodyText>
-      {!!step.subtext && (
-        <BodyText variant="body" tone="secondary" style={{ textAlign: 'center', marginBottom: spacing.lg }}>
-          {step.subtext}
-        </BodyText>
-      )}
+      {/* Fixed-height prompt slot. Everything below it — the mic circle above
+          all — then sits at the SAME Y on every voice/text question, whether
+          the prompt runs to one line or three and whether or not there's a
+          context echo. Bold Vastago, not the cursive Borel display face: this
+          prompt is a full sentence rather than a short MCQ question. */}
+      <View style={styles.promptSlot}>
+        <BrandHeading variant="heading" tone="brand" numberOfLines={3} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.heading}>
+          {step.heading}
+        </BrandHeading>
+        {!!step.subtext && (
+          <BodyText variant="body" tone="secondary" numberOfLines={2} style={styles.subtext}>
+            {step.subtext}
+          </BodyText>
+        )}
+        {!!contextLine && (
+          // Borel's tall ascenders/loops overflow a tight line box and get
+          // clipped at the top — lineHeight well above fontSize plus explicit
+          // padding gives them room instead.
+          <BodyText tone="muted" numberOfLines={2} style={styles.contextLine}>
+            {contextLine}
+          </BodyText>
+        )}
+      </View>
       <VoiceAnswer submissionId={submissionId} questionKey={step.answerKey} onStatusChange={setHasRecording} />
+      <View style={styles.divider} />
       <TextField
         label={step.heading}
         hideLabel
-        variant="underline"
         value={value}
         onChangeText={onChange}
         placeholder={step.placeholder}
         multiline
         numberOfLines={4}
+        inputStyle={styles.textBox}
+        textAlignVertical="top"
       />
     </QuizScreenFrame>
   );
 }
+
+/** 3 heading lines + BrandHeading's own 8/4 padding + one line of subtext or
+ *  context echo. Fixed on purpose: this is what holds the mic circle still. */
+const PROMPT_SLOT_H = 3 * 36 + 12 + 34;
+
+const styles = StyleSheet.create({
+  promptSlot: { height: PROMPT_SLOT_H, width: '100%', justifyContent: 'flex-start' },
+  heading: { fontSize: 28, lineHeight: 36, textAlign: 'center' },
+  subtext: { textAlign: 'center' },
+  contextLine: { fontFamily: fontFamily.display, fontSize: 15, lineHeight: 28, paddingTop: 6, textAlign: 'center' },
+  // Separates the voice section from the typed answer below it, per the
+  // reference design — otherwise the two read as one continuous block.
+  divider: { height: 1, backgroundColor: color.border.subtle, marginTop: spacing.lg, marginBottom: spacing.lg },
+  // A real box, not the old bottom-rule: bordered, cream, tall enough for a
+  // few lines, and text starts at the TOP of it (textAlignVertical).
+  textBox: { minHeight: 132, paddingTop: spacing.md, paddingBottom: spacing.md },
+});

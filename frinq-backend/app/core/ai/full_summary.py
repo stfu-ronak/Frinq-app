@@ -156,6 +156,19 @@ async def generate_full_summary(
             effort=effort,
             usage_recorder=usage_recorder,
         )
+    elif provider == "azure":
+        # Same body as the OpenAI branch; azure_client only swaps host+auth.
+        from app.core.ai import azure_client
+
+        raw = await azure_client.call_azure_json(
+            system=FULL_SUMMARY_SYSTEM,
+            user=user,
+            model=model_id,
+            max_tokens=12000,
+            examples=[(DEEP_REPORT_EXAMPLE_USER, DEEP_REPORT_EXAMPLE_ASSISTANT)],
+            effort=effort,
+            usage_recorder=usage_recorder,
+        )
     else:
         raw = await call_openai_json(
             system=FULL_SUMMARY_SYSTEM,

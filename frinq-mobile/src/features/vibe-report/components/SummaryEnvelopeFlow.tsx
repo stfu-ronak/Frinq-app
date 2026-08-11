@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Dimensions, Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
+  withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import Svg, { Defs, Path, Polygon, RadialGradient, Stop } from 'react-native-svg';
+import Svg, { Defs, Path, Polygon, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { BodyText, BrandHeading } from '../../../design/components/Text';
 import { color } from '../../../design/tokens/colors';
 import { radius, spacing } from '../../../design/tokens/spacing';
@@ -22,27 +23,50 @@ const EASE_OUT = Easing.bezier(0.22, 1, 0.36, 1);
 const EASE_IN_OUT = Easing.bezier(0.65, 0, 0.35, 1);
 const EASE_SPRING = Easing.bezier(0.18, 0.72, 0.24, 1.02);
 
-const at = (fraction: number) => Math.round(TOTAL_MS * fraction);
+/** Fraction of the reveal's total duration, in ms.
+ *
+ *  Marked as a worklet because it is called from BOTH runtimes: most uses are
+ *  on the JS thread while scheduling, but the deck's second pull schedules
+ *  itself from inside a withTiming completion callback, which reanimated runs
+ *  on the UI runtime. Without the directive that call crashed the whole
+ *  reveal with `[Worklets] Tried to synchronously call a Remote Function.
+ *  Called "at" on the UI Runtime.` */
+const at = (fraction: number) => {
+  'worklet';
+  return Math.round(TOTAL_MS * fraction);
+};
 
 /** Envelope geometry: the four paper flaps all converge here (also where the
  *  wax seal sits). Percentages of the envelope box. */
 const APEX_X = 50;
 const APEX_Y = 52;
 const ENVELOPE_ASPECT = 345 / 267;
+/** The deck's inset from the top of the envelope scene (web: top 16%). */
+const DECK_TOP_FRACTION = 0.16;
+/** Gap between the intro copy and the envelope, closed as it opens. */
+const SCENE_GAP = 48;
+/** Web uses 150vmax for the wash circle. */
+const WASH_SIZE = Math.max(Dimensions.get('window').width, Dimensions.get('window').height) * 1.5;
 
 /** Warm light blooming out of the envelope's neck as the flap lifts. */
 function EnvelopeGlow() {
   return (
-    <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+    // viewBox + userSpaceOnUse, NOT objectBoundingBox on an unscaled path: the
+    // old version painted a 1000x1000 path inside a viewport only a few
+    // hundred points wide, so the gradient's centre sat far off-box and only
+    // its top-left quadrant was visible — the bright wedge that hung off the
+    // bottom-right of the envelope. Here the circle is centred in the box and
+    // is fully transparent well before the corners.
+    <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
       <Defs>
-        <RadialGradient id="envGlow" cx="0.5" cy="0.5" r="0.5">
+        <RadialGradient id="envGlow" cx="50" cy="50" r="50" gradientUnits="userSpaceOnUse">
           <Stop offset="0" stopColor={color.summary.envelopeGlow} stopOpacity={0.95} />
           <Stop offset="0.24" stopColor={color.brand.peach} stopOpacity={0.52} />
           <Stop offset="0.51" stopColor={color.brand.maroon} stopOpacity={0.16} />
           <Stop offset="0.71" stopColor={color.brand.maroon} stopOpacity={0} />
         </RadialGradient>
       </Defs>
-      <Path d="M0 0 H100 V100 H0 Z" fill="url(#envGlow)" transform="scale(10)" />
+      <Rect x="0" y="0" width="100" height="100" fill="url(#envGlow)" />
     </Svg>
   );
 }
@@ -100,11 +124,18 @@ export function SummaryEnvelopeFlow({ firstName, cards, onRevealStart, onRevealC
   const reduced = useReducedMotion();
   const [opening, setOpening] = useState(false);
   const [pocketOpen, setPocketOpen] = useState(false);
+  // The folded flap drops behind the envelope once it's past vertical, so it
+  // can't sit on top of the card being pulled out (web does the same via a
+  // zIndex flip at 1020ms).
+  const [flapBehind, setFlapBehind] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Fractions of the deck's own height, so "halfway out" and "fully clear"
   // read the same on a small phone and a large one.
   const deckHeight = useSharedValue(0);
+  const sceneHeight = useSharedValue(0);
+  // Measured, because the flap's hinge maths needs its real pixel height.
+  const flapHeight = useSharedValue(0);
 
   const intro = useSharedValue(1); // greeting + envelope prompt copy
   const sceneOpacity = useSharedValue(1);
@@ -117,6 +148,8 @@ export function SummaryEnvelopeFlow({ firstName, cards, onRevealStart, onRevealC
   const deckScale = useSharedValue(0.9);
   const seal = useSharedValue(1);
   const sealDrop = useSharedValue(0);
+  const sealScale = useSharedValue(1);
+  const sceneLift = useSharedValue(0);
   const wash = useSharedValue(0);
 
   const clearTimers = useCallback(() => {
@@ -137,21 +170,58 @@ export function SummaryEnvelopeFlow({ firstName, cards, onRevealStart, onRevealC
       return;
     }
 
-    const halfPull = deckHeight.value * 0.42;
-    const fullPull = deckHeight.value * 1.16;
+    // Same derivation as the web original: the card's travel is measured off
+    // the DECK's height plus the deck's own inset from the top of the scene,
+    // so "half out" and "fully clear" mean the same thing on any screen.
+    const deckTop = sceneHeight.value * DECK_TOP_FRACTION;
+    const halfPull = Math.round(deckHeight.value * 0.42);
+    const fullPull = Math.round(deckHeight.value + deckTop + 8);
 
     intro.value = withTiming(0, { duration: 300, easing: EASE_OUT });
+    // The envelope rises into the space the intro copy vacates (web: the
+    // scene's marginTop transitions 48 -> 0 on open).
+    sceneLift.value = withTiming(-SCENE_GAP, { duration: 300, easing: EASE_OUT });
 
-    // Seal pops, then slides off as the flap starts to lift.
-    seal.value = withDelay(at(0.1), withTiming(0, { duration: at(0.24), easing: EASE_OUT }));
-    sealDrop.value = withDelay(at(0.1), withTiming(48, { duration: at(0.24), easing: EASE_OUT }));
+    // Seal pops, sags, then drops away — web offsets .1/.24/.34.
+    seal.value = withDelay(at(0.1), withSequence(
+      withTiming(1, { duration: at(0.14), easing: EASE_OUT }),
+      withTiming(0.75, { duration: at(0.1), easing: EASE_OUT }),
+      withTiming(0, { duration: at(0.1), easing: EASE_OUT }),
+    ));
+    sealScale.value = withDelay(at(0.1), withSequence(
+      withTiming(1.08, { duration: at(0.14), easing: EASE_OUT }),
+      withTiming(0.92, { duration: at(0.1), easing: EASE_OUT }),
+      withTiming(0.6, { duration: at(0.1), easing: EASE_OUT }),
+    ));
+    sealDrop.value = withDelay(at(0.1), withSequence(
+      withTiming(0, { duration: at(0.14) }),
+      withTiming(16, { duration: at(0.1), easing: EASE_OUT }),
+      withTiming(48, { duration: at(0.1), easing: EASE_OUT }),
+    ));
 
-    // Flap folds back over the top of the envelope.
+    // Flap folds back over the top of the envelope (web: 0deg held to .16,
+    // then to -172deg by .43).
     flap.value = withDelay(at(0.16), withTiming(1, { duration: at(0.27), easing: EASE_IN_OUT }));
 
-    // Light grows from inside the envelope, then recedes as the card leaves.
-    glow.value = withDelay(at(0.22), withTiming(1, { duration: at(0.39), easing: EASE_OUT }));
-    glowScale.value = withDelay(at(0.22), withTiming(1.28, { duration: at(0.64), easing: EASE_OUT }));
+    // Light grows from inside the envelope and is fully out by the end.
+    // ONE sequence on purpose: this used to be two separate `glow.value = ...`
+    // assignments in the same synchronous block, and the later simply replaced
+    // the earlier — the bloom never played, and the value it was left holding
+    // painted a stray gradient over the hand-off. Offsets .22/.61/.86/1 and
+    // the .3/1/.8/0 opacity ramp come straight from the web keyframes.
+    glow.value = withDelay(at(0.22), withSequence(
+      withTiming(0.3, { duration: 1 }),
+      withTiming(1, { duration: at(0.39), easing: EASE_OUT }),
+      withTiming(0.8, { duration: at(0.25), easing: EASE_OUT }),
+      withTiming(0, { duration: at(0.14), easing: EASE_OUT }),
+    ));
+    glowScale.value = withSequence(
+      withTiming(0.55, { duration: at(0.22) }),
+      withTiming(0.75, { duration: 1 }),
+      withTiming(1.13, { duration: at(0.39), easing: EASE_OUT }),
+      withTiming(1.28, { duration: at(0.25), easing: EASE_OUT }),
+      withTiming(1.36, { duration: at(0.14), easing: EASE_OUT }),
+    );
 
     // Deck: fade in inside the pocket, rise halfway, pause, then pull clear.
     deckOpacity.value = withDelay(at(0.24), withTiming(1, { duration: at(0.09), easing: EASE_OUT }));
@@ -166,44 +236,59 @@ export function SummaryEnvelopeFlow({ firstName, cards, onRevealStart, onRevealC
     // Envelope recedes only after the card has completely cleared it.
     sceneOpacity.value = withDelay(at(0.91), withTiming(0, { duration: at(0.09), easing: EASE_OUT }));
     sceneShift.value = withDelay(at(0.91), withTiming(20, { duration: at(0.09), easing: EASE_OUT }));
-    glow.value = withDelay(at(0.86), withTiming(0, { duration: at(0.14), easing: EASE_OUT }));
 
-    // Cream wash covers the hand-off to the report.
+    // Cream wash: a circle blooming from the centre (web: scale .3 -> 1.3 over
+    // the final 9%), not a rectangle cross-fade.
     wash.value = withDelay(at(0.91), withTiming(1, { duration: at(0.09), easing: EASE_OUT }));
 
-    // The pocket mouth only appears once the flap is up — a sealed envelope
-    // shouldn't show an opening.
+    // Web parity: the mouth appears once the flap has BEGUN to lift (900ms),
+    // and the folded flap drops behind the envelope at 1020ms so it doesn't
+    // sit on top of the card as it comes out.
     timers.current.push(setTimeout(() => setPocketOpen(true), 900));
+    timers.current.push(setTimeout(() => setFlapBehind(true), 1020));
     timers.current.push(setTimeout(onRevealStart, at(0.83)));
     timers.current.push(setTimeout(onRevealComplete, TOTAL_MS));
   }, [
-    opening, reduced, onRevealStart, onRevealComplete, deckHeight,
-    intro, sceneOpacity, sceneShift, glow, glowScale, flap,
-    deckY, deckOpacity, deckScale, seal, sealDrop, wash,
+    opening, reduced, onRevealStart, onRevealComplete, deckHeight, sceneHeight,
+    intro, sceneOpacity, sceneShift, sceneLift, glow, glowScale, flap,
+    deckY, deckOpacity, deckScale, seal, sealDrop, sealScale, wash,
   ]);
 
   const introStyle = useAnimatedStyle(() => ({ opacity: intro.value, transform: [{ translateY: (1 - intro.value) * -10 }] }));
-  const sceneStyle = useAnimatedStyle(() => ({ opacity: sceneOpacity.value, transform: [{ translateY: sceneShift.value }] }));
+  const sceneStyle = useAnimatedStyle(() => ({ opacity: sceneOpacity.value, transform: [{ translateY: sceneShift.value + sceneLift.value }] }));
   const glowStyle = useAnimatedStyle(() => ({ opacity: glow.value, transform: [{ scale: glowScale.value }] }));
   const deckStyle = useAnimatedStyle(() => ({
     opacity: deckOpacity.value,
     transform: [{ translateY: deckY.value }, { scale: deckScale.value }],
   }));
-  const sealStyle = useAnimatedStyle(() => ({ opacity: seal.value, transform: [{ translateY: sealDrop.value }] }));
-  const washStyle = useAnimatedStyle(() => ({ opacity: wash.value }));
+  const sealStyle = useAnimatedStyle(() => ({ opacity: seal.value, transform: [{ translateY: sealDrop.value }, { scale: sealScale.value }] }));
+  // Circle wipe: opacity AND scale, matching the web's .3 -> 1.3 bloom.
+  const washStyle = useAnimatedStyle(() => ({ opacity: wash.value, transform: [{ scale: 0.3 + wash.value }] }));
   // rotateX folds the flap's far edge AWAY from the viewer, back over the
   // envelope — the real opening direction. It also fades past the midpoint so
   // the (unshaded) reverse side never reads as a flat slab.
-  const flapStyle = useAnimatedStyle(() => ({
-    opacity: Math.max(0, 1 - Math.max(0, flap.value - 0.5) * 2),
-    transform: [{ perspective: 700 }, { rotateX: `${flap.value * 148}deg` }],
-  }));
+  //
+  // The translate/rotate/translate sandwich moves the pivot to the layer's TOP
+  // EDGE. React Native has no transformOrigin, so a bare rotateX spun the flap
+  // about its own middle: the crease travelled down the envelope instead of
+  // staying put along the seam, which is what made the opening look wrong.
+  const flapStyle = useAnimatedStyle(() => {
+    const half = flapHeight.value / 2;
+    return {
+      transform: [
+        { perspective: 900 },
+        { translateY: -half },
+        { rotateX: `${flap.value * -172}deg` },
+        { translateY: half },
+      ],
+    };
+  });
 
   return (
     <View style={styles.root}>
       <Animated.View style={[styles.intro, introStyle]}>
         <BodyText style={styles.greeting}>Hi {firstName || 'friend'},</BodyText>
-        <BrandHeading variant="display" tone="brand" style={styles.headline}>
+        <BrandHeading variant="display" tone="brand" numberOfLines={3} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.headline}>
           Frinq has read between your lines.
         </BrandHeading>
         <BodyText variant="intro" tone="secondary" style={styles.subcopy}>
@@ -211,7 +296,10 @@ export function SummaryEnvelopeFlow({ firstName, cards, onRevealStart, onRevealC
         </BodyText>
       </Animated.View>
 
-      <Animated.View style={[styles.scene, sceneStyle]}>
+      <Animated.View
+        style={[styles.scene, sceneStyle]}
+        onLayout={(e) => { sceneHeight.value = e.nativeEvent.layout.height; }}
+      >
         <Animated.View style={[styles.glow, glowStyle]} pointerEvents="none">
           <EnvelopeGlow />
         </Animated.View>
@@ -247,8 +335,12 @@ export function SummaryEnvelopeFlow({ firstName, cards, onRevealStart, onRevealC
         </View>
 
         {/* Top flap — the one piece that moves, hinged on its own top edge. */}
-        <Animated.View style={[styles.flapLayer, flapStyle]} pointerEvents="none">
-          <Flap points={`0,0 100,0 ${APEX_X},${APEX_Y}`} fill={color.summary.envelopePaperLight} />
+        <Animated.View
+          style={[styles.flapLayer, flapBehind && styles.flapLayerBehind, flapStyle]}
+          pointerEvents="none"
+          onLayout={(e) => { flapHeight.value = e.nativeEvent.layout.height; }}
+        >
+          <Flap points={`0,0 100,0 ${APEX_X},100`} fill={color.summary.envelopePaperLight} />
         </Animated.View>
 
         <Animated.View style={[styles.seal, sealStyle]} pointerEvents="none">
@@ -280,20 +372,35 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.bg.canvas, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl },
   intro: { alignItems: 'center', maxWidth: 320 },
   greeting: { fontFamily: fontFamily.bodyMedium, fontSize: 14, color: color.summary.sealRed },
-  headline: { marginTop: spacing.md, fontSize: 32, lineHeight: 38, textAlign: 'center' },
+  // lineHeight 38 on a 32px Borel clipped the ascenders and the tail of the
+  // 'q'; the web sets this in a serif at 1.08, which Borel cannot survive.
+  headline: { marginTop: spacing.md, fontSize: 30, lineHeight: 44, textAlign: 'center' },
   subcopy: { marginTop: spacing.md, textAlign: 'center' },
-  scene: { width: '100%', maxWidth: 346, aspectRatio: ENVELOPE_ASPECT, marginTop: spacing.xxxl },
-  glow: { position: 'absolute', left: '-18%', top: '-18%', width: '136%', height: '136%', zIndex: 1 },
+  scene: { width: '100%', maxWidth: 346, aspectRatio: ENVELOPE_ASPECT, marginTop: SCENE_GAP },
+  // Square and centred on the envelope's neck (web: left 50%, top 48%,
+  // width 135%, aspect-ratio 1, translate(-50%,-50%)). The old offset
+  // rectangle put the gradient's centre off-box, which is what left a bright
+  // wedge hanging off the bottom-right once the bloom faded.
+  glow: { position: 'absolute', zIndex: 1, left: '-17.5%', top: '48%', width: '135%', aspectRatio: 1, marginTop: '-67.5%' },
   envelopeBack: { ...StyleSheet.absoluteFill, zIndex: 0, borderRadius: radius.sm, backgroundColor: color.summary.envelopeBack, borderWidth: 1, borderColor: color.border.subtle },
   // Reaches far above the envelope, ends exactly at its bottom.
   deckWindow: { position: 'absolute', zIndex: 2, left: 0, right: 0, top: -720, bottom: 0, overflow: 'hidden' },
-  deckHolder: { position: 'absolute', left: '11%', width: '78%', top: 720 + 42 },
+  deckHolder: { position: 'absolute', left: '11%', width: '78%', top: `${DECK_TOP_FRACTION * 100}%`, marginTop: 720 },
   pocket: { ...StyleSheet.absoluteFill, zIndex: 3 },
-  flapLayer: { ...StyleSheet.absoluteFill, zIndex: 5 },
+  // Only as tall as the flap triangle itself (its apex is the envelope's
+  // seam), so the hinge maths above pivots on the envelope's top edge.
+  flapLayer: { position: 'absolute', zIndex: 5, left: 0, right: 0, top: 0, height: `${APEX_Y}%`, backfaceVisibility: 'hidden' },
+  flapLayerBehind: { zIndex: 1 },
   seal: { position: 'absolute', zIndex: 7, left: `${APEX_X}%`, top: `${APEX_Y}%`, width: '20%', aspectRatio: 1, marginLeft: '-10%', marginTop: '-10%' },
   sealInner: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  sealText: { fontSize: 12, lineHeight: 16, color: color.brand.cream, paddingTop: 0, paddingBottom: 0 },
+  // Borel's loops overflow a tight line box; zeroing BrandHeading's padding
+  // clipped the wordmark's top and tail.
+  sealText: { fontSize: 12, lineHeight: 18, color: color.brand.cream },
   hint: { marginTop: spacing.xl },
   hintText: { textAlign: 'center' },
-  wash: { ...StyleSheet.absoluteFill, zIndex: 10, backgroundColor: color.bg.canvas },
+  // A circle far larger than the screen, centred and scaled up — the web's
+  // 150vmax wipe. Also positioned outside root's padding box: absoluteFill
+  // covers only the PADDING box, which left an uncovered strip down each side
+  // that the glow bled through during the hand-off.
+  wash: { position: 'absolute', zIndex: 10, width: WASH_SIZE, height: WASH_SIZE, borderRadius: WASH_SIZE / 2, left: '50%', top: '50%', marginLeft: -WASH_SIZE / 2, marginTop: -WASH_SIZE / 2, backgroundColor: color.bg.canvas },
 });

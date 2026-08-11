@@ -34,7 +34,6 @@ export function TagPicker({ options, selected, onChange, max, disabled = false, 
             selected={isSel}
             disabled={disabled || (!isSel && atCap)}
             onPress={() => toggle(opt)}
-            style={styles.pill}
           />
         );
       })}
@@ -43,6 +42,13 @@ export function TagPicker({ options, selected, onChange, max, disabled = false, 
 }
 
 const styles = StyleSheet.create({
-  wrap: { flexDirection: 'row', flexWrap: 'wrap' },
-  pill: { marginRight: spacing.sm, marginBottom: spacing.sm },
+  // alignItems explicit (not the 'stretch' default), and `gap` instead of
+  // per-pill marginRight/marginBottom — a flex-wrap row's first child has
+  // been observed on Android mis-painting a multi-word label's second word
+  // on the very first layout pass (box/text data both correctly sized once
+  // settled, only an early paint pass is wrong) with the default stretch
+  // cross-axis and margin-based wrap spacing; flex-start + gap avoid that
+  // recalculation path, since Yoga resolves gap-based wrapping in one pass
+  // instead of per-child margins that need a last-in-row overflow check.
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: spacing.sm },
 });

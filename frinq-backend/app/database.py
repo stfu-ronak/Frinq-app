@@ -33,6 +33,14 @@ async def init_pool() -> asyncpg.Pool:
         # statement prepared earlier may no longer exist. Without this,
         # asyncpg intermittently raises InvalidSQLStatementNameError.
         statement_cache_size=0,
+        # The pooler drops idle client connections on its own schedule. Without
+        # a shorter lifetime here, asyncpg keeps handing out sockets the server
+        # has already closed and the first query on one fails with
+        # `ConnectionDoesNotExistError: connection was closed in the middle of
+        # operation` — a 500 on whatever endpoint happened to draw it, seen on
+        # /auth/refresh after the app sat idle. Recycling below the server's
+        # timeout means the pool discards them before they can be served.
+        max_inactive_connection_lifetime=120.0,
     )
     logger.info("database.pool_initialised")
     return _pool

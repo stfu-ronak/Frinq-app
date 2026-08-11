@@ -6,7 +6,7 @@ import { radius, spacing } from '../tokens/spacing';
 import { BodyText } from './Text';
 import { PressableScale } from '../motion/PressableScale';
 
-export type IconChoiceGlyph = 'bookmark' | 'beer' | 'drink' | 'book' | 'travel' | 'party' | 'dot';
+export type IconChoiceGlyph = 'bookmark' | 'beer' | 'drink' | 'book' | 'travel' | 'party' | 'noDrink' | 'smoke' | 'leaf' | 'mix' | 'dot';
 
 const GLYPHS: Record<IconChoiceGlyph, React.ReactElement> = {
   bookmark: (
@@ -40,6 +40,39 @@ const GLYPHS: Record<IconChoiceGlyph, React.ReactElement> = {
       <Circle cx={17.5} cy={4.5} r={0.9} fill={color.brand.maroon} />
       <Circle cx={20} cy={8} r={0.9} fill={color.brand.maroon} />
       <Circle cx={20} cy={3.5} r={0.7} fill={color.brand.maroon} />
+    </>
+  ),
+  // A glass with a strike-through — "i don't drink or smoke."
+  noDrink: (
+    <>
+      <Path d="M6 5h9l-3.8 7v6" stroke={color.brand.maroon} strokeWidth={1.4} fill="none" strokeLinejoin="round" />
+      <Path d="M8.5 20h5" stroke={color.brand.maroon} strokeWidth={1.4} strokeLinecap="round" />
+      <Path d="M4 20 20 4" stroke={color.brand.maroon} strokeWidth={1.5} strokeLinecap="round" />
+    </>
+  ),
+  // Lit cigarette with a wisp — "i smoke or vape."
+  smoke: (
+    <>
+      <Rect x={3} y={14} width={13} height={3.5} rx={1.2} stroke={color.brand.maroon} strokeWidth={1.3} fill="none" />
+      <Path d="M18 14v3.5" stroke={color.brand.maroon} strokeWidth={1.3} strokeLinecap="round" />
+      <Path d="M20.5 14v3.5" stroke={color.brand.maroon} strokeWidth={1.3} strokeLinecap="round" />
+      <Path d="M14 10.5c1.6-.9 1.6-2.4 0-3.3s-1.6-2.4 0-3.2" stroke={color.brand.maroon} strokeWidth={1.2} fill="none" strokeLinecap="round" />
+    </>
+  ),
+  // Cannabis-style leaf — "weed is how i decompress."
+  leaf: (
+    <>
+      <Path d="M12 21v-6" stroke={color.brand.maroon} strokeWidth={1.3} strokeLinecap="round" />
+      <Path d="M12 15c-3.4 0-6-2.4-6-5.6 3.4 0 6 2.4 6 5.6ZM12 15c3.4 0 6-2.4 6-5.6-3.4 0-6 2.4-6 5.6ZM12 15c0-3.8 0-7 0-11 2.4 2.2 3.4 6.6 0 11Z" stroke={color.brand.maroon} strokeWidth={1.2} fill="none" strokeLinejoin="round" />
+    </>
+  ),
+  // Two glasses clinking — "some combination depending on the night."
+  mix: (
+    <>
+      <Path d="M3.5 5h7l-2.8 6v7" stroke={color.brand.maroon} strokeWidth={1.3} fill="none" strokeLinejoin="round" />
+      <Path d="M5.5 19h4.5" stroke={color.brand.maroon} strokeWidth={1.3} strokeLinecap="round" />
+      <Path d="M13.5 5h7l-2.8 6v7" stroke={color.brand.maroon} strokeWidth={1.3} fill="none" strokeLinejoin="round" />
+      <Path d="M15.5 19h4.5" stroke={color.brand.maroon} strokeWidth={1.3} strokeLinecap="round" />
     </>
   ),
   dot: <Circle cx={12} cy={12} r={3} fill={color.brand.maroon} />,

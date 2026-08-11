@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { useQuiz } from '../quizContext';
@@ -72,25 +72,68 @@ export function QuizStepScreen() {
     if (!ok) setFinalizeState('error');
   }, [onQuizComplete]);
 
+  // Guards against a double-tap (or a timer auto-pick landing in the same
+  // tick as a manual tap) firing advanceOrFinish (or goBack) twice before the
+  // push/pop transition finishes — each extra firing would otherwise push
+  // (or pop) a second time on top of the same still-mounted screen, reading
+  // as a jump-forward-then-back flicker. Released shortly after the
+  // navigation call fires, well past the ~300ms slide transition. advance and
+  // back use SEPARATE locks (not one shared one) — an intentional "Continue
+  // then immediately Back" is a normal, legitimate sequence and must not be
+  // swallowed by the lock the Continue tap just set.
+  const advancingRef = useRef(false);
+  const backingRef = useRef(false);
+  const guardNavigate = useCallback((lockRef: React.MutableRefObject<boolean>, fn: () => void) => {
+    if (lockRef.current) return;
+    lockRef.current = true;
+    fn();
+    setTimeout(() => { lockRef.current = false; }, 500);
+  }, []);
+  // Once the visible step actually changes, this screen has definitely moved
+  // on — release both locks immediately rather than waiting on the timeout
+  // above (which exists only as a fallback for paths where step.id doesn't
+  // change, e.g. a failed finalize retry on the last step).
+  useEffect(() => {
+    advancingRef.current = false;
+    backingRef.current = false;
+  }, [step?.id]);
+
   const advanceOrFinish = useCallback(() => {
     if (!step) return;
-    const next = nextStep(step.id);
-    if (next) {
-      send({ type: 'NEXT' });
-      navigation.push('Step', { stepId: next });
-    } else {
-      send({ type: 'NEXT' }); // no-op at the last step, kept for symmetry/draft persistence
-      void finalize();
-    }
-  }, [step, send, navigation, finalize]);
+    guardNavigate(advancingRef, () => {
+      const next = nextStep(step.id);
+      if (next) {
+        send({ type: 'NEXT' });
+        navigation.push('Step', { stepId: next });
+      } else {
+        send({ type: 'NEXT' }); // no-op at the last step, kept for symmetry/draft persistence
+        void finalize();
+      }
+    });
+  }, [step, send, navigation, finalize, guardNavigate]);
 
   const goBack = useCallback(() => {
     if (!step) return;
     const prev = previousStep(step.id);
     if (!prev) return;
-    send({ type: 'BACK' });
-    navigation.goBack();
-  }, [step, send, navigation]);
+    guardNavigate(backingRef, () => {
+      send({ type: 'BACK' });
+      // A resumed-mid-quiz session (app restart, or dev reload) mounts this
+      // screen as the FIRST entry of a fresh navigator stack — the machine
+      // still knows a previous question exists (so the back arrow shows),
+      // but there's no push history to pop, and a bare goBack() would just
+      // warn and do nothing. Swap the route directly in that case instead.
+      // The pop-direction animation for that replace is declared statically
+      // in QuizNavigator's screenOptions — setting it here, in the same tick
+      // as the replace, did not apply in time and the "back" animated like a
+      // forward push.
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        navigation.replace('Step', { stepId: prev });
+      }
+    });
+  }, [step, send, navigation, guardNavigate]);
 
   // Android hardware-back must route through goBack() (machine BACK + nav pop
   // together). A bare native pop leaves machine.stepId ahead of the route, so
@@ -100,7 +143,12 @@ export function QuizStepScreen() {
   useEffect(() => {
     const onBack = () => {
       if (finalizeState !== 'idle') return false;
-      if (!step || !previousStep(step.id)) return false;
+      if (!step) return false;
+      // Rapid Fire has no back navigation at all — mid-round there's nothing
+      // sane to land on between two timed pairs, so hardware back is
+      // swallowed here rather than falling through to the default (exit).
+      if (step.kind === 'rapidFire') return true;
+      if (!previousStep(step.id)) return false;
       goBack();
       return true;
     };
@@ -220,7 +268,6 @@ export function QuizStepScreen() {
         <RapidFireTemplate
           step={step}
           onComplete={(answers) => { send({ type: 'ANSWER', key: step.answerKey, value: answers }); advanceOrFinish(); }}
-          onBack={previousStep(step.id) ? goBack : undefined}
         />
       );
 

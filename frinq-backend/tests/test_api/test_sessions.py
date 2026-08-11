@@ -111,14 +111,19 @@ class _NoopTransaction:
 
 class _FakeSessionConnection:
     """Models exactly the user_sessions row lifecycle create/rotate_session
-    touch: one row, mutated in place by INSERT then UPDATE."""
+    touch: one row, mutated in place by INSERT then UPDATE. `onboarding_state`
+    defaults to the mid-quiz value so callers that don't care about the
+    quiz-completion TTL split can ignore it entirely."""
 
-    def __init__(self) -> None:
+    def __init__(self, onboarding_state: str = "quiz_in_progress") -> None:
         self.row: dict[str, Any] | None = None
+        self.onboarding_state = onboarding_state
 
     async def fetchrow(self, query: str, *args: Any) -> dict[str, Any] | None:
         if "SELECT * FROM user_sessions" in query:
             return dict(self.row) if self.row is not None else None
+        if "SELECT onboarding_state FROM users" in query:
+            return {"onboarding_state": self.onboarding_state}
         return None
 
     async def execute(self, query: str, *args: Any) -> str:
@@ -177,6 +182,68 @@ async def test_rotation_of_expired_session_is_rejected() -> None:
 
     with pytest.raises(SessionReuseError):
         await rotate_session(conn, pair.refresh_token)
+
+
+# ─── Quiz-completion-dependent session TTL ─────────────────────────────
+
+async def test_incomplete_quiz_session_gets_fixed_twelve_hour_window() -> None:
+    conn = _FakeSessionConnection(onboarding_state="quiz_in_progress")
+    pair = await create_session(conn, uuid4(), "android")
+
+    expires_at = conn.row["expires_at"]
+    delta = expires_at - datetime.now(timezone.utc)
+    assert timedelta(hours=11, minutes=55) < delta <= timedelta(hours=12)
+    assert pair.refresh_token  # sanity: token still issued normally
+
+
+async def test_completed_quiz_session_gets_seven_day_window() -> None:
+    conn = _FakeSessionConnection(onboarding_state="active")
+    await create_session(conn, uuid4(), "android")
+
+    expires_at = conn.row["expires_at"]
+    delta = expires_at - datetime.now(timezone.utc)
+    assert timedelta(days=6, hours=23) < delta <= timedelta(days=7)
+
+
+async def test_incomplete_quiz_rotation_does_not_extend_the_fixed_window() -> None:
+    """The whole point of the 12h window is that it does NOT grow just
+    because the app was used — only finishing the quiz changes that."""
+    conn = _FakeSessionConnection(onboarding_state="quiz_in_progress")
+    first = await create_session(conn, uuid4(), "android")
+    original_expiry = conn.row["expires_at"]
+
+    await rotate_session(conn, first.refresh_token)
+
+    assert conn.row["expires_at"] == original_expiry
+
+
+async def test_completed_quiz_rotation_rolls_the_window_forward() -> None:
+    conn = _FakeSessionConnection(onboarding_state="active")
+    first = await create_session(conn, uuid4(), "android")
+    # Simulate real time passing between create and rotate — a same-tick
+    # comparison can't tell "rolled forward" apart from "recomputed to the
+    # same instant".
+    conn.row["expires_at"] -= timedelta(days=1)
+    original_expiry = conn.row["expires_at"]
+
+    await rotate_session(conn, first.refresh_token)
+
+    assert conn.row["expires_at"] > original_expiry
+
+
+async def test_finishing_the_quiz_mid_session_upgrades_to_the_rolling_window() -> None:
+    """A session created while mid-quiz (fixed 12h) should switch to the
+    rolling 7-day window the first time it's refreshed after the quiz is
+    marked complete — matching the account's *current* state, not the state
+    at the moment the session was first created."""
+    conn = _FakeSessionConnection(onboarding_state="quiz_in_progress")
+    first = await create_session(conn, uuid4(), "android")
+
+    conn.onboarding_state = "active"
+    await rotate_session(conn, first.refresh_token)
+
+    delta = conn.row["expires_at"] - datetime.now(timezone.utc)
+    assert delta > timedelta(days=6)
 
 
 async def test_banned_user_cannot_authenticate(user_row: dict[str, Any]) -> None:

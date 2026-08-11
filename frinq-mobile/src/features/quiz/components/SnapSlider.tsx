@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
+import Animated, { interpolateColor, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { color } from '../../../design/tokens/colors';
 import { radius, spacing, touchTarget } from '../../../design/tokens/spacing';
-import { BodyText } from '../../../design/components/Text';
+import { BodyText, BrandHeading } from '../../../design/components/Text';
 import { PressableScale } from '../../../design/motion/PressableScale';
+import { useReducedMotion } from '../../../design/motion/useReducedMotion';
 
 const SNAP_LABELS = ['strongly left', 'left', 'middle', 'right', 'strongly right'];
 const SNAP_VALUES = [0, 25, 50, 75, 100] as const;
@@ -38,44 +40,84 @@ export function SnapSlider({ prompt, value, onChange }: Props) {
 
   return (
     <View style={styles.wrap}>
-      <BodyText variant="display" tone="brand" style={styles.prompt}>
-        {prompt}
-      </BodyText>
-      <View style={styles.track} accessibilityRole="adjustable" accessibilityLabel={prompt} accessibilityValue={{ min: 0, max: 100, now: value ?? 50 }}>
-        {SNAP_VALUES.map((snapValue, i) => {
-          const selected = i === selectedIndex;
-          return (
+      {/* Fixed-height slot: the statement starts at the top of the page like
+          every other question's heading, and — because the slot's height never
+          changes — a 2-line statement and a 3-line one leave the slider at the
+          exact same Y. */}
+      <View testID="snap-slider-prompt-slot" style={styles.promptSlot}>
+        <BrandHeading variant="heading" tone="brand" numberOfLines={PROMPT_LINES} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.prompt}>
+          {prompt}
+        </BrandHeading>
+      </View>
+      <View style={styles.sliderSlot}>
+        <View style={styles.track} accessibilityRole="adjustable" accessibilityLabel={prompt} accessibilityValue={{ min: 0, max: 100, now: value ?? 50 }}>
+          {SNAP_VALUES.map((snapValue, i) => (
             <PressableScale
               key={snapValue}
               accessibilityRole="button"
               accessibilityLabel={SNAP_LABELS[i]}
-              accessibilityState={{ selected }}
+              accessibilityState={{ selected: i === selectedIndex }}
               onPress={() => onChange(snapValue)}
               style={styles.dotTarget}
             >
-              <View style={[styles.dot, selected && styles.dotSelected]} />
+              <SnapDot selected={i === selectedIndex} />
             </PressableScale>
-          );
-        })}
-      </View>
-      <View style={styles.hintRow}>
-        <BodyText variant="caption" tone="secondary">{SCALE_LOW}</BodyText>
-        <BodyText variant="caption" tone="secondary">{SCALE_HIGH}</BodyText>
+          ))}
+        </View>
+        <View style={styles.hintRow}>
+          <BodyText variant="caption" tone="secondary">{SCALE_LOW}</BodyText>
+          <BodyText variant="caption" tone="secondary">{SCALE_HIGH}</BodyText>
+        </View>
       </View>
     </View>
   );
 }
 
+/** Grows/darkens into the selected state instead of snapping between two
+ *  static sizes — the "smooth pick" the design calls for. */
+function SnapDot({ selected }: { selected: boolean }) {
+  const reduced = useReducedMotion();
+  const t = useSharedValue(selected ? 1 : 0);
+
+  useEffect(() => {
+    const to = selected ? 1 : 0;
+    t.value = reduced ? to : withTiming(to, { duration: 180 });
+  }, [selected, reduced, t]);
+
+  const animated = useAnimatedStyle(() => {
+    const size = DOT_IDLE + (DOT_SELECTED - DOT_IDLE) * t.value;
+    return {
+      width: size,
+      height: size,
+      borderRadius: size / 2,
+      backgroundColor: interpolateColor(t.value, [0, 1], [color.brand.peachDeep, color.state.selected]),
+    };
+  });
+
+  return <Animated.View style={animated} />;
+}
+
+const DOT_IDLE = 12;
+const DOT_SELECTED = 34;
+
+const PROMPT_LINES = 3;
+const PROMPT_LINE_H = 34;
+/** + BrandHeading's own 8/4 padding. */
+const PROMPT_SLOT_H = PROMPT_LINES * PROMPT_LINE_H + 12;
+
 const styles = StyleSheet.create({
-  wrap: { marginBottom: spacing.xl },
-  prompt: { fontSize: 20, lineHeight: 28, textAlign: 'center', marginBottom: spacing.xl },
+  wrap: { flex: 1, marginBottom: spacing.xl },
+  promptSlot: { height: PROMPT_SLOT_H, width: '100%', justifyContent: 'flex-start' },
+  sliderSlot: { flex: 1, justifyContent: 'center' },
+  // Vastago, not the cursive display face — these are full self-descriptive
+  // sentences, and the reference sets them in the same rounded sans as body
+  // copy, just larger.
+  prompt: { fontSize: 24, lineHeight: PROMPT_LINE_H, textAlign: 'center' },
   track: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    backgroundColor: color.brand.peach, borderRadius: radius.pill,
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.sm,
+    backgroundColor: color.border.waveTrack, borderRadius: radius.pill,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.xs,
   },
   dotTarget: { width: touchTarget.min, height: touchTarget.min, alignItems: 'center', justifyContent: 'center' },
-  dot: { width: 10, height: 10, borderRadius: radius.pill, backgroundColor: color.brand.cream },
-  dotSelected: { width: 22, height: 22, backgroundColor: color.state.selected },
   hintRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md },
 });

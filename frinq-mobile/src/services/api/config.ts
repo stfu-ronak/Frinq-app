@@ -13,7 +13,22 @@
  */
 const DEV_BASE_URL = 'http://localhost:8000';
 
-export const API_BASE_URL = __DEV__ ? DEV_BASE_URL : 'https://api.frinq.in';
+/**
+ * ── THE ONE LINE TO CHANGE BEFORE BUILDING AN APK ────────────────────────
+ * A release build does NOT use DEV_BASE_URL (`__DEV__` is false), and it has
+ * no adb reverse to lean on — the phone resolves this URL on its own network.
+ * So for a build someone else installs, this must be a host their phone can
+ * actually reach:
+ *   - a deployed backend            https://api.frinq.in
+ *   - a tunnel to your machine      https://<something>.trycloudflare.com
+ *   - your LAN IP, same wifi only   http://192.168.31.24:8001
+ * Plain http:// also needs usesCleartextTraffic — see android/app/src/main/
+ * AndroidManifest.xml. Leaving this pointed at a host that doesn't exist is
+ * why a release APK installs fine and then fails on the first request.
+ */
+const PROD_BASE_URL = 'https://api.frinq.in';
+
+export const API_BASE_URL = __DEV__ ? DEV_BASE_URL : PROD_BASE_URL;
 
 /** The public marketing/legal-pages site (frinq-frontend). Always the real
  *  deployed origin, even in dev builds — "read the full document online"

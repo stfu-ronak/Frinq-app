@@ -39,6 +39,10 @@ export interface IntroStep extends BaseStep {
   heading: string;
   body?: string;
   ctaLabel: string;
+  /** 'cream' (default): the usual quiz chrome. 'maroon': a full-bleed
+   *  maroon milestone card (Figma "ahh.. that was heavy questioning") — white
+   *  heading/body, a lighter-peach CTA face. */
+  theme?: 'cream' | 'maroon';
 }
 
 export interface TextStep extends BaseStep {
@@ -82,7 +86,6 @@ export interface MultiChoiceTagsStep extends BaseStep {
   answerKey: string;
   prompt: string;
   subtext?: string;
-  placeholder?: string;
   options: readonly string[];
   min?: number;
   max?: number;
@@ -238,7 +241,8 @@ export const DEFAULT_CONTENT_STEPS: readonly QuizStep[] = [
   },
   {
     id: 'hobbies', kind: 'multiChoiceTags', section: 'who you are', answerKey: 'hobbies',
-    prompt: "any unique hobbies you're proud of?", subtext: 'or pick from these', placeholder: 'vintage collecting, fermenting things...', min: 1,
+    prompt: "any unique hobbies you're proud of?", min: 1,
+    allowCustom: true, customPlaceholder: 'vintage collecting, fermenting things...',
     options: [
       'vintage collecting', 'urban exploring', 'hot sauce making', 'competitive crosswords', 'foraging',
       'rewatching shows', 'solving puzzles', 'open mics', 'zine-making', 'dumpster diving for gems',
@@ -249,7 +253,8 @@ export const DEFAULT_CONTENT_STEPS: readonly QuizStep[] = [
   },
   {
     id: 'interests', kind: 'multiChoiceTags', section: 'who you are', answerKey: 'interests',
-    prompt: 'pick your interests', placeholder: "anything you're into...", min: 1,
+    prompt: 'pick your interests', min: 1,
+    allowCustom: true, customPlaceholder: "anything you're into...",
     options: [
       'photography', 'painting / drawing', 'writing', 'music', 'film & cinema', 'fashion & style', 'dancing',
       'cooking', 'baking', 'trying new restaurants', 'coffee culture', 'wine & spirits', 'cocktail making',
@@ -259,7 +264,7 @@ export const DEFAULT_CONTENT_STEPS: readonly QuizStep[] = [
       'tech & startups', 'gaming', 'diy & crafts', 'investing', 'gardening', 'coding',
     ],
   },
-  { id: 'sweet', kind: 'intro', section: 'intro', heading: 'now let’s really get to know you...', ctaLabel: 'continue' },
+  { id: 'sweet', kind: 'intro', section: 'intro', heading: 'now let’s really get to know you...', ctaLabel: 'continue', theme: 'maroon' },
 
   {
     id: 'trip', kind: 'singleChoiceList', section: 'what you would do', answerKey: 'trip',
@@ -294,7 +299,8 @@ export const DEFAULT_CONTENT_STEPS: readonly QuizStep[] = [
   },
   {
     id: 'event_yes', kind: 'multiChoiceTags', section: 'what you would do', answerKey: 'event_yes',
-    prompt: 'which of these would you most likely say yes to?', placeholder: "anything you'd say yes to...", min: 1,
+    prompt: 'which of these would you most likely say yes to?', min: 1,
+    allowCustom: true, customPlaceholder: "anything you'd say yes to...",
     options: [
       'board game night', 'live music gig', 'food hopping', 'trek / nature outing', 'pottery / DIY workshop',
       'bookstore or museum visit', 'sports / activity meetup', 'house party', 'open mic / comedy night',
@@ -303,7 +309,8 @@ export const DEFAULT_CONTENT_STEPS: readonly QuizStep[] = [
   },
   {
     id: 'event_no', kind: 'multiChoiceTags', section: 'what you would do', answerKey: 'event_no',
-    prompt: 'which sounds like your nightmare?', placeholder: 'anything that sounds like your nightmare...', min: 1,
+    prompt: 'which sounds like your nightmare?', min: 1,
+    allowCustom: true, customPlaceholder: 'anything that sounds like your nightmare...',
     options: [
       'board game night', 'live music gig', 'food hopping', 'trek / nature outing', 'pottery / DIY workshop',
       'bookstore or museum visit', 'sports / activity meetup', 'house party', 'open mic / comedy night',
@@ -347,7 +354,8 @@ export const DEFAULT_CONTENT_STEPS: readonly QuizStep[] = [
   },
   {
     id: 'red_flags', kind: 'multiChoiceTags', section: 'connection', answerKey: 'red_flags',
-    prompt: 'in a new friend, what are your instant turn-offs?', placeholder: "what turns you off in a new friend...", min: 1,
+    prompt: 'in a new friend, what are your instant turn-offs?', min: 1,
+    allowCustom: true, customPlaceholder: "what turns you off in a new friend...",
     options: [
       'dishonesty / lying', 'love-bombing early on', 'disrespecting boundaries', 'avoiding hard conversations',
       'hot and cold behaviour', 'poor communication', 'jealousy / controlling', 'flakiness / unreliability',
@@ -356,7 +364,8 @@ export const DEFAULT_CONTENT_STEPS: readonly QuizStep[] = [
   },
   {
     id: 'show_up', kind: 'multiChoiceTags', section: 'connection', answerKey: 'show_up',
-    prompt: 'how do you show up for people you care about?', placeholder: 'i remember the things you said in passing...', min: 1,
+    prompt: 'how do you show up for people you care about?', min: 1,
+    allowCustom: true, customPlaceholder: 'i remember the things you said in passing...',
     options: [
       'i check in regularly', 'i show up in person', 'i remember small details', 'i give thoughtful gifts',
       'i sit with them in silence', 'i offer practical help', 'i listen without fixing', 'i send voice notes',
@@ -364,7 +373,9 @@ export const DEFAULT_CONTENT_STEPS: readonly QuizStep[] = [
     ],
   },
 
-  { id: 'rapid_intro', kind: 'intro', section: 'rapid-fire', heading: 'okay, that was heavy. let’s dial it back.', body: 'rapid fire. 10 seconds each. go with your gut.', ctaLabel: 'tap anywhere to begin' },
+  // heading is intentionally empty: the art asset has "Rapid Fire round"
+  // baked into the flame, so rendering a text heading too would double it.
+  { id: 'rapid_intro', kind: 'intro', section: 'rapid-fire', heading: '', ctaLabel: "I'm Ready 🔥", theme: 'maroon' },
   {
     id: 'rapid_fire', kind: 'rapidFire', section: 'rapid-fire', answerKey: 'rapid', secondsPerPair: 10,
     prompt: 'what kind of person are you?',
@@ -382,7 +393,7 @@ export const DEFAULT_CONTENT_STEPS: readonly QuizStep[] = [
     ],
   },
 
-  { id: 'glorious', kind: 'intro', section: 'opinions', heading: "you're almost there.", body: 'time to check your opinions. controversial you ask? it depends.', ctaLabel: 'continue' },
+  { id: 'glorious', kind: 'intro', section: 'opinions', heading: 'almost there', body: 'time to check your opinions. controversial you ask? it depends.', ctaLabel: 'Continue', theme: 'maroon' },
   {
     id: 'opinions', kind: 'opinions', section: 'opinions', answerKey: 'opinions', whyAnswerKey: 'opinions_why',
     pairs: [
@@ -393,7 +404,7 @@ export const DEFAULT_CONTENT_STEPS: readonly QuizStep[] = [
     ],
   },
 
-  { id: 'preferences_intro', kind: 'intro', section: 'preferences', heading: 'four quick questions about how you actually move through the world.', body: 'use the slider. no wrong answers.', ctaLabel: 'continue' },
+  { id: 'preferences_intro', kind: 'intro', section: 'preferences', heading: 'four quick questions about how you actually move through the world.', body: 'use the slider. no wrong answers.', ctaLabel: 'Continue', theme: 'maroon' },
   {
     id: 'preferences', kind: 'preferences', section: 'preferences', answerKey: 'preferences',
     sliders: [
@@ -406,7 +417,8 @@ export const DEFAULT_CONTENT_STEPS: readonly QuizStep[] = [
 
   {
     id: 'last_question', kind: 'multiChoiceTags', section: 'final', answerKey: 'looking_for',
-    prompt: 'what kind of people are you looking for?', subtext: 'be honest. nobody is judging.', placeholder: 'people who...', min: 1,
+    prompt: 'what kind of people are you looking for?', subtext: 'be honest. nobody is judging.', min: 1,
+    allowCustom: true, customPlaceholder: 'people who...',
     options: [
       'emotionally available', 'ambitious & driven', 'curious & open-minded', 'family-oriented',
       'spiritually aligned', 'financially responsible', 'funny & playful', 'good communicator',
@@ -447,16 +459,56 @@ export function nextStep(id: StepId): StepId | null {
   return _activeSteps[i + 1].id;
 }
 
+/** Rapid Fire has no mid-round back navigation (there's nothing sane to land
+ *  on between two 10-second pairs), so stepping back from the step right
+ *  after it must skip both the timed round AND its own intro milestone —
+ *  landing on whatever real question preceded the whole section instead. */
 export function previousStep(id: StepId): StepId | null {
   const i = _stepIndex.get(id);
   if (i === undefined || i <= 0) return null;
-  return _activeSteps[i - 1].id;
+  let j = i - 1;
+  if (_activeSteps[j].kind === 'rapidFire') {
+    j -= 1;
+    if (j >= 0 && _activeSteps[j].kind === 'intro') j -= 1;
+  }
+  return j >= 0 ? _activeSteps[j].id : null;
 }
 
-export function stepProgress(id: StepId): { step: number; total: number } {
-  const inputSteps = _activeSteps.filter((s) => s.kind !== 'intro');
-  const i = inputSteps.findIndex((s) => s.id === id);
-  return { step: i === -1 ? 0 : i + 1, total: inputSteps.length };
+/** How many counted questions a single step contributes. Most steps are one
+ *  screen = one question. Rapid Fire re-renders once per pair (one screen
+ *  per question); Opinions re-renders once per pick PLUS once more per
+ *  pair that has a whyPrompt follow-up (each pick and each why-follow-up is
+ *  now its own counted screen, not batched under one number). */
+function unitsForStep(s: QuizStep): number {
+  if (s.kind === 'rapidFire') return s.pairs.length;
+  if (s.kind === 'opinions') return s.pairs.length + s.pairs.filter((p) => p.whyPrompt).length;
+  return 1;
+}
+
+/** Counts only real quiz questions: the content steps (never
+ *  ONBOARDING_PREFIX's gender/pronoun/city/age/social-verification, which
+ *  aren't part of the quiz proper and never show a counter anyway), minus
+ *  'intro' kind milestone/break screens. A multi-screen step (see
+ *  unitsForStep) counts once per sub-screen, so `subIndex` (the 0-based
+ *  sub-screen index, from the template's own in-progress state — the step id
+ *  alone can't tell sub-screens apart) shifts both the current number and
+ *  the total accordingly. */
+export function stepProgress(id: StepId, subIndex = 0): { step: number; total: number } {
+  const content = _activeSteps.slice(ONBOARDING_PREFIX.length);
+  const counted = (s: QuizStep) => (s.kind === 'intro' ? 0 : unitsForStep(s));
+  const total = content.reduce((sum, s) => sum + counted(s), 0);
+  const i = content.findIndex((s) => s.id === id);
+  if (i === -1) return { step: 0, total };
+  let step = 0;
+  for (let idx = 0; idx < i; idx++) step += counted(content[idx]);
+  const cur = content[i];
+  // A milestone/break screen is not a question, so it adds nothing to the
+  // count — but it DOES report the progress already earned, so the wave keeps
+  // its fill across the interstitial instead of blanking out. Its header is
+  // 'plain', which suppresses the "Question N out of M" text either way.
+  if (cur.kind === 'intro') return { step, total };
+  step += Math.min(Math.max(subIndex, 0), unitsForStep(cur) - 1) + 1;
+  return { step, total };
 }
 
 /** Every answer-bearing step's key must be in the shared FIXED_ANSWER_KEYS

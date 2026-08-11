@@ -2010,7 +2010,7 @@ async def ban_user_moderation(
 class SetModelConfigRequest(BaseModel):
     model_config = {"protected_namespaces": ()}  # allow the field name "model_id"
 
-    provider: str = Field(pattern="^(openai|claude|gemini)$")
+    provider: str = Field(pattern="^(openai|azure|claude|gemini)$")
     model_id: str
     effort: str | None = None
 
@@ -2021,7 +2021,7 @@ class AiTestRequest(BaseModel):
     model_config = {"protected_namespaces": ()}
 
     step: str = Field(pattern="^(summary|insights|deep_report)$")
-    provider: str = Field(pattern="^(openai|claude|gemini)$")
+    provider: str = Field(pattern="^(openai|azure|claude|gemini)$")
     model_id: str
     effort: str | None = None
 
@@ -2139,18 +2139,33 @@ async def get_ai_config(pool: asyncpg.Pool = Depends(get_pool)) -> dict[str, Any
         # Full catalog so the admin UI can render a model picker with live
         # pricing + which effort levels each model actually supports, without
         # a second source of truth duplicated into the frontend.
-        "available_models": [
-            {
-                "model_id": model_id,
-                "provider": info.provider,
-                "input_price_per_mtok": info.input_price_per_mtok,
-                "output_price_per_mtok": info.output_price_per_mtok,
-                "supports_effort": info.supports_effort,
-                "effort_levels": list(info.effort_levels),
-            }
-            for model_id, info in MODEL_INFO.items()
-        ],
+        "available_models": _available_models(),
     }
+
+
+def _available_models() -> list[dict[str, Any]]:
+    """MODEL_INFO, plus an `azure` row for every OpenAI-family model.
+
+    Azure Foundry serves the same catalogue over an OpenAI-compatible endpoint,
+    so it is the same model_id at the same price — only the transport differs.
+    MODEL_INFO is keyed by model_id and is also the pricing lookup, so the
+    azure variants are synthesised here rather than added as duplicate keys.
+    Without these rows the admin's provider dropdown (built from the distinct
+    providers in this list) could never offer azure at all."""
+    rows: list[dict[str, Any]] = []
+    for model_id, info in MODEL_INFO.items():
+        base = {
+            "model_id": model_id,
+            "provider": info.provider,
+            "input_price_per_mtok": info.input_price_per_mtok,
+            "output_price_per_mtok": info.output_price_per_mtok,
+            "supports_effort": info.supports_effort,
+            "effort_levels": list(info.effort_levels),
+        }
+        rows.append(base)
+        if info.provider == "openai":
+            rows.append({**base, "provider": "azure"})
+    return rows
 
 
 @router.get("/ai-keys-status", dependencies=[Depends(_require_admin)])
@@ -2160,6 +2175,9 @@ async def get_ai_keys_status() -> dict[str, bool]:
     confusing runtime failure at generation time instead."""
     return {
         "openai": bool(settings.OPENAI_API_KEY),
+        # Azure needs an endpoint as well as a key; the key falls back to
+        # OPENAI_API_KEY (see azure_client.api_key), so mirror that rule here.
+        "azure": bool(settings.AZURE_OPENAI_ENDPOINT and (settings.AZURE_OPENAI_API_KEY or settings.OPENAI_API_KEY)),
         "claude": bool(settings.ANTHROPIC_API_KEY),
         "gemini": bool(settings.GEMINI_API_KEY),
     }

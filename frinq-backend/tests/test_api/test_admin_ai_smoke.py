@@ -116,6 +116,10 @@ async def test_ai_keys_status_reports_presence_never_values(monkeypatch):
     monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-real-key")
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
     monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
+    # Azure needs BOTH an endpoint and a key; with no endpoint it reads absent
+    # even though the OPENAI key it can fall back to is present.
+    monkeypatch.setattr(settings, "AZURE_OPENAI_ENDPOINT", "")
+    monkeypatch.setattr(settings, "AZURE_OPENAI_API_KEY", "")
 
     from httpx import ASGITransport, AsyncClient
     from app.main import app as fastapi_app
@@ -125,7 +129,7 @@ async def test_ai_keys_status_reports_presence_never_values(monkeypatch):
         res = await ac.get("/api/v1/admin/ai-keys-status", headers=_ADMIN_HEADERS)
     assert res.status_code == 200
     body = res.json()
-    assert body == {"openai": True, "claude": False, "gemini": False}
+    assert body == {"openai": True, "azure": False, "claude": False, "gemini": False}
     assert "sk-real-key" not in res.text
 
 

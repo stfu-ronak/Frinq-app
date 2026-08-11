@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, TextInput, TextInputProps, View, ViewStyle } from 'react-native';
+import { StyleSheet, TextInput, TextInputProps, TextStyle, View, ViewStyle } from 'react-native';
 import { color } from '../tokens/colors';
 import { radius, spacing, touchTarget } from '../tokens/spacing';
 import { typeScale } from '../tokens/typography';
@@ -13,6 +13,10 @@ type Props = Omit<TextInputProps, 'style'> & {
   /** Visually hide the label but keep it for screen readers. */
   hideLabel?: boolean;
   containerStyle?: ViewStyle;
+  /** Extra style for the input itself — e.g. a taller box for a multiline
+   *  answer field. Applied last so it can override the variant's own metrics,
+   *  but never the focus/error border colour. */
+  inputStyle?: TextStyle;
   /** 'boxed' (default): bordered box, cream fill. 'underline': bottom-line
    *  only, transparent — the inline-placeholder look on quiz voice/text
    *  screens. */
@@ -21,7 +25,7 @@ type Props = Omit<TextInputProps, 'style'> & {
 
 /** Labeled text input with an accessible error region. Focus draws a visible
  *  maroon ring; errors set aria state and are announced. */
-export function TextField({ label, value, onChangeText, error, hideLabel = false, containerStyle, variant = 'boxed', ...rest }: Props) {
+export function TextField({ label, value, onChangeText, error, hideLabel = false, containerStyle, inputStyle, variant = 'boxed', ...rest }: Props) {
   const [focused, setFocused] = useState(false);
   const borderColor = error ? color.state.error : focused ? color.border.focus : color.border.subtle;
   const isUnderline = variant === 'underline';
@@ -42,7 +46,7 @@ export function TextField({ label, value, onChangeText, error, hideLabel = false
         accessibilityLabel={label}
         accessibilityState={{ disabled: rest.editable === false }}
         placeholderTextColor={color.text.disabled}
-        style={[styles.input, isUnderline ? { ...styles.inputUnderline, borderBottomColor: borderColor } : { borderColor }, typeScale.body]}
+        style={[styles.input, isUnderline ? { ...styles.inputUnderline, borderBottomColor: borderColor } : { borderColor }, typeScale.body, inputStyle]}
       />
       {!!error && (
         <BodyText variant="caption" tone="error" accessibilityLiveRegion="polite" style={styles.error}>

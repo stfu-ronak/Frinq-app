@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PanResponder, StyleSheet, View, useWindowDimensions } from 'react-native';
 import Animated, {
   Easing,
@@ -7,7 +7,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import ViewShot, { ViewShotRef } from 'react-native-view-shot';
-import Svg, { Defs, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
+import Svg, { Defs, G, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { BodyText, BrandHeading } from '../../../design/components/Text';
 import { PressableScale } from '../../../design/motion/PressableScale';
 import { useReducedMotion } from '../../../design/motion/useReducedMotion';
@@ -36,6 +36,14 @@ function capitalize(text: string): string {
   return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : text;
 }
 
+/** The web card sets `text-transform: capitalize` on the label and title, so
+ *  "your type" / "the initiator" render as "Your Type" / "The Initiator".
+ *  React Native has textTransform but not the per-word 'capitalize' behaviour
+ *  consistently across platforms, so do it in JS and keep the two identical. */
+function titleCase(text: string): string {
+  return text.replace(/\S+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1));
+}
+
 /** The card's own radial sheen (Figma "summary-card-top-pattern"): a soft
  *  warm highlight off the top-left corner over the maroon gradient body. */
 function CardSheen() {
@@ -48,6 +56,52 @@ function CardSheen() {
         </RadialGradient>
       </Defs>
       <Rect x={0} y={0} width={367} height={390} fill="url(#cardSheen)" />
+    </Svg>
+  );
+}
+
+/** Outline heart, paired with share along the card's bottom edge (design:
+ *  two thin-stroke pale-peach icons, ~16px, ~18px apart). */
+function HeartGlyph({ filled }: { filled: boolean }) {
+  return (
+    <Svg width={22} height={22} viewBox="0 0 24 24" accessibilityElementsHidden importantForAccessibility="no">
+      <Path
+        d="M12 20s-7-4.35-7-9.5A4.5 4.5 0 0 1 12 7a4.5 4.5 0 0 1 7 3.5C19 15.65 12 20 12 20z"
+        stroke={color.summary.cardLabel}
+        strokeWidth={1.6}
+        strokeLinejoin="round"
+        fill={filled ? color.summary.cardLabel : 'none'}
+      />
+    </Svg>
+  );
+}
+
+/** Thin wavy rules just inside all four edges of the lead card, mirrored, in a
+ *  slightly lighter red than the card body — the design's engraved-stationery
+ *  border. Deliberately low-contrast: it frames the type, never competes with
+ *  it. Only the first card gets this (the quick-read cards are plain). */
+function CardWaves() {
+  const wave = (len: number) => {
+    const step = len / 12;
+    let d = 'M0,0';
+    for (let i = 0; i < 12; i++) {
+      d += ` q${step / 4},-3 ${step / 2},0 t${step / 2},0`;
+    }
+    return d;
+  };
+  const H = wave(100);
+  return (
+    <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <G stroke={color.summary.cardWave} strokeWidth={0.5} fill="none">
+        <Path d={H} transform="translate(0,6)" />
+        <Path d={H} transform="translate(0,9)" />
+        <Path d={H} transform="translate(0,94) scale(1,-1)" />
+        <Path d={H} transform="translate(0,91) scale(1,-1)" />
+        <Path d={H} transform="rotate(90) translate(0,-6)" />
+        <Path d={H} transform="rotate(90) translate(0,-9)" />
+        <Path d={H} transform="rotate(-90) translate(-100,94)" />
+        <Path d={H} transform="rotate(-90) translate(-100,91)" />
+      </G>
     </Svg>
   );
 }
@@ -79,35 +133,49 @@ function ShareGlyph() {
  *  what gets captured for sharing — no separate off-screen duplicate to keep
  *  in sync. */
 function CardFace({
-  card, isTop, interactive, onShare,
+  card, isTop, isFirst, interactive, onShare,
 }: {
   card: SummaryCard;
   isTop: boolean;
+  /** The lead "your type" card — the only one with the engraved wave border. */
+  isFirst: boolean;
   interactive: boolean;
   onShare: (ref: React.RefObject<ViewShotRef | null>, card: SummaryCard) => void;
 }) {
   const shotRef = useRef<ViewShotRef>(null);
+  const [saved, setSaved] = useState(false);
   return (
     <View style={styles.faceFill}>
       <ViewShot ref={shotRef} options={{ format: 'png', quality: 1 }} style={styles.faceFill}>
         <View style={styles.faceBody}>
           <CardSheen />
+          {isFirst && <CardWaves />}
           <View style={styles.faceContent}>
-            <BodyText style={styles.cardLabel}>{card.label}</BodyText>
-            {!!card.title && <BrandHeading variant="title" style={styles.cardTitle}>{card.title}</BrandHeading>}
+            <BodyText style={styles.cardLabel}>{titleCase(card.label)}</BodyText>
+            {!!card.title && <BrandHeading variant="title" style={styles.cardTitle}>{titleCase(card.title)}</BrandHeading>}
             <BodyText style={card.title ? styles.cardText : styles.cardTextRoomy}>{capitalize(card.text)}</BodyText>
           </View>
         </View>
       </ViewShot>
       {isTop && interactive && (
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={`Share this card: ${card.label}`}
-          onPress={() => onShare(shotRef, card)}
-          style={styles.shareButton}
-        >
-          <ShareGlyph />
-        </PressableScale>
+        <View style={styles.cardActions}>
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={`Save this card: ${card.label}`}
+            onPress={() => setSaved((v) => !v)}
+            style={styles.cardAction}
+          >
+            <HeartGlyph filled={saved} />
+          </PressableScale>
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={`Share this card: ${card.label}`}
+            onPress={() => onShare(shotRef, card)}
+            style={styles.cardAction}
+          >
+            <ShareGlyph />
+          </PressableScale>
+        </View>
       )}
     </View>
   );
@@ -121,6 +189,28 @@ type Props = {
   onShare?: (ref: React.RefObject<ViewShotRef | null>, card: SummaryCard) => void;
 };
 
+/** A card sitting behind the top one. Its depth CHANGES as the deck advances,
+ *  and easing between depths is what makes the stack settle rather than snap —
+ *  these used to be plain Views whose transform/opacity were recomputed on
+ *  render, so every card behind the top one jumped a step instantly while the
+ *  top card slid smoothly. Values match the web's depth*9 / 1-depth*0.038 /
+ *  0.62-depth*0.27. */
+function DepthCard({ card, depth, isFirst }: { card: SummaryCard; depth: number; isFirst: boolean }) {
+  const d = useSharedValue(depth);
+  useEffect(() => {
+    d.value = withTiming(depth, { duration: SETTLE_MS, easing: DECK_EASING });
+  }, [depth, d]);
+  const style = useAnimatedStyle(() => ({
+    transform: [{ translateY: d.value * 9 }, { scale: 1 - d.value * 0.038 }],
+    opacity: Math.max(0, 0.62 - d.value * 0.27),
+  }));
+  return (
+    <Animated.View style={[styles.card, { zIndex: 10 - depth }, style]} pointerEvents="none">
+      <CardFace card={card} isTop={false} isFirst={isFirst} interactive={false} onShare={() => {}} />
+    </Animated.View>
+  );
+}
+
 /** Swipeable deck of summary cards. The top card can be dragged sideways (or
  *  tapped) to advance; the cards behind it sit slightly lower and smaller as
  *  depth cues, and fade out once the last card is reached (there's genuinely
@@ -132,12 +222,17 @@ export function SummaryCardStack({ cards, interactive = true, onShare }: Props) 
   const { width: screenWidth } = useWindowDimensions();
   const [active, setActive] = useState(0);
   const translateX = useSharedValue(0);
+  // The leaving card fades as it slides (web: opacity 240ms alongside the
+  // 300ms slide). Without it the card stayed fully opaque until it was cut
+  // off screen, which is most of why the change read as a jump.
+  const topOpacity = useSharedValue(1);
   const isLast = active >= cards.length - 1;
 
   const commitAdvance = useCallback(() => {
     setActive((i) => Math.min(cards.length - 1, i + 1));
     translateX.value = 0;
-  }, [cards.length, translateX]);
+    topOpacity.value = 1;
+  }, [cards.length, translateX, topOpacity]);
 
   const advance = useCallback(
     (direction: -1 | 1) => {
@@ -150,9 +245,10 @@ export function SummaryCardStack({ cards, interactive = true, onShare }: Props) 
         return;
       }
       translateX.value = withTiming(direction * screenWidth * 1.2, { duration: EXIT_MS, easing: DECK_EASING });
+      topOpacity.value = withTiming(0, { duration: 240, easing: DECK_EASING });
       setTimeout(commitAdvance, EXIT_MS);
     },
-    [isLast, reduced, screenWidth, translateX, commitAdvance],
+    [isLast, reduced, screenWidth, translateX, topOpacity, commitAdvance],
   );
 
   const goBack = useCallback(() => {
@@ -160,8 +256,10 @@ export function SummaryCardStack({ cards, interactive = true, onShare }: Props) 
     setActive((i) => Math.max(0, i - 1));
     if (reduced) return;
     translateX.value = -screenWidth * 0.25;
+    topOpacity.value = 0;
     translateX.value = withTiming(0, { duration: SETTLE_MS, easing: DECK_EASING });
-  }, [active, reduced, screenWidth, translateX]);
+    topOpacity.value = withTiming(1, { duration: 260, easing: DECK_EASING });
+  }, [active, reduced, screenWidth, translateX, topOpacity]);
 
   // PanResponder, not react-native-gesture-handler's Gesture API: this is a
   // single straightforward horizontal drag, and PanResponder is core React
@@ -185,6 +283,7 @@ export function SummaryCardStack({ cards, interactive = true, onShare }: Props) 
   );
 
   const topCardStyle = useAnimatedStyle(() => ({
+    opacity: topOpacity.value,
     transform: [{ translateX: translateX.value }, { rotateZ: `${translateX.value * 0.03}deg` }],
   }));
 
@@ -198,26 +297,11 @@ export function SummaryCardStack({ cards, interactive = true, onShare }: Props) 
           if (isTop) {
             return (
               <Animated.View key={card.key} style={[styles.card, styles.cardTop, topCardStyle]} {...panResponder.panHandlers}>
-                <CardFace card={card} isTop interactive={interactive} onShare={onShare ?? (() => {})} />
+                <CardFace card={card} isTop isFirst={i === 0} interactive={interactive} onShare={onShare ?? (() => {})} />
               </Animated.View>
             );
           }
-          return (
-            <View
-              key={card.key}
-              style={[
-                styles.card,
-                {
-                  zIndex: 10 - depth,
-                  transform: [{ translateY: depth * 9 }, { scale: 1 - depth * 0.038 }],
-                  opacity: Math.max(0, 0.62 - depth * 0.27),
-                },
-              ]}
-              pointerEvents="none"
-            >
-              <CardFace card={card} isTop={false} interactive={false} onShare={() => {}} />
-            </View>
-          );
+          return <DepthCard key={card.key} card={card} depth={depth} isFirst={i === 0} />;
         })}
       </View>
 
@@ -263,13 +347,18 @@ const styles = StyleSheet.create({
   cardTop: { zIndex: 10 },
   faceFill: { flex: 1 },
   faceBody: { flex: 1, borderRadius: radius.xl, overflow: 'hidden', backgroundColor: color.summary.cardBg },
-  faceContent: { padding: spacing.xl },
-  cardLabel: { fontFamily: fontFamily.bodyMedium, fontSize: 13, lineHeight: 16, color: color.summary.cardLabel },
-  cardTitle: { marginTop: spacing.sm, fontSize: 30, lineHeight: 34, color: color.brand.cream },
-  cardText: { marginTop: spacing.sm, fontFamily: fontFamily.bodyLight, fontSize: 16, lineHeight: 24, color: color.brand.cream },
+  // Web: 26px 24px 22px.
+  faceContent: { paddingHorizontal: spacing.xl, paddingTop: 26, paddingBottom: 22 },
+  cardLabel: { fontFamily: fontFamily.bodyMedium, fontSize: 14, lineHeight: 18, letterSpacing: 0.3, color: color.summary.cardLabel },
+  // lineHeight 34 on a 30px face left the descenders tight and the title
+  // reading as a cramped slab; the web runs 1.1 on a serif that can take it.
+  cardTitle: { marginTop: spacing.md, fontSize: 30, lineHeight: 38, letterSpacing: -0.5, color: color.brand.cream },
+  cardText: { marginTop: spacing.md, fontFamily: fontFamily.bodyLight, fontSize: 17, lineHeight: 26, color: color.brand.cream },
   // No title above it (the quick-read cards), so the body gets more headroom.
-  cardTextRoomy: { marginTop: spacing.md, fontFamily: fontFamily.bodyLight, fontSize: 16, lineHeight: 24, color: color.brand.cream },
-  shareButton: { position: 'absolute', left: spacing.lg, bottom: spacing.lg, width: touchTarget.min, height: touchTarget.min, alignItems: 'center', justifyContent: 'center' },
+  cardTextRoomy: { marginTop: spacing.lg, fontFamily: fontFamily.bodyLight, fontSize: 17, lineHeight: 26, color: color.brand.cream },
+  // Bottom-left pair, ~18px apart (design). Was a single share button.
+  cardActions: { position: 'absolute', left: spacing.md, bottom: spacing.lg, flexDirection: 'row', alignItems: 'center' },
+  cardAction: { width: touchTarget.min, height: touchTarget.min, alignItems: 'center', justifyContent: 'center' },
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.lg, marginTop: spacing.lg },
   navButton: { width: 36, height: 36, borderRadius: radius.pill, borderWidth: 1, borderColor: color.border.pill, alignItems: 'center', justifyContent: 'center' },
   navDisabled: { opacity: 0.3 },

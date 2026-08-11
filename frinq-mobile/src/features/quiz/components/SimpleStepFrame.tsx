@@ -62,6 +62,6 @@ const styles = StyleSheet.create({
   back: { width: touchTarget.preferred, height: touchTarget.preferred, justifyContent: 'center' },
   heading: { marginTop: spacing.xl, marginBottom: spacing.lg, paddingTop: spacing.xs },
   body: { flex: 1 },
-  continue: { marginTop: spacing.xl },
+  continue: { marginTop: spacing.xl + 29 },
   skip: { minHeight: touchTarget.min, justifyContent: 'center', alignSelf: 'center', marginTop: spacing.sm },
 });

@@ -217,17 +217,36 @@ describe('MultiChoiceTagsTemplate', () => {
     expect(onChange).toHaveBeenCalledWith(['b']);
   });
 
-  it('allowCustom folds "anything else" text into the answer array alongside chip selections', () => {
+  it('allowCustom commits each Enter as its own separate answer entry, not one joined string', () => {
     const customStep: MultiChoiceTagsStep = { ...step, allowCustom: true };
     const onChange = jest.fn();
-    const { getByLabelText, rerender } = render(
+    const { getByLabelText } = render(
       <MultiChoiceTagsTemplate step={customStep} value={['a']} onChange={onChange} onContinue={jest.fn()} />,
     );
-    fireEvent.changeText(getByLabelText('anything else?'), 'my own thing');
-    expect(onChange).toHaveBeenCalledWith(['a', 'my own thing']);
-    rerender(<MultiChoiceTagsTemplate step={customStep} value={['a', 'my own thing']} onChange={onChange} onContinue={jest.fn()} />);
-    fireEvent.changeText(getByLabelText('anything else?'), '');
+    const field = getByLabelText('anything else?');
+
+    // Typing alone doesn't commit anything — only Enter does.
+    fireEvent.changeText(field, 'my own thing');
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent(field, 'submitEditing');
+    expect(onChange).toHaveBeenLastCalledWith(['a', 'my own thing']);
+
+    // The field clears and a second entry commits as its OWN array item.
+    fireEvent.changeText(field, 'another one');
+    fireEvent(field, 'submitEditing');
+    expect(onChange).toHaveBeenLastCalledWith(['a', 'my own thing', 'another one']);
+  });
+
+  it('tapping a committed custom chip removes just that entry', () => {
+    const customStep: MultiChoiceTagsStep = { ...step, allowCustom: true };
+    const onChange = jest.fn();
+    const { getByLabelText, getByText } = render(
+      <MultiChoiceTagsTemplate step={customStep} value={['a', 'my own thing']} onChange={onChange} onContinue={jest.fn()} />,
+    );
+    fireEvent.press(getByText('my own thing'));
     expect(onChange).toHaveBeenLastCalledWith(['a']);
+    expect(getByLabelText('anything else?').props.value).toBe('');
   });
 });
 
@@ -240,24 +259,22 @@ describe('RapidFireTemplate', () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
 
-  it('tapping a side only highlights it; Next commits the choice and advances', () => {
+  it('tapping a side fills it immediately, then commits and advances after a brief pause — no confirm step', () => {
     const onComplete = jest.fn();
-    const { getByText, getByRole } = render(<RapidFireTemplate step={step} onComplete={onComplete} />);
+    const { getByText, getByRole, queryByRole } = render(<RapidFireTemplate step={step} onComplete={onComplete} />);
+    expect(queryByRole('button', { name: 'Next' })).toBeNull(); // no Next control at all
+
     fireEvent.press(getByText('A1'));
-    expect(onComplete).not.toHaveBeenCalled(); // selecting alone doesn't advance
-    expect(getByRole('button', { name: 'Next' }).props.accessibilityState.disabled).toBe(false);
-    fireEvent.press(getByRole('button', { name: 'Next' }));
+    expect(getByRole('radio', { name: 'A1' }).props.accessibilityState.selected).toBe(true); // visible fill before it advances
+    expect(onComplete).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(220));
+
     fireEvent.press(getByText('B2'));
-    fireEvent.press(getByRole('button', { name: 'Next' }));
+    act(() => jest.advanceTimersByTime(220));
     expect(onComplete).toHaveBeenCalledWith(['A1', 'B2']);
   });
 
-  it('Next is disabled until a side is chosen', () => {
-    const { getByRole } = render(<RapidFireTemplate step={step} onComplete={jest.fn()} />);
-    expect(getByRole('button', { name: 'Next' }).props.accessibilityState.disabled).toBe(true);
-  });
-
-  it('auto-picks a side when the timer runs out', () => {
+  it('records an empty answer (a miss, not a guess) when the timer runs out untapped', () => {
     const onComplete = jest.fn();
     render(<RapidFireTemplate step={step} onComplete={onComplete} />);
     // Advance one second at a time so each effect-scheduled setTimeout is
@@ -266,8 +283,7 @@ describe('RapidFireTemplate', () => {
     for (let i = 0; i < 12; i++) {
       act(() => jest.advanceTimersByTime(1000));
     }
-    expect(onComplete).toHaveBeenCalled();
-    expect(onComplete.mock.calls[0][0]).toHaveLength(2);
+    expect(onComplete).toHaveBeenCalledWith(['', '']);
   });
 });
 
@@ -277,17 +293,26 @@ describe('OpinionsTemplate', () => {
     pairs: [{ prompt: 'p1', a: 'A1', b: 'B1' }, { prompt: 'p2', a: 'A2', b: 'B2' }],
   };
 
-  it('advances through pairs in sequence and calls onComplete with all picks, no whys when none configured', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('tapping a side fills it immediately, then commits and advances after a brief pause — no confirm button', () => {
     const onComplete = jest.fn();
-    const { getByText } = render(<OpinionsTemplate step={step} submissionId="sub-1" onComplete={onComplete} />);
+    const { getByText, getByRole, queryByRole } = render(<OpinionsTemplate step={step} submissionId="sub-1" onComplete={onComplete} />);
     expect(getByText('p1')).toBeTruthy();
+    expect(queryByRole('button', { name: 'continue' })).toBeNull(); // no confirm control at all
+
     fireEvent.press(getByText('A1'));
+    expect(getByRole('radio', { name: 'A1' }).props.accessibilityState.selected).toBe(true); // visible fill before it advances
+    act(() => jest.advanceTimersByTime(220));
     expect(getByText('p2')).toBeTruthy();
+
     fireEvent.press(getByText('B2'));
+    act(() => jest.advanceTimersByTime(220));
     expect(onComplete).toHaveBeenCalledWith(['A1', 'B2'], []);
   });
 
-  it('runs a batched why-phase after every pick when pairs have whyPrompt', () => {
+  it('runs each why-followup immediately after its own pick — interleaved, not batched at the end — echoing the pick back', () => {
     const whyStep: OpinionsStep = {
       id: 'opinions', kind: 'opinions', section: 'x', answerKey: 'opinions', whyAnswerKey: 'opinions_why',
       pairs: [
@@ -300,13 +325,19 @@ describe('OpinionsTemplate', () => {
       <OpinionsTemplate step={whyStep} submissionId="sub-1" onComplete={onComplete} />,
     );
     fireEvent.press(getByText('A1'));
-    fireEvent.press(getByText('B2'));
-    // Picks phase done — batched why-phase starts, not interleaved with picks.
-    expect(queryByText('p1')).toBeNull();
+    act(() => jest.advanceTimersByTime(220));
+    // why1 shows right after pair 1's own pick — pair 2 hasn't been seen yet,
+    // and the picked side is echoed back in context.
+    expect(queryByText('p2')).toBeNull();
     expect(getByText('why1?')).toBeTruthy();
+    expect(getByText('A1')).toBeTruthy();
     fireEvent.changeText(getByPlaceholderText('genuinely curious...'), 'because reasons');
     fireEvent.press(getByRole('button', { name: 'continue' }));
+    expect(getByText('p2')).toBeTruthy();
+    fireEvent.press(getByText('B2'));
+    act(() => jest.advanceTimersByTime(220));
     expect(getByText('why2?')).toBeTruthy();
+    expect(getByText('B2')).toBeTruthy();
     fireEvent.changeText(getByPlaceholderText('genuinely curious...'), 'other reasons');
     fireEvent.press(getByRole('button', { name: 'continue' }));
     expect(onComplete).toHaveBeenCalledWith(['A1', 'B2'], ['because reasons', 'other reasons']);

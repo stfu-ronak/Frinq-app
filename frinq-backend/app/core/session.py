@@ -25,7 +25,13 @@ _JWT_ALG = "HS256"
 _ISSUER = "frinq-api"
 _AUDIENCE = "frinq-app"
 _ACCESS_TOKEN_TTL = timedelta(minutes=15)
-_REFRESH_TOKEN_TTL = timedelta(days=30)
+# Session lifetime depends on whether the account has finished the quiz.
+# Still mid-quiz: a flat 12-hour window from the original OTP verification —
+# deliberately NOT extended by app use, so an in-progress account re-prompts
+# for OTP well within a day. Quiz done: a 7-day window that DOES roll forward
+# on every use, so only a real week of not opening the app logs them out.
+_INCOMPLETE_QUIZ_SESSION_TTL = timedelta(hours=12)
+_COMPLETE_QUIZ_SESSION_TTL = timedelta(days=7)
 
 Platform = Literal["ios", "android", "web"]
 
@@ -96,10 +102,16 @@ def decode_access_token(token: str) -> AccessClaims:
     )
 
 
+async def _quiz_completed(conn: Any, user_id: UUID) -> bool:
+    row = await conn.fetchrow("SELECT onboarding_state FROM users WHERE id = $1", user_id)
+    return row is not None and row["onboarding_state"] != "quiz_in_progress"
+
+
 async def create_session(conn: Any, user_id: UUID, platform: Platform) -> TokenPair:
     session_id = uuid4()
     secret = secrets.token_urlsafe(48)
-    expires_at = datetime.now(tz=timezone.utc) + _REFRESH_TOKEN_TTL
+    ttl = _COMPLETE_QUIZ_SESSION_TTL if await _quiz_completed(conn, user_id) else _INCOMPLETE_QUIZ_SESSION_TTL
+    expires_at = datetime.now(tz=timezone.utc) + ttl
 
     await conn.execute(
         "INSERT INTO user_sessions (id, user_id, refresh_secret_hash, platform, expires_at) "
@@ -146,7 +158,13 @@ async def rotate_session(conn: Any, refresh_token: str) -> TokenPair:
             raise SessionReuseError("refresh secret mismatch")
 
         new_secret = secrets.token_urlsafe(48)
-        new_expires_at = now + _REFRESH_TOKEN_TTL
+        # Re-checked on every rotation (not just at creation): finishing the
+        # quiz mid-session upgrades it from the fixed 12h window to the
+        # rolling 7-day one starting from this refresh.
+        if await _quiz_completed(conn, row["user_id"]):
+            new_expires_at = now + _COMPLETE_QUIZ_SESSION_TTL
+        else:
+            new_expires_at = expires_at
         await conn.execute(
             "UPDATE user_sessions SET refresh_secret_hash = $1, expires_at = $2, "
             "last_used_at = now() WHERE id = $3",

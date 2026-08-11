@@ -94,7 +94,6 @@ export function OtpScreen() {
         // version server-side and route back to Legal — never silently proceed.
       }
 
-      await flushPendingQuizState(apiClient, result.data.user.id, phone, result.data.prior_session);
     } catch {
       // The pending-state flush is best-effort. If connectivity drops after
       // the tokens are set, we must NOT strand the user on the "verifying…"
@@ -104,11 +103,17 @@ export function OtpScreen() {
     }
 
     if (tokensSet) {
-      // Flip auth so boot resolution takes over routing (server-authoritative).
-      // Loading stays true (busy indicator visible) until this screen
-      // unmounts once boot resolution lands on the real destination — no
-      // splash flash, so don't clear it here.
-      coordinator.signalAuthenticated();
+      // Auth stays UNflipped on purpose: Name is collected next, still inside
+      // this pre-auth stack, and it owns the quiz-state flush +
+      // signalAuthenticated() once the name is in. Flipping here would mount
+      // the quiz before the name exists, so the welcome screen would greet
+      // "there" instead of the user.
+      setLoading(false);
+      navigation.navigate('Name', {
+        userId: result.data.user.id,
+        phone,
+        priorSession: result.data.prior_session ?? null,
+      });
     } else {
       // Couldn't even persist the credential — surface a retry rather than
       // silently proceeding unauthenticated.

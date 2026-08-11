@@ -124,7 +124,7 @@ async def call_openai_json(
     else:
         payload["temperature"] = temperature
     headers = {
-        "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+        "Authorization": f"Bearer {secret}",
         "Content-Type": "application/json",
     }
 
@@ -185,6 +185,7 @@ async def call_openai_structured(
     prompt_cache_key: str | None = None,
     usage_recorder: Callable[[int, int], Any] | None = None,
     max_retries: int = 2,
+    via_azure: bool = False,
 ) -> dict[str, Any]:
     """Structured Outputs (strict json_schema) sibling of call_openai_json.
     Returns the PARSED dict — strict mode guarantees schema-valid JSON, so
@@ -196,11 +197,25 @@ async def call_openai_structured(
     errors don't fix themselves). Raises OpenAIStructuredError on exhausted
     retries or a non-retryable failure.
     """
-    if not settings.OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is not set.")
+    # Azure AI Foundry v1 speaks the same Structured Outputs dialect on the
+    # same request shape — only host, credential and the model-as-deployment
+    # name differ — so it reuses this implementation rather than forking a
+    # near-identical one that would drift on retries and usage accounting.
+    if via_azure:
+        from app.core.ai import azure_client
+
+        url = azure_client.build_url()
+        secret = azure_client.api_key()
+        model_name = azure_client.resolve_deployment(model or settings.OPENAI_MODEL)
+    else:
+        if not settings.OPENAI_API_KEY:
+            raise RuntimeError("OPENAI_API_KEY is not set.")
+        url = "https://api.openai.com/v1/chat/completions"
+        secret = settings.OPENAI_API_KEY
+        model_name = model or settings.OPENAI_MODEL
 
     payload: dict[str, Any] = {
-        "model": model or settings.OPENAI_MODEL,
+        "model": model_name,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -220,7 +235,7 @@ async def call_openai_structured(
         payload["prompt_cache_key"] = prompt_cache_key
 
     headers = {
-        "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+        "Authorization": f"Bearer {secret}",
         "Content-Type": "application/json",
     }
 
@@ -229,12 +244,7 @@ async def call_openai_structured(
         try:
             async with sem:
                 async with httpx.AsyncClient() as client:
-                    response = await client.post(
-                        "https://api.openai.com/v1/chat/completions",
-                        headers=headers,
-                        json=payload,
-                        timeout=180.0,
-                    )
+                    response = await client.post(url, headers=headers, json=payload, timeout=180.0)
             response.raise_for_status()
             data = response.json()
             parsed = json.loads(data["choices"][0]["message"]["content"])
@@ -243,8 +253,17 @@ async def call_openai_structured(
                 isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code >= 500
             )
             if not retryable or attempt >= max_retries:
+                # Carry the provider's own status+message. Without it a 400
+                # (bad deployment, unsupported param, schema rejected) and a
+                # 401 are indistinguishable in the logs — both just said
+                # "OpenAIStructuredError" and cost an hour to tell apart.
+                detail = ""
+                if isinstance(exc, httpx.HTTPStatusError):
+                    detail = f" [{exc.response.status_code}: {exc.response.text[:300]}]"
                 raise OpenAIStructuredError(
-                    f"OpenAI structured call failed after {attempt + 1} attempt(s)", cause=exc,
+                    f"OpenAI structured call failed after {attempt + 1} attempt(s)"
+                    f" (model={payload['model']}){detail}",
+                    cause=exc,
                 ) from exc
             await asyncio.sleep(0.5 * (attempt + 1))
             continue
@@ -419,6 +438,21 @@ async def generate_deep_report(
         content = await call_with_cache(
             system=DEEP_REPORT_SYSTEM,
             user=example_prefix + json.dumps(user_payload),
+            model=model_id,
+            temperature=0.7,
+            max_tokens=8000,
+            effort=effort,
+            usage_recorder=usage_recorder,
+        )
+    elif provider == "azure":
+        # Same request/response shape as the direct OpenAI branch below —
+        # only the transport differs (deployment in the URL, api-key header),
+        # which azure_client absorbs.
+        from app.core.ai import azure_client
+
+        content = await azure_client.call_azure_json(
+            system=DEEP_REPORT_SYSTEM,
+            user=json.dumps(user_payload),
             model=model_id,
             temperature=0.7,
             max_tokens=8000,

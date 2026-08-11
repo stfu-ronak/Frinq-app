@@ -61,7 +61,7 @@ export function OtpField({ value, onChangeText, length = 6, error, autoFocus, co
             maxLength={1}
             accessibilityElementsHidden
             importantForAccessibility="no"
-            style={[styles.box, { borderColor: error ? color.state.error : d ? color.border.default : color.bg.inputMuted }, typeScale.title]}
+            style={[styles.box, { borderColor: error ? color.state.error : d ? color.border.default : color.bg.inputMuted }]}
           />
         ))}
       </View>
@@ -83,7 +83,17 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     textAlign: 'center',
     textAlignVertical: 'center',
-    paddingTop: 4,
+    // Vertical centring in a fixed-height box needs all three of these. An
+    // explicit lineHeight (typeScale.title's 34 in a 49px box) and Android's
+    // default font padding both bias the glyph upward, and the old
+    // `paddingTop: 4` was compensating for that rather than removing it — so
+    // the digit still sat high. Take the family/size from the type scale but
+    // NOT its lineHeight, drop the inherited padding, and let
+    // textAlignVertical do the centring on its own.
+    fontFamily: typeScale.title.fontFamily,
+    fontSize: typeScale.title.fontSize,
+    includeFontPadding: false,
+    paddingVertical: 0,
     color: color.text.primary,
     backgroundColor: color.brand.cream,
   },

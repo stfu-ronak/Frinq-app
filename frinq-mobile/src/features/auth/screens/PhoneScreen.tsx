@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Image, StyleSheet, TextInput, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import type { AuthStackParamList } from '../../../navigation/AuthNavigator';
 import { ReferenceJourneyFrame } from '../../../design/components/ReferenceJourneyFrame';
 import { BodyText } from '../../../design/components/Text';
 import { ReferenceCtaFooter } from '../components/ReferenceCtaFooter';
@@ -13,6 +14,7 @@ import { track } from '../../../services/telemetry/analytics';
 /** Reference 2 phone page; submission behavior remains unchanged. */
 export function PhoneScreen() {
   const navigation = useNavigation<any>();
+  const route = useRoute<RouteProp<AuthStackParamList, 'Phone'>>();
   const { apiClient } = useSession();
   const [digits, setDigits] = useState('');
   const [loading, setLoading] = useState(false);
@@ -21,6 +23,15 @@ export function PhoneScreen() {
 
   async function handleSubmit() {
     if (!canSubmit) return;
+    // Backed out of Name after already verifying? The credential for that
+    // number is still held, so re-submitting the SAME number skips straight
+    // back to Name instead of sending a second code for a number we've
+    // already proven. A different number falls through to a normal send.
+    const verified = route.params?.verified;
+    if (verified && verified.phone === digits) {
+      navigation.navigate('Name', verified);
+      return;
+    }
     setLoading(true);
     setError(null);
     const result = await sendOtp(apiClient, digits);

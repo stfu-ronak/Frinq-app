@@ -15,6 +15,8 @@ function makeRecorder(overrides: Partial<RecorderPort> = {}): RecorderPort {
     enableFileOutput: jest.fn(() => ({ status: 'success' })),
     start: jest.fn(() => ({ status: 'success' })),
     stop: jest.fn(() => ({ status: 'success', paths: ['/cache/clip.m4a'], size: 0.1, duration: 3 })),
+    pause: jest.fn(),
+    resume: jest.fn(),
     onError: jest.fn(),
     clearOnError: jest.fn(),
     ...overrides,
@@ -57,6 +59,44 @@ describe('AudioRecorderAdapter', () => {
     expect(recorder.enableFileOutput).toHaveBeenCalledWith(expect.objectContaining({ format: expect.anything(), directory: expect.anything() }));
     expect(recorder.start).toHaveBeenCalled();
     expect(adapter.isRecording()).toBe(true);
+  });
+
+  it('pause() calls the native recorder and flips isPaused(); resume() reverses it', async () => {
+    const recorder = makeRecorder();
+    const adapter = new AudioRecorderAdapter(recorder, makePermissions(), makeFiles());
+    await adapter.requestAndStart(jest.fn());
+
+    adapter.pause();
+    expect(recorder.pause).toHaveBeenCalledTimes(1);
+    expect(adapter.isPaused()).toBe(true);
+    expect(adapter.isRecording()).toBe(true); // paused, not stopped
+
+    adapter.resume();
+    expect(recorder.resume).toHaveBeenCalledTimes(1);
+    expect(adapter.isPaused()).toBe(false);
+  });
+
+  it('pause()/resume() are no-ops when nothing is recording', () => {
+    const recorder = makeRecorder();
+    const adapter = new AudioRecorderAdapter(recorder, makePermissions(), makeFiles());
+
+    adapter.pause();
+    adapter.resume();
+
+    expect(recorder.pause).not.toHaveBeenCalled();
+    expect(recorder.resume).not.toHaveBeenCalled();
+  });
+
+  it('stop() while paused clears isPaused() along with isRecording()', async () => {
+    const recorder = makeRecorder();
+    const adapter = new AudioRecorderAdapter(recorder, makePermissions(), makeFiles());
+    await adapter.requestAndStart(jest.fn());
+    adapter.pause();
+
+    await adapter.stop();
+
+    expect(adapter.isPaused()).toBe(false);
+    expect(adapter.isRecording()).toBe(false);
   });
 
   it('stop() returns the file and duration, and clears recording state', async () => {

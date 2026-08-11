@@ -9,8 +9,9 @@ import { PressableScale } from '../motion/PressableScale';
 type Props = {
   label: string;
   onPress: () => void;
-  /** Secondary = peach surface; primary = maroon fill. */
-  variant?: 'primary' | 'secondary';
+  /** Secondary = peach surface; primary = maroon fill; milestone = the
+   *  lighter peach CTA face used on a maroon-themed milestone/break screen. */
+  variant?: 'primary' | 'secondary' | 'milestone';
   disabled?: boolean;
   busy?: boolean;
   style?: ViewStyle;
@@ -21,7 +22,13 @@ type Props = {
 export function PrimaryButton({ label, onPress, variant = 'primary', disabled = false, busy = false, style }: Props) {
   const inactive = disabled || busy;
   const isPrimary = variant === 'primary';
-  const bg = inactive ? color.control.disabledBg : isPrimary ? color.control.primaryBg : color.control.secondaryBg;
+  const bg = inactive
+    ? color.control.disabledBg
+    : isPrimary
+      ? color.control.primaryBg
+      : variant === 'milestone'
+        ? color.control.milestoneCtaBg
+        : color.control.secondaryBg;
   const fg = isPrimary ? color.control.primaryText : color.control.secondaryText;
 
   return (

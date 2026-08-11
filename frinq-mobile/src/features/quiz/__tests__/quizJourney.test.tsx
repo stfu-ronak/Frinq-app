@@ -14,7 +14,7 @@
  * without adding any coverage this doesn't already give.
  */
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react-native';
+import { render, fireEvent, act } from '@testing-library/react-native';
 import { QuizProvider } from '../quizContext';
 import { QuizStepScreen } from '../screens/QuizStepScreen';
 import { QuizDraftRepository, KeyValueStore } from '../../../storage/quizDraftRepository';
@@ -29,9 +29,12 @@ const mockPush = jest.fn((_name: string, params: { stepId: string }) => {
   mockRouteState.stepId = params.stepId;
 });
 const mockGoBack = jest.fn();
+const mockReplace = jest.fn();
+const mockCanGoBack = jest.fn(() => true);
+const mockSetOptions = jest.fn();
 
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: mockNavigate, push: mockPush, goBack: mockGoBack }),
+  useNavigation: () => ({ navigate: mockNavigate, push: mockPush, goBack: mockGoBack, canGoBack: mockCanGoBack, replace: mockReplace, setOptions: mockSetOptions }),
   useRoute: () => ({ params: { stepId: mockRouteState.stepId } }),
 }));
 
@@ -95,20 +98,30 @@ function driveStep(screen: ReturnType<typeof render>, step: QuizStep) {
       fireEvent.press(screen.getByRole('button', { name: 'continue' }));
       return;
     case 'rapidFire':
+      // Tapping a side commits it after a brief highlight flash (see
+      // RapidFireTemplate's PICK_FLASH_MS) — fake-advance past it so this
+      // synchronous driver doesn't have to sleep in real time.
+      jest.useFakeTimers();
       for (const pair of step.pairs) {
         fireEvent.press(screen.getByText(pair.a));
-        fireEvent.press(screen.getByRole('button', { name: 'Next' }));
+        act(() => jest.advanceTimersByTime(250));
       }
+      jest.useRealTimers();
       return;
     case 'opinions':
-      for (const pair of step.pairs) fireEvent.press(screen.getByText(pair.a));
-      // Batched why-phase: one text+voice sub-question per pair with a
-      // whyPrompt, in pair order, after every pick is made.
+      // Each pick fills then advances on its own after a brief flash (see
+      // OpinionsTemplate's PICK_FLASH_MS) — fake-advance past it; a pair's
+      // why-followup (when it has one) immediately follows that same pick —
+      // not batched after every pick.
+      jest.useFakeTimers();
       for (const pair of step.pairs) {
+        fireEvent.press(screen.getByText(pair.a));
+        act(() => jest.advanceTimersByTime(250));
         if (!pair.whyPrompt) continue;
         fireEvent.changeText(screen.getByLabelText(pair.whyPrompt), 'a good reason');
         fireEvent.press(screen.getByRole('button', { name: 'continue' }));
       }
+      jest.useRealTimers();
       return;
     case 'preferences':
       // One statement per screen — tap 'middle' then continue, once per slider.
@@ -184,5 +197,26 @@ describe('quiz journey: city through last_question', () => {
     fireEvent.press(screen.getByLabelText('Go back'));
     expect(mockGoBack).toHaveBeenCalled();
     expect(repo.load(USER)?.submissionId).toBe(SUBMISSION); // same submission, not a new one
+  });
+
+  it('BACK on a resumed session (no push history) replaces the route instead of erroring', () => {
+    // A cold-resumed quiz (app restart, or a dev reload mid-session) mounts
+    // whatever step it resumes at as the FIRST entry of a fresh navigator
+    // stack — canGoBack() is false even though a previous question exists.
+    mockRouteState.stepId = 'age';
+    mockCanGoBack.mockReturnValueOnce(false);
+    const repo = new QuizDraftRepository({ store: fakeStore(), now: () => Date.now() });
+
+    const screen = render(
+      <QuizProvider submissionId={SUBMISSION} userId={USER} repo={repo} partialSave={jest.fn().mockResolvedValue(true)} onQuizComplete={jest.fn()}>
+        <QuizStepScreen />
+      </QuizProvider>,
+    );
+
+    const goBackCallsBefore = mockGoBack.mock.calls.length;
+    fireEvent.press(screen.getByLabelText('Go back'));
+
+    expect(mockReplace).toHaveBeenCalledWith('Step', { stepId: 'city' });
+    expect(mockGoBack.mock.calls.length).toBe(goBackCallsBefore); // not called this time
   });
 });

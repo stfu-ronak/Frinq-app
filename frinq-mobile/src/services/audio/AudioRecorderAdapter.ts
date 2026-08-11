@@ -8,6 +8,8 @@ export interface RecorderPort {
   enableFileOutput(options: { format: FileFormat; directory: FileDirectory }): { status: string; message?: string };
   start(): { status: string; message?: string };
   stop(): { status: 'success'; paths: string[]; size: number; duration: number } | { status: 'error'; message: string };
+  pause(): void;
+  resume(): void;
   onError(callback: (error: { message: string }) => void): void;
   clearOnError(): void;
 }
@@ -36,6 +38,7 @@ const MAX_DURATION_MS = 120_000;
  */
 export class AudioRecorderAdapter {
   private recording = false;
+  private paused = false;
   private currentPath: string | null = null;
   private autoStopTimer: ReturnType<typeof setTimeout> | null = null;
   private unbindLifecycle: (() => void) | null = null;
@@ -48,6 +51,25 @@ export class AudioRecorderAdapter {
 
   isRecording(): boolean {
     return this.recording;
+  }
+
+  isPaused(): boolean {
+    return this.paused;
+  }
+
+  /** Pauses without tearing anything down — the native recorder stays
+   *  primed, so resume() picks the same take back up. No-op if not
+   *  currently recording. */
+  pause(): void {
+    if (!this.recording || this.paused) return;
+    this.recorder.pause();
+    this.paused = true;
+  }
+
+  resume(): void {
+    if (!this.recording || !this.paused) return;
+    this.recorder.resume();
+    this.paused = false;
   }
 
   /** Requests permission, then starts recording if granted. `onAutoStop` fires
@@ -73,9 +95,11 @@ export class AudioRecorderAdapter {
     if (started.status === 'error') throw new Error(started.message ?? 'start_failed');
 
     this.recording = true;
+    this.paused = false;
     this.bindBackgroundStop(onInterrupted);
     this.recorder.onError((e) => {
       this.recording = false;
+      this.paused = false;
       this.clearAutoStop();
       this.unbindBackgroundStop();
       onError?.(e.message);
@@ -94,6 +118,7 @@ export class AudioRecorderAdapter {
     this.recorder.clearOnError();
     const result = this.recorder.stop();
     this.recording = false;
+    this.paused = false;
     if (result.status !== 'success' || !result.paths[0]) return null;
     this.currentPath = result.paths[0];
     return { fileUri: result.paths[0], durationSec: result.duration };
@@ -124,6 +149,7 @@ export class AudioRecorderAdapter {
     if (this.recording) {
       this.recorder.stop();
       this.recording = false;
+      this.paused = false;
     }
     void this.deleteCurrentFile();
   }

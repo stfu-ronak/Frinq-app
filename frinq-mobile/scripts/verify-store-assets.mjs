@@ -79,16 +79,17 @@ export async function verifyStoreAssets(root) {
   const errors = [];
 
   // --- Android icons: legacy launcher + adaptive foreground, real dimensions ---
+  // Resource name is "app_icon" (not the RN-default "ic_launcher") — matches
+  // AndroidManifest.xml's android:icon/android:roundIcon, which both point at
+  // the same @mipmap/app_icon, so one adaptive-icon XML covers both.
   for (const [density, size] of Object.entries(ANDROID_LAUNCHER_SIZES)) {
-    errors.push(...(await checkPng(root, `android/app/src/main/res/mipmap-${density}/ic_launcher.png`, size)));
-    errors.push(...(await checkPng(root, `android/app/src/main/res/mipmap-${density}/ic_launcher_round.png`, size)));
+    errors.push(...(await checkPng(root, `android/app/src/main/res/mipmap-${density}/app_icon.png`, size)));
   }
   for (const [density, size] of Object.entries(ANDROID_ADAPTIVE_SIZES)) {
-    errors.push(...(await checkPng(root, `android/app/src/main/res/mipmap-${density}/ic_launcher_foreground.png`, size)));
+    errors.push(...(await checkPng(root, `android/app/src/main/res/mipmap-${density}/app_icon_foreground.png`, size)));
   }
-  for (const rel of ["mipmap-anydpi-v26/ic_launcher.xml", "mipmap-anydpi-v26/ic_launcher_round.xml"]) {
-    if (!existsSync(join(root, "android/app/src/main/res", rel))) errors.push(`missing adaptive icon config: ${rel}`);
-  }
+  if (!existsSync(join(root, "android/app/src/main/res/mipmap-anydpi-v26/app_icon.xml")))
+    errors.push("missing adaptive icon config: mipmap-anydpi-v26/app_icon.xml");
 
   // --- iOS icons: every Contents.json slot has a filename, and that file is the right size ---
   const iosDir = "ios/FrinqMobile/Images.xcassets/AppIcon.appiconset";
@@ -144,7 +145,13 @@ export async function verifyStoreAssets(root) {
   // --- Release endpoint: production API base URL is HTTPS, not a dev alias ---
   const config = readText(root, "src/services/api/config.ts", errors);
   if (config !== null) {
-    const prodMatch = config.match(/__DEV__\s*\?\s*DEV_BASE_URL\s*:\s*['"]([^'"]+)['"]/);
+    // The production URL now lives in a named PROD_BASE_URL constant (it is
+    // the single line you edit before cutting a build), so accept either the
+    // inlined literal or the constant's own declaration. The check that
+    // matters is unchanged: whatever a release build ships must be HTTPS.
+    const prodMatch =
+      config.match(/__DEV__\s*\?\s*DEV_BASE_URL\s*:\s*['"]([^'"]+)['"]/) ||
+      config.match(/PROD_BASE_URL\s*=\s*['"]([^'"]+)['"]/);
     if (!prodMatch) {
       errors.push("src/services/api/config.ts: could not find the production API_BASE_URL branch");
     } else if (!prodMatch[1].startsWith("https://")) {

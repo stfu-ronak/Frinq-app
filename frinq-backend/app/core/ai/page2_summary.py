@@ -228,11 +228,14 @@ async def _call_structured(
             effort=effort, usage_recorder=usage_recorder,
         )
         return json.loads(raw)
+    # openai AND azure: identical request, different host/credential. Without
+    # via_azure an admin-selected provider='azure' fell through to
+    # api.openai.com with the Azure key and died as OpenAIStructuredError.
     return await call_openai_structured(
         system=system, user=user, schema_name=schema_name, schema=schema,
         model=model_id, reasoning_effort=effort, max_output_tokens=max_output_tokens,
         safety_identifier=safety_id, prompt_cache_key=PAGE2_PROMPT_VERSION,
-        usage_recorder=usage_recorder,
+        usage_recorder=usage_recorder, via_azure=provider == "azure",
     )
 
 
@@ -378,7 +381,14 @@ async def generate_page2_summary_with_fallback(
         result["_ai_route"] = "primary"
         return result
     except Exception as primary_error:
-        logger.error("page2_summary.primary_failed", error_type=type(primary_error).__name__)
+        # Include the message, not just the class: the class alone can't
+        # distinguish a bad deployment from a rejected schema from an auth
+        # failure, and this is the log an operator reaches for first.
+        logger.error(
+            "page2_summary.primary_failed",
+            error_type=type(primary_error).__name__,
+            error=str(primary_error)[:400],
+        )
         await failover.mark_primary_failure(route_key)
         try:
             result = await generate_page2_summary(
@@ -387,5 +397,14 @@ async def generate_page2_summary_with_fallback(
             )
             result["_ai_route"] = "fallback"
             return result
-        except Exception:
-            raise primary_error
+        except Exception as fallback_error:
+            # Surface the FALLBACK's error, not the primary's. `raise
+            # primary_error` discarded the only record of why the last chance
+            # actually failed, so the job's error_code described a route that
+            # had already been given up on — the real failure was invisible.
+            logger.error(
+                "page2_summary.fallback_failed",
+                error_type=type(fallback_error).__name__,
+                error=str(fallback_error)[:400],
+            )
+            raise fallback_error from primary_error

@@ -14,7 +14,7 @@ const STEPS: { id: Step; label: string }[] = [
 
 interface ModelInfo {
   model_id: string;
-  provider: "openai" | "claude" | "gemini";
+  provider: "openai" | "azure" | "claude" | "gemini";
   input_price_per_mtok: number;
   output_price_per_mtok: number;
   supports_effort: boolean;
@@ -23,7 +23,7 @@ interface ModelInfo {
 
 interface StepConfig {
   step: Step;
-  provider: "openai" | "claude" | "gemini";
+  provider: "openai" | "azure" | "claude" | "gemini";
   model_id: string;
   effort: string | null;
   updated_at: string;
@@ -122,7 +122,7 @@ function StepConfigCard({ step, label, config, models, onSave, saving, onTest, t
   const selected = useMemo(() => models.find((m) => m.model_id === modelId), [models, modelId]);
 
   function changeProvider(next: string) {
-    setProvider(next as "openai" | "claude" | "gemini");
+    setProvider(next as "openai" | "azure" | "claude" | "gemini");
     const first = models.find((m) => m.provider === next);
     // A provider with zero catalog models must not leave the previous
     // provider's modelId selected — that combination doesn't exist and

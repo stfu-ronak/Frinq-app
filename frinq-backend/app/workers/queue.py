@@ -47,31 +47,43 @@ async def close_queue() -> None:
         _pool = None
 
 
-async def enqueue_quiz_insights(submission_id: UUID) -> str | None:
-    """Returns None if Redis is unreachable — callers must treat that as
-    'job not queued' (503)."""
+async def _enqueue(name: str, *args: Any) -> str | None:
+    """Returns None if the job could not be queued, for any reason.
+
+    get_queue() only guards the FIRST connect: `_pool` is cached for the
+    process lifetime, so a Redis restart (or an idle connection being dropped)
+    leaves a dead client behind and `enqueue_job` raises straight through the
+    caller — turning what should be a clean 503 into an unhandled 500. Catch it
+    and drop the pool so the next call reconnects."""
+    global _pool
     queue = await get_queue()
     if queue is None:
         return None
-    job: Any = await queue.enqueue_job("generate_quiz_insights", str(submission_id))
+    try:
+        job: Any = await queue.enqueue_job(name, *args)
+    except Exception as exc:  # noqa: BLE001 — any Redis fault means "not queued"
+        metrics.redis_failures_total.labels(source="queue.enqueue").inc()
+        logger.warning("queue.enqueue_failed", job=name, error=str(exc))
+        _pool = None
+        return None
     if job is None:
         return None
     return str(job.job_id)
+
+
+async def enqueue_quiz_insights(submission_id: UUID) -> str | None:
+    """Returns None if Redis is unreachable — callers must treat that as
+    'job not queued' (503)."""
+    return await _enqueue("generate_quiz_insights", str(submission_id))
 
 
 async def enqueue_community_push(community_slug: str, author_id: UUID, active_user_ids: set[UUID]) -> str | None:
     """Fire-and-forget after a chat message is persisted+published. Returns
     None if Redis is unreachable — the caller must never let that affect
     the sender's WS response, push is best-effort by design."""
-    queue = await get_queue()
-    if queue is None:
-        return None
-    job: Any = await queue.enqueue_job(
+    return await _enqueue(
         "send_community_push", community_slug, str(author_id), [str(u) for u in active_user_ids],
     )
-    if job is None:
-        return None
-    return str(job.job_id)
 
 
 async def _on_startup(ctx: dict[str, Any]) -> None:

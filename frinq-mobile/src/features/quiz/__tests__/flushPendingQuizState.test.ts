@@ -51,7 +51,12 @@ describe('flushPendingQuizState', () => {
 
     const repo = new QuizDraftRepository({ store, now: () => 1 });
     const draft = repo.load(USER);
-    expect(draft).toMatchObject({ submissionId: 'sub-1', userId: USER, lastRoute: 'city', answers: { name: 'Ada' } });
+    // A brand-new signup starts at the very FIRST step. This previously
+    // asserted 'city', which was the symptom of a real bug: the old
+    // `nextStep('name')` lookup could never resolve ('name' isn't a quiz
+    // step) so it always fell through to the 'city' fallback, skipping the
+    // welcome/gender/pronoun screens entirely.
+    expect(draft).toMatchObject({ submissionId: 'sub-1', userId: USER, lastRoute: 'welcome', answers: { name: 'Ada' } });
     expect(mockStartQuiz).not.toHaveBeenCalled(); // submissionId already known, no fallback needed
     expect(mockClear).toHaveBeenCalled();
   });
