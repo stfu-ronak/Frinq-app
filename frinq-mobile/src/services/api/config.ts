@@ -26,7 +26,7 @@ const DEV_BASE_URL = 'http://localhost:8000';
  * AndroidManifest.xml. Leaving this pointed at a host that doesn't exist is
  * why a release APK installs fine and then fails on the first request.
  */
-const PROD_BASE_URL = 'https://api.frinq.in';
+const PROD_BASE_URL = 'https://frinq-testing-app-4av6b.ondigitalocean.app';
 
 export const API_BASE_URL = __DEV__ ? DEV_BASE_URL : PROD_BASE_URL;
 
