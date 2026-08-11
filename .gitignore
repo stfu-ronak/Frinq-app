@@ -54,3 +54,9 @@ frinq-mobile/**/*.keystore
 
 # Local git worktrees (superpowers:using-git-worktrees)
 .worktrees/
+
+# Local reference screenshots — kept on disk, not in the repo.
+Current/
+
+# Local build/run logs
+*.log
