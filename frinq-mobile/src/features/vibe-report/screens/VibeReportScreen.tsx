@@ -24,8 +24,10 @@ import { PrimaryButton } from '../../../design/components/PrimaryButton';
 import { BootSplash } from '../../../navigation/placeholders';
 
 const ENTER_EASING = Easing.bezier(0.22, 1, 0.36, 1);
-/** Spacing of the background's vertical rules (design: 16-20px). */
-const GRID_GAP = 18;
+/** Spacing of the background's vertical rules. 25, measured off the Figma
+ *  frame (node 518:239): Line 41..57 sit at x = 1, 26, 51 ... 401 on a 402-wide
+ *  canvas. */
+const GRID_GAP = 25;
 
 /** The four quick-read cards that follow the lead "your type" card, in order.
  *  Labels are the exact Page-2 design copy. */

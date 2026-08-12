@@ -83,6 +83,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     textAlign: 'center',
     textAlignVertical: 'center',
+    // Same empty-field caret-placement bug as every other centered TextInput
+    // in the app (see NameScreen's input style) — a single digit box is the
+    // smallest possible field to show it on.
+    writingDirection: 'ltr',
     // Vertical centring in a fixed-height box needs all three of these. An
     // explicit lineHeight (typeScale.title's 34 in a 49px box) and Android's
     // default font padding both bias the glyph upward, and the old

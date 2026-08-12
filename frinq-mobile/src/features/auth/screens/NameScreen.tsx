@@ -113,7 +113,12 @@ const styles = StyleSheet.create({
   inputWrap: { width: '100%', marginTop: 64 },
   // 17, not 14: at the old size the name the user was typing was hard to read
   // in a full-width centred field. lineHeight tracks it so the box doesn't clip.
-  input: { width: '100%', minHeight: touchTarget.preferred, borderBottomWidth: 1, borderBottomColor: color.border.subtle, fontFamily: 'VastagoGrotesk-Regular', fontSize: 17, lineHeight: 25, color: color.text.primary, textAlign: 'center', textAlignVertical: 'center' },
+  // writingDirection: 'ltr' is load-bearing, not decorative: Android's
+  // EditText computes an EMPTY field's blinking caret x-position from the
+  // resolved layout direction, and with only textAlign: 'center' set it can
+  // pin the caret to the field's right edge instead of the true centre —
+  // visible the instant the field is focused, before any text is typed.
+  input: { width: '100%', minHeight: touchTarget.preferred, borderBottomWidth: 1, borderBottomColor: color.border.subtle, fontFamily: 'VastagoGrotesk-Regular', fontSize: 17, lineHeight: 25, color: color.text.primary, textAlign: 'center', textAlignVertical: 'center', writingDirection: 'ltr' },
   inputError: { borderBottomColor: color.state.error },
   errorSlot: { height: 24, justifyContent: 'center' },
   errorText: { textAlign: 'center' },

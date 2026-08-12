@@ -303,9 +303,11 @@ const styles = StyleSheet.create({
   selectedChoice: { backgroundColor: color.brand.maroon },
   choiceLabel: { textAlign: 'center', fontSize: 16, lineHeight: 24, color: '#7E3024' },
   selectedChoiceLabel: { color: color.brand.cream },
-  underlineInput: { width: '100%', minHeight: touchTarget.preferred, marginTop: spacing.xxxl, borderBottomWidth: 1, borderBottomColor: color.border.subtle, textAlign: 'center', fontFamily: 'VastagoGrotesk-Regular', fontSize: 21, lineHeight: 31, color: color.text.primary, paddingBottom: 8 },
+  // writingDirection pins the empty-field caret to true centre — see NameScreen's
+  // input style for the full explanation of the Android bug this works around.
+  underlineInput: { width: '100%', minHeight: touchTarget.preferred, marginTop: spacing.xxxl, borderBottomWidth: 1, borderBottomColor: color.border.subtle, textAlign: 'center', fontFamily: 'VastagoGrotesk-Regular', fontSize: 21, lineHeight: 31, color: color.text.primary, paddingBottom: 8, writingDirection: 'ltr' },
   cityGrid: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 12, marginTop: spacing.xl },
-  birthdayInput: { width: 120, minHeight: 40, borderBottomWidth: 1, borderBottomColor: color.border.subtle, textAlign: 'center', fontFamily: 'VastagoGrotesk-Regular', fontSize: 26, lineHeight: 34, color: color.text.primary, paddingBottom: 4 },
+  birthdayInput: { width: 120, minHeight: 40, borderBottomWidth: 1, borderBottomColor: color.border.subtle, textAlign: 'center', fontFamily: 'VastagoGrotesk-Regular', fontSize: 26, lineHeight: 34, color: color.text.primary, paddingBottom: 4, writingDirection: 'ltr' },
   birthdayLabel: { fontSize: 14, marginTop: 4 },
   socialCopyTop: { textAlign: 'center', fontSize: 15, lineHeight: 22, marginTop: spacing.xl, maxWidth: 310 },
   socialCopyBottom: { textAlign: 'center', fontSize: 13, lineHeight: 18, marginTop: 40, maxWidth: 310 },

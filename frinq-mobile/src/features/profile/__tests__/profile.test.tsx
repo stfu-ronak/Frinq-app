@@ -6,6 +6,11 @@ import { ProfileScreen } from '../screens/ProfileScreen';
 import { EditProfileScreen } from '../screens/EditProfileScreen';
 import { ApiError } from '../../../services/api/apiError';
 
+const mockResetForTesting = jest.fn();
+jest.mock('../../settings/resetForTestingService', () => ({
+  resetForTesting: (...args: unknown[]) => mockResetForTesting(...args),
+}));
+
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
 jest.mock('@react-navigation/native', () => ({
@@ -72,6 +77,29 @@ describe('ProfileScreen', () => {
 
     fireEvent.press(await findByLabelText('view your full vibe report'));
     expect(mockNavigate).toHaveBeenCalledWith('VibeReport');
+  });
+
+  it('resets the test account and shows no error when the server accepts it', async () => {
+    const coordinator = {} as any;
+    mockUseSession.mockReturnValue({ apiClient: { request: jest.fn().mockResolvedValue(USER) }, coordinator });
+    mockResetForTesting.mockResolvedValue(true);
+    const { findByLabelText, queryByText } = renderWithClient(<ProfileScreen />);
+
+    fireEvent.press(await findByLabelText('reset test account'));
+
+    await waitFor(() => expect(mockResetForTesting).toHaveBeenCalledTimes(1));
+    expect(mockResetForTesting.mock.calls[0][1]).toBe(coordinator); // coordinator forwarded, not swallowed
+    expect(queryByText("this account can't be reset.")).toBeNull();
+  });
+
+  it("shows a denial message rather than silently doing nothing when the server refuses the reset", async () => {
+    mockUseSession.mockReturnValue({ apiClient: { request: jest.fn().mockResolvedValue(USER) }, coordinator: {} });
+    mockResetForTesting.mockResolvedValue(false);
+    const { findByLabelText, findByText } = renderWithClient(<ProfileScreen />);
+
+    fireEvent.press(await findByLabelText('reset test account'));
+
+    expect(await findByText("this account can't be reset.")).toBeTruthy();
   });
 
   it('shows a retryable error on fetch failure', async () => {

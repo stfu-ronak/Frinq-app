@@ -4,14 +4,16 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.api.deps import CurrentAccount, get_current_account, get_pool
+from app.config import settings
 from app.core import metrics
 from app.core.realtime import publish_ban_event
 from app.core.redis_client import get_redis
 from app.core.reverify import ACCOUNT_DELETE_ACTION, ReauthTokenError, consume_reauth_token
 from app.core.session import revoke_all_sessions
+from app.core.test_fixtures import is_test_phone, reset_test_account
 from app.schemas.user import DeleteAccountRequest, UserDeleteResponse, UserPatchRequest, UserResponse
 from app.utils.logger import logger
 
@@ -143,3 +145,38 @@ async def delete_me(
         former_user_id=str(account.id), completed_at=deleted_at.isoformat(),
     )
     return UserDeleteResponse(id=account.id, deleted_at=deleted_at)
+
+
+@router.post("/me/reset-for-testing", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+async def reset_me_for_testing(
+    account: CurrentAccount = Depends(get_current_account),
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> Response:
+    """One-tap wipe for a TEST_PHONES account — no reauth token, no typed
+    confirmation. Intentionally NOT the real DELETE /me: that flow exists so a
+    genuine user can't have their account removed by a stolen access token
+    alone, and this endpoint would defeat that protection for a real account.
+    It stays safe by construction rather than by only being reachable from a
+    hidden screen:
+
+      - 404s outright when APP_ENV=='production' (same fail-closed shape as
+        every other test-only affordance: SKIP_OTP_VERIFICATION, TEST_PHONES
+        itself, DEV_PHONE — all hard-ignored in prod regardless of value).
+      - 404s for any account whose phone isn't in the configured TEST_PHONES
+        list, so even a leaked build pointed at a real backend can only ever
+        wipe the handful of numbers an operator explicitly listed.
+
+    Reuses reset_test_account — the exact function OTP verify already runs
+    for TEST_RESET_PHONE — so "sign in again with 8000000001" and "tap Reset"
+    leave the account in the identical state.
+    """
+    if settings.APP_ENV == "production" or not is_test_phone(account.phone or ""):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await reset_test_account(conn, account.id)
+            await revoke_all_sessions(conn, account.id)
+
+    logger.info("users.reset_for_testing", user_id=str(account.id))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

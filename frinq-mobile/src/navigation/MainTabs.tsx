@@ -14,9 +14,10 @@ import { DeleteAccountScreen } from '../features/settings/screens/DeleteAccountS
 import { LegalDocumentScreen, LegalDocKey } from '../features/legal/screens/LegalDocumentScreen';
 import { LegalHubScreen } from '../features/legal/screens/LegalHubScreen';
 import { SupportScreen } from '../features/legal/screens/SupportScreen';
-import { EventsScreen } from '../features/events/screens/EventsScreen';
 
 export type MainTabParamList = {
+  // Community and Events keep their route types — the screens still exist and
+  // are one line away from returning to the bar.
   Community: undefined;
   Events: undefined;
   Profile: undefined;
@@ -62,20 +63,24 @@ function ProfileNavigator() {
   );
 }
 
-/** Two bottom tabs: Events, Profile. Settings is reached via a gear icon on
- *  Profile, not a tab of its own (2026-07-27 design spec). The Community tab
- *  is hidden pending the AI Matchmaker feature that replaces it — the screen
- *  and its route stay fully intact, just unmounted from the tab bar. */
+/** Profile only, for now. Community was already hidden pending AI Matchmaker;
+ *  Events is now hidden too — it has no real content to show yet, and an empty
+ *  "no events yet" tab is worse than no tab. Both screens and their routes stay
+ *  fully intact, just unmounted from the tab bar, so restoring either is a
+ *  one-line change here.
+ *
+ *  With a single tab the bar itself is hidden: a one-item tab bar is dead
+ *  chrome that costs vertical space and tells the reader nothing. */
 export function MainTabs() {
   return (
     <Tabs.Navigator
       screenOptions={{
         headerShown: false,
+        tabBarStyle: { display: 'none' },
         tabBarActiveTintColor: color.state.selected,
         tabBarInactiveTintColor: color.text.secondary,
       }}
     >
-      <Tabs.Screen name="Events" component={EventsScreen} />
       <Tabs.Screen name="Profile" component={ProfileNavigator} />
     </Tabs.Navigator>
   );

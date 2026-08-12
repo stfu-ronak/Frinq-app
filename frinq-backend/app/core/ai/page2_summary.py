@@ -253,13 +253,14 @@ async def _run_page2_pipeline(
     safety_id = hashlib.sha256((submission_id or "preview").encode()).hexdigest()[:32]
 
     stage1 = await _call_structured(
-        provider=provider, model_id=model_id, effort=effort,
+        provider=provider, model_id=model_id, effort=_STAGE1_REASONING_EFFORT,
         system=STAGE1_SYSTEM, user=STAGE1_USER.replace("{{ANONYMIZED_ANSWERS_JSON}}", json.dumps(source)),
-        schema_name="frinq_page2_evidence_v1", schema=STAGE1_SCHEMA, max_output_tokens=5200,
+        schema_name="frinq_page2_evidence_v1", schema=STAGE1_SCHEMA, max_output_tokens=_STAGE1_BASE_TOKENS,
         safety_id=safety_id, usage_recorder=usage_recorder,
     )
     stage1_errors = validate_stage1(stage1, source)
     if stage1_errors:
+        logger.warning("page2.stage1_invalid", errors=stage1_errors)
         raise ValueError("Page 2 evidence validation failed: " + "; ".join(stage1_errors))
 
     taxonomy = rotated_taxonomy(submission_id)
@@ -269,11 +270,18 @@ async def _run_page2_pipeline(
     stage2 = await _call_structured(
         provider=provider, model_id=model_id, effort=effort,
         system=STAGE2_SYSTEM, user=user,
-        schema_name="frinq_page2_result_v1", schema=STAGE2_SCHEMA, max_output_tokens=7200,
+        schema_name="frinq_page2_result_v1", schema=STAGE2_SCHEMA, max_output_tokens=_STAGE2_BASE_TOKENS,
         safety_id=safety_id, usage_recorder=usage_recorder,
     )
     errors = validate_stage2(stage2, stage1)
-    for _ in range(2):
+    if errors:
+        # Each repair is another full 7200-token generation — the single
+        # biggest slice of end-to-end latency. Log WHICH rule failed so the
+        # prompt can be fixed instead of paying for retries forever; before
+        # this, a repair that eventually succeeded discarded the reason
+        # entirely and every run looked equally slow for no visible cause.
+        logger.warning("page2.stage2_invalid", attempt=1, errors=errors)
+    for attempt in range(_STAGE2_MAX_REPAIRS - 1):
         if not errors:
             break
         repair = (
@@ -285,10 +293,15 @@ async def _run_page2_pipeline(
         stage2 = await _call_structured(
             provider=provider, model_id=model_id, effort=effort,
             system=STAGE2_SYSTEM, user=repair,
-            schema_name="frinq_page2_result_v1", schema=STAGE2_SCHEMA, max_output_tokens=7200,
+            schema_name="frinq_page2_result_v1", schema=STAGE2_SCHEMA,
+            max_output_tokens=_STAGE2_BASE_TOKENS + 1500 * (attempt + 1),
             safety_id=safety_id, usage_recorder=usage_recorder,
         )
         errors = validate_stage2(stage2, stage1)
+        if errors:
+            logger.warning("page2.stage2_invalid", attempt=attempt + 2, errors=errors)
+        else:
+            logger.info("page2.stage2_repaired", attempts=attempt + 2)
     if errors:
         raise ValueError("Page 2 report validation failed: " + "; ".join(errors))
     return {"report": stage2["report"], "selection": stage2["selection"], "evidenceMap": stage2["evidenceMap"], "qa": stage2["qa"], "promptVersion": PAGE2_PROMPT_VERSION}
@@ -344,9 +357,18 @@ async def generate_page2_summary(
     )
     effort = (model_config or {}).get("effort") or PAGE2_REASONING_EFFORT
 
-    stage2_result = await _run_page2_pipeline(
-        answers, submission_id, transcripts,
-        provider=provider, model_id=model_id, effort=effort, usage_recorder=usage_recorder,
+    # Hard ceiling on the whole two-stage run. Each provider call already has
+    # its own 180s timeout, but nothing bounded stage1 + stage2 + repairs in
+    # aggregate — a submission that kept just missing validation could hold a
+    # provider semaphore slot (and therefore block every other concurrent
+    # submission) far longer than any single call limit implies. The caller
+    # treats a timeout like any other failure, so the fallback route still runs.
+    stage2_result = await asyncio.wait_for(
+        _run_page2_pipeline(
+            answers, submission_id, transcripts,
+            provider=provider, model_id=model_id, effort=effort, usage_recorder=usage_recorder,
+        ),
+        timeout=_OVERALL_DEADLINE,
     )
     return _to_db_shape(stage2_result)
 

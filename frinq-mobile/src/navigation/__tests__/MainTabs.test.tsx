@@ -68,43 +68,36 @@ beforeEach(() => {
 });
 
 describe('MainTabs', () => {
-  it('starts on the Events tab', async () => {
-    const { findByRole } = renderTabs();
-    expect(await findByRole('button', { name: 'Events' })).toHaveProperty(
-      'props.accessibilityState.selected',
-      true,
-    );
+  it('opens straight onto Profile — Events and Community are unmounted from the bar', async () => {
+    const { findByText, queryByRole } = renderTabs();
+
+    expect(await findByText('Ada')).toBeTruthy(); // real ProfileScreen content
+    expect(queryByRole('button', { name: 'Events' })).toBeNull();
+    expect(queryByRole('button', { name: 'Community' })).toBeNull();
   });
 
-  it('switches to Profile, and reaches Settings via the gear icon (no Settings tab)', async () => {
-    const { getByRole, findByRole, findByText, findByLabelText, queryByRole } = renderTabs();
-    await findByRole('button', { name: 'Events' });
+  it('hides the tab bar entirely rather than showing a one-item bar', async () => {
+    const { findByText, queryByRole } = renderTabs();
+    await findByText('Ada');
 
-    fireEvent.press(getByRole('button', { name: 'Profile' }));
-    expect(await findByText('Ada')).toBeTruthy(); // real ProfileScreen content
-    expect(queryByRole('button', { name: 'Settings' })).toBeNull(); // no 3rd tab
+    // With a single destination there is nothing to switch between, so no tab
+    // button should be rendered at all — a lone tab is dead chrome.
+    expect(queryByRole('button', { name: 'Profile' })).toBeNull();
+  });
+
+  it('reaches Settings from Profile (no Settings tab)', async () => {
+    const { findByText, findByLabelText, queryByRole } = renderTabs();
+    await findByText('Ada');
+    expect(queryByRole('button', { name: 'Settings' })).toBeNull();
 
     fireEvent.press(await findByLabelText('settings'));
     expect(await findByText('settings')).toBeTruthy(); // real SettingsScreen content
   });
 
-  it('marks exactly the active tab as selected via accessibilityState — never color alone', async () => {
-    const { findByRole, getByRole } = renderTabs();
-    await findByRole('button', { name: 'Events' });
-
-    expect(getByRole('button', { name: 'Events' }).props.accessibilityState).toMatchObject({ selected: true });
-    expect(getByRole('button', { name: 'Profile' }).props.accessibilityState).toMatchObject({ selected: false });
-
-    fireEvent.press(getByRole('button', { name: 'Profile' }));
-    expect(getByRole('button', { name: 'Events' }).props.accessibilityState).toMatchObject({ selected: false });
-    expect(getByRole('button', { name: 'Profile' }).props.accessibilityState).toMatchObject({ selected: true });
-  });
-
   it('navigates from Settings through the Legal hub into a LegalDocument route with the right doc param', async () => {
-    const { findByRole, getByRole, findByLabelText, findByText } = renderTabs();
-    await findByRole('button', { name: 'Events' });
+    const { findByLabelText, findByText } = renderTabs();
+    await findByText('Ada');
 
-    fireEvent.press(getByRole('button', { name: 'Profile' }));
     fireEvent.press(await findByLabelText('settings'));
     fireEvent.press(await findByLabelText('legal'));
     fireEvent.press(await findByLabelText('view Frinq Squad Rules in app'));
