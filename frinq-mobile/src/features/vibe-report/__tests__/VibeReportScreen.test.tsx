@@ -129,11 +129,15 @@ describe('VibeReportScreen', () => {
 
     fireEvent.press(await findByRole('button', { name: /open your friend read/i }));
 
-    // Lead card + the legacy-mapped portrait paragraphs.
-    // Displayed title-cased, like the web card's text-transform: capitalize.
-    expect(await findByText('The Soft Anchor')).toBeTruthy();
+    // Hero plaque + the legacy-mapped portrait paragraphs. "You carry more
+    // than you show." (hidden_pattern) is deliberately reused in BOTH the
+    // deck's "connect" quick-row and this portrait paragraph by the legacy
+    // mapping (summaryPageData.ts), so it now renders twice once the deck
+    // shows enough depth to include that card — asserting on `narrative[0]`
+    // instead, which the legacy mapping only ever places in the portrait.
+    expect(await findByText('the soft anchor')).toBeTruthy();
     expect(await findByText(/the bigger picture/i)).toBeTruthy();
-    expect(await findByText('You carry more than you show.')).toBeTruthy();
+    expect(await findByText('You show up before anyone asks.')).toBeTruthy();
   });
 
   it('still renders a usable read when deep_summary is missing entirely', async () => {
@@ -144,7 +148,7 @@ describe('VibeReportScreen', () => {
 
     // Falls back to share_card copy for the type definition.
     // Displayed title-cased, like the web card's text-transform: capitalize.
-    expect(await findByText('The Soft Anchor')).toBeTruthy();
+    expect(await findByText('the soft anchor')).toBeTruthy();
     expect(queryByText('Steady wins.')).toBeNull();
   });
 
@@ -191,18 +195,25 @@ describe('VibeReportScreen', () => {
     expect(await findByRole('alert')).toBeTruthy();
   });
 
-  it('shares the visible card via shareVibeCard, captioned with that card', async () => {
+  it('shares the visible quick-read card via shareVibeCard, captioned with that card', async () => {
+    // The lead "your type" card (Figma's static hero plaque) isn't in the
+    // swipeable deck any more — it never had a share affordance in the
+    // design, only the four quick-read cards below "what stands out about
+    // you" do. This shares the first of those instead.
     mockShareVibeCard.mockResolvedValue({ status: 'shared' });
     mockUseSession.mockReturnValue({ apiClient: mockApiClient(fullReport()) });
 
     const { findByRole } = renderScreen();
     fireEvent.press(await findByRole('button', { name: /open your friend read/i }));
 
-    fireEvent.press(await findByRole('button', { name: /share this card: your type/i }));
+    fireEvent.press(await findByRole('button', { name: /share this card: what you bring to the table/i }));
 
-    // shareCaption prefers share_quote, and the type name is the deck's title.
     await waitFor(() =>
-      expect(mockShareVibeCard).toHaveBeenCalledWith(expect.anything(), 'the soft anchor', 'the one everyone trusts'),
+      expect(mockShareVibeCard).toHaveBeenCalledWith(
+        expect.anything(),
+        'the soft anchor',
+        'my frinq type is the soft anchor. People relax around you.',
+      ),
     );
   });
 });

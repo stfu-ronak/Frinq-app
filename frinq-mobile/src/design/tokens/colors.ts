@@ -44,7 +44,10 @@ export const palette = {
   summarySheen: '#7C1C0B', // radial highlight over the card body
   summaryDotIdle: 'rgba(98,20,7,0.25)', // inactive deck pagination dot
   summaryQuoteWash: 'rgba(98,20,7,0.05)', // tint behind the pull-quote block
-  summarySealRed: '#86201B', // wax seal fill
+  summarySealRed: '#86201B', // wax seal fill; also the hero card body + pull-quote text (Figma node 518:239)
+  summaryHeroFrame: '#FFFFD9', // pale-yellow frame around the lead hero card
+  summaryQuoteBoxBg: '#FFF4F3', // solid pale-pink box behind the pull-quote (Figma Rectangle 204)
+  summaryFieldNoteGray: '#737373', // masthead "friend field note no. NNN" caption
   envelopePaper: '#E6E0D5', // envelope side flaps
   envelopePaperDeep: '#D9D0C2', // envelope bottom flap (darkest crease)
   envelopePaperLight: '#FBF9F5', // top flap highlight
@@ -113,6 +116,9 @@ export const color = {
     dotIdle: palette.summaryDotIdle,
     quoteWash: palette.summaryQuoteWash,
     sealRed: palette.summarySealRed,
+    heroFrame: palette.summaryHeroFrame,
+    quoteBoxBg: palette.summaryQuoteBoxBg,
+    fieldNoteGray: palette.summaryFieldNoteGray,
     envelopePaper: palette.envelopePaper,
     envelopePaperDeep: palette.envelopePaperDeep,
     envelopePaperLight: palette.envelopePaperLight,

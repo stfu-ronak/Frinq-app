@@ -19,6 +19,7 @@ import { loadVibeReport } from '../vibeReportService';
 import { toSummaryPageData } from '../summaryPageData';
 import { shareVibeCard } from '../shareVibeCard';
 import { SummaryCardStack, SummaryCard } from '../components/SummaryCardStack';
+import { SummaryHeroCard } from '../components/SummaryHeroCard';
 import { SummaryEnvelopeFlow } from '../components/SummaryEnvelopeFlow';
 import { PrimaryButton } from '../../../design/components/PrimaryButton';
 import { BootSplash } from '../../../navigation/placeholders';
@@ -40,6 +41,17 @@ const QUICK_ROWS = [
 
 function capitalize(text: string): string {
   return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : text;
+}
+
+/** Figma's masthead reads "friend field note no. 077" — a stamped dispatch
+ *  number, not a real sequence we track anywhere. Deriving a stable 3-digit
+ *  value from the submission id keeps the same read always showing the same
+ *  number (so it doesn't look like a bug that reopening it changed) without
+ *  inventing a counter this app has no reason to maintain. */
+function fieldNoteNumber(submissionId: string): string {
+  let hash = 0;
+  for (let i = 0; i < submissionId.length; i++) hash = (hash * 31 + submissionId.charCodeAt(i)) >>> 0;
+  return String((hash % 999) + 1).padStart(3, '0');
 }
 
 /**
@@ -128,17 +140,22 @@ export function VibeReportScreen({ onContinue }: VibeReportScreenProps = {}) {
     [query.data],
   );
 
+  // The hero card (Figma node 518:362) is its own static plaque, not the
+  // first page of the swipeable deck — see SummaryHeroCard's docstring. The
+  // deck itself now holds only the four quick-read cards below "what stands
+  // out about you".
+  const heroCard: SummaryCard | null = useMemo(
+    () => (data ? { key: 'type', label: 'your type', title: data.typeName, text: data.typeDefinition, shareCaption: data.shareCaption } : null),
+    [data],
+  );
   const cards: SummaryCard[] = useMemo(() => {
     if (!data) return [];
-    return [
-      { key: 'type', label: 'your type', title: data.typeName, text: data.typeDefinition, shareCaption: data.shareCaption },
-      ...QUICK_ROWS.map(({ key, label }) => ({
-        key,
-        label,
-        text: data.quickRows[key],
-        shareCaption: `my frinq type is ${data.typeName}. ${data.quickRows[key]}`,
-      })),
-    ];
+    return QUICK_ROWS.map(({ key, label }) => ({
+      key,
+      label,
+      text: data.quickRows[key],
+      shareCaption: `my frinq type is ${data.typeName}. ${data.quickRows[key]}`,
+    }));
   }, [data]);
 
   const handleShare = useCallback(
@@ -194,7 +211,7 @@ export function VibeReportScreen({ onContinue }: VibeReportScreenProps = {}) {
               {/* Masthead: wordmark left, field-note number right. */}
               <View style={styles.masthead}>
                 <BrandHeading variant="display" tone="brand" style={styles.wordmark}>frinq</BrandHeading>
-                <BodyText style={styles.fieldNote}>friend field note</BodyText>
+                <BodyText style={styles.fieldNote}>friend field note no. {fieldNoteNumber(submissionId ?? '')}</BodyText>
               </View>
               {/* Lowercase throughout — the design's editorial voice. */}
               <BrandHeading variant="display" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={styles.greeting}>
@@ -204,6 +221,12 @@ export function VibeReportScreen({ onContinue }: VibeReportScreenProps = {}) {
                 here&apos;s your quick read.
               </BodyText>
             </Animated.View>
+
+            {!!heroCard && (
+              <Animated.View style={[styles.hero, headerStyle]}>
+                <SummaryHeroCard typeName={heroCard.title ?? ''} typeDefinition={heroCard.text} />
+              </Animated.View>
+            )}
 
             <Animated.View style={[styles.deck, deckStyle]}>
               <BrandHeading variant="display" tone="brand" numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.standsOut}>
@@ -221,10 +244,7 @@ export function VibeReportScreen({ onContinue }: VibeReportScreenProps = {}) {
 
               <BodyText style={styles.sectionLabel}>the bigger picture</BodyText>
               {data.portrait.map((paragraph, i) => (
-                <View key={i}>
-                  {i > 0 && <View style={styles.paragraphRule} />}
-                  <BodyText style={styles.paragraph}>{capitalize(paragraph)}</BodyText>
-                </View>
+                <BodyText key={i} style={styles.paragraph}>{capitalize(paragraph)}</BodyText>
               ))}
               {/* Closing block, mirroring the web's "the next step" card —
                   minus its "reserve a seat … your details are already filled
@@ -233,17 +253,18 @@ export function VibeReportScreen({ onContinue }: VibeReportScreenProps = {}) {
               <View style={styles.nextStep}>
                 <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
                   <Defs>
-                    <LinearGradient id="nextStep" x1="0" y1="0" x2="0.5" y2="1">
-                      <Stop offset="0" stopColor={color.summary.nextStepTop} />
-                      <Stop offset="0.55" stopColor={color.summary.nextStepMid} />
-                      <Stop offset="1" stopColor={color.summary.nextStepBottom} />
+                    <LinearGradient id="nextStep" x1="0" y1="0" x2="0" y2="1">
+                      <Stop offset="0" stopColor={color.summary.nextStepTop} stopOpacity={0} />
+                      <Stop offset="0.635" stopColor={color.summary.nextStepBottom} stopOpacity={1} />
+                      <Stop offset="1" stopColor={color.summary.nextStepBottom} stopOpacity={1} />
                     </LinearGradient>
                   </Defs>
                   <Rect x="0" y="0" width="100%" height="100%" fill="url(#nextStep)" />
                 </Svg>
                 <BodyText style={styles.nextStepEyebrow}>THE NEXT STEP</BodyText>
-                <BrandHeading variant="title" numberOfLines={3} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.nextStepTitle}>
-                  want to meet people this actually fits?
+                <BrandHeading variant="title" numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.nextStepTitle}>
+                  want to meet people{`
+`}this actually fits?
                 </BrandHeading>
                 {!!onContinue && (
                   <PrimaryButton label="Continue" onPress={onContinue} variant="secondary" style={styles.continueButton} />
@@ -259,7 +280,7 @@ export function VibeReportScreen({ onContinue }: VibeReportScreenProps = {}) {
         <View style={styles.envelopeOverlay}>
           <SummaryEnvelopeFlow
             firstName={data.firstName}
-            cards={cards}
+            cards={heroCard ? [heroCard, ...cards] : cards}
             onRevealStart={() => setReportMounted(true)}
             onRevealComplete={() => setEnvelopeVisible(false)}
           />
@@ -288,22 +309,27 @@ const styles = StyleSheet.create({
   wordmark: { fontSize: 22, lineHeight: 34 },
   fieldNote: { fontFamily: fontFamily.bodyLight, fontSize: 11, letterSpacing: 0.4, color: color.text.muted },
   standsOut: { fontSize: 24, lineHeight: 34, textAlign: 'center', marginBottom: spacing.xl },
-  // lineHeight 38 under a 34px Borel cut the ascenders and the comma's tail.
-  greeting: { marginTop: spacing.sm, fontSize: 34, lineHeight: 50 },
-  subcopy: { marginTop: spacing.xs },
+  // lineHeight well above fontSize — Borel's ascenders/descenders clip
+  // otherwise. 36/54 matches the Figma greeting exactly (36px, #621407).
+  greeting: { marginTop: spacing.sm, fontSize: 36, lineHeight: 54 },
+  // Figma's second line is a lighter brown (#725f55, tone="secondary" already
+  // resolves close to that), 16px.
+  subcopy: { marginTop: spacing.xs, fontSize: 16 },
+  hero: { marginTop: spacing.xxl },
   deck: { marginTop: spacing.xxxl, marginBottom: spacing.xxxl },
+  // Figma (562:2217/562:2219): a plain rounded box, solid pale pink, no rule —
+  // the previous left-border/wash treatment wasn't in the design.
   pullQuote: {
     marginTop: spacing.lg,
+    borderRadius: radius.md,
     paddingVertical: spacing.lg,
     paddingHorizontal: spacing.xl,
-    borderLeftWidth: 4,
-    borderLeftColor: color.brand.maroon,
-    borderTopRightRadius: radius.md,
-    borderBottomRightRadius: radius.md,
-    backgroundColor: color.summary.quoteWash,
+    backgroundColor: color.summary.quoteBoxBg,
   },
-  pullQuoteText: { fontFamily: fontFamily.display, fontSize: 20, lineHeight: 30, color: color.brand.maroon },
-  sectionLabel: { marginTop: spacing.xxl, fontFamily: fontFamily.bodyMedium, fontSize: 12, letterSpacing: 1, color: color.text.secondary },
-  paragraphRule: { width: 28, height: 1, marginVertical: spacing.lg, backgroundColor: color.border.subtle },
-  paragraph: { marginTop: spacing.md, fontSize: 15, lineHeight: 26, color: color.text.primary },
+  pullQuoteText: { fontFamily: fontFamily.bodyMedium, fontSize: 22, lineHeight: 30, color: color.summary.sealRed },
+  // Figma: Motive (our Borel display face), #86201b, 13px — bumped to 15 for
+  // real-device legibility; the reference's 13px is measured off a design
+  // canvas, not a floor for actual body type.
+  sectionLabel: { marginTop: spacing.xxl, fontFamily: fontFamily.display, fontSize: 15, color: color.summary.sealRed },
+  paragraph: { marginTop: spacing.md, fontSize: 15, lineHeight: 24, color: color.text.primary },
 });
