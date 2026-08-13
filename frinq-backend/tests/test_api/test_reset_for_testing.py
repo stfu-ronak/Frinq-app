@@ -56,15 +56,46 @@ async def test_404s_for_an_account_whose_phone_is_not_a_test_phone(
     assert resp.status_code == 404
 
 
-async def test_404s_in_production_even_for_a_configured_test_phone(
+async def test_404s_in_production_without_the_explicit_test_otp_flag(
     client: AsyncClient, current_account, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     current_account.phone = TEST_RESET_PHONE
     monkeypatch.setattr(settings, "APP_ENV", "production")
+    monkeypatch.setattr(settings, "ALLOW_TEST_OTP_IN_PROD", False)
 
     resp = await client.post("/api/v1/users/me/reset-for-testing")
 
     assert resp.status_code == 404
+
+
+async def test_works_in_production_when_the_operator_explicitly_allows_it(
+    client: AsyncClient, current_account, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: a tester clearing local app storage and signing back in
+    against the deployed review app must land on a genuinely fresh quiz, not
+    wherever the account was left server-side. Reset now rides the SAME
+    operator-flipped flag that already has to be on for DEV_PHONE to log in
+    at all against a production-flagged deploy — so once that flag is set for
+    manual testing, this endpoint (and the OTP-verify auto-reset) work too,
+    with no separate switch to remember."""
+    current_account.phone = TEST_RESET_PHONE
+    monkeypatch.setattr(settings, "APP_ENV", "production")
+    monkeypatch.setattr(settings, "ALLOW_TEST_OTP_IN_PROD", True)
+    called: dict[str, Any] = {}
+
+    async def _fake_reset(conn: Any, user_id: Any) -> None:
+        called["reset_user_id"] = user_id
+
+    async def _fake_revoke(conn: Any, user_id: Any) -> None:
+        called["revoked_user_id"] = user_id
+
+    monkeypatch.setattr("app.api.v1.users.reset_test_account", _fake_reset)
+    monkeypatch.setattr("app.api.v1.users.revoke_all_sessions", _fake_revoke)
+
+    resp = await client.post("/api/v1/users/me/reset-for-testing")
+
+    assert resp.status_code == 204
+    assert called["reset_user_id"] == current_account.id
 
 
 async def test_requires_authentication(fake_pool) -> None:

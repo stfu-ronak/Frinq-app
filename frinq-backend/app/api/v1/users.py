@@ -7,13 +7,12 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.api.deps import CurrentAccount, get_current_account, get_pool
-from app.config import settings
 from app.core import metrics
 from app.core.realtime import publish_ban_event
 from app.core.redis_client import get_redis
 from app.core.reverify import ACCOUNT_DELETE_ACTION, ReauthTokenError, consume_reauth_token
 from app.core.session import revoke_all_sessions
-from app.core.test_fixtures import is_test_phone, reset_test_account
+from app.core.test_fixtures import account_reset_allowed_in_env, is_test_phone, reset_test_account
 from app.schemas.user import DeleteAccountRequest, UserDeleteResponse, UserPatchRequest, UserResponse
 from app.utils.logger import logger
 
@@ -159,9 +158,11 @@ async def reset_me_for_testing(
     It stays safe by construction rather than by only being reachable from a
     hidden screen:
 
-      - 404s outright when APP_ENV=='production' (same fail-closed shape as
-        every other test-only affordance: SKIP_OTP_VERIFICATION, TEST_PHONES
-        itself, DEV_PHONE — all hard-ignored in prod regardless of value).
+      - 404s in production UNLESS ALLOW_TEST_OTP_IN_PROD is explicitly on —
+        the same operator-flipped switch that is already required to log in
+        as DEV_PHONE at all against a production-flagged deploy. Without that
+        flag this 404s outright, same fail-closed shape as every other
+        test-only affordance (SKIP_OTP_VERIFICATION, TEST_PHONES itself).
       - 404s for any account whose phone isn't in the configured TEST_PHONES
         list, so even a leaked build pointed at a real backend can only ever
         wipe the handful of numbers an operator explicitly listed.
@@ -170,7 +171,7 @@ async def reset_me_for_testing(
     for TEST_RESET_PHONE — so "sign in again with 8000000001" and "tap Reset"
     leave the account in the identical state.
     """
-    if settings.APP_ENV == "production" or not is_test_phone(account.phone or ""):
+    if not account_reset_allowed_in_env() or not is_test_phone(account.phone or ""):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
 
     async with pool.acquire() as conn:

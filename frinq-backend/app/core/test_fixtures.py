@@ -30,6 +30,22 @@ def is_test_phone(phone: str) -> bool:
     return test_phone_role(phone) is not None
 
 
+def account_reset_allowed_in_env() -> bool:
+    """Whether a test-phone account reset (one-tap or auto-on-login) may run
+    at all in the current environment.
+
+    Same boundary as the DEV_PHONE/DUMMY_OTP login bypass
+    (`app.core.otp._dev_bypass_allowed`) and deliberately reuses its flag: a
+    reviewer running manual passes against the deployed review app already
+    needs ALLOW_TEST_OTP_IN_PROD on to log in as DEV_PHONE at all, so tying
+    reset to the same toggle means one flag governs "test accounts are live
+    here" rather than two independent switches that could drift apart. Both
+    callers additionally require the phone to resolve to a real configured
+    test-phone role — this only widens WHEN resets can run, never WHO they
+    can run for."""
+    return settings.APP_ENV != "production" or settings.ALLOW_TEST_OTP_IN_PROD
+
+
 def _configured_test_phones() -> set[str]:
     configured = {p.strip() for p in settings.TEST_PHONES.split(",") if p.strip()}
     return configured or set(_ROLES)

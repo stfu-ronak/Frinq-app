@@ -22,7 +22,7 @@ from app.core.otp import otp_bypass_active, send_otp, verify_otp
 from app.core.rate_limit import RateLimitUnavailable, check_rate_limit, hash_identifier
 from app.core.redis_client import get_redis
 from app.core.session import TokenPair, create_session
-from app.core.test_fixtures import reset_test_account, test_phone_role
+from app.core.test_fixtures import account_reset_allowed_in_env, reset_test_account, test_phone_role
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/otp", tags=["otp"])
@@ -277,7 +277,15 @@ async def verify_otp_route(
                 data["id"], digits,
             )
 
-            if settings.APP_ENV != "production" and test_phone_role(digits) == "reset":
+            # Lets a tester clear the app's local cache, sign back in as the
+            # reset test phone, and land on a genuinely fresh quiz every
+            # time — including against the deployed review app, where
+            # ALLOW_TEST_OTP_IN_PROD is what makes this phone loggable in at
+            # all. Without this the account just resumed wherever the SERVER
+            # left it (done/error/mid-quiz), since clearing local storage
+            # only wipes the DEVICE's copy of that state, never the account
+            # row itself.
+            if account_reset_allowed_in_env() and test_phone_role(digits) == "reset":
                 await reset_test_account(conn, data["id"])
                 user_row = await conn.fetchrow("SELECT * FROM users WHERE id = $1 FOR UPDATE", data["id"])
                 if user_row is None:
