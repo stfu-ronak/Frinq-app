@@ -7,6 +7,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.config import settings
+from app.workers.tasks.quiz_insights import STALE_PROCESSING_AFTER_S
 from tests.conftest import FakePool
 
 _ADMIN_HEADERS = {
@@ -63,13 +64,50 @@ async def test_retry_ai_rejects_submission_with_no_owning_account(
 async def test_retry_ai_rejects_already_processing(
     client: AsyncClient, fake_pool: FakePool
 ) -> None:
-    fake_pool.store.fetchrow_handler = lambda query, args: {"user_id": uuid4(), "status": "processing"}
+    # updated_age_s small => genuinely in flight, so the retry must refuse.
+    # (A stale row is covered by the companion test below.)
+    fake_pool.store.fetchrow_handler = lambda query, args: {
+        "user_id": uuid4(), "status": "processing", "updated_age_s": 5.0,
+    }
 
     resp = await client.post(
         f"/api/v1/admin/submissions/{uuid4()}/retry-ai", headers=_ADMIN_HEADERS
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["ok"] is False
+
+
+async def test_retry_ai_forces_a_stale_processing_row(
+    client: AsyncClient, fake_pool: FakePool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: a worker killed mid-job (OOM/deploy/ARQ job_timeout, which
+    cancels via BaseException) left the row at status='processing' forever.
+    /quiz/retry only accepted 'error' and this endpoint refused 'processing'
+    outright, so nothing could ever free it and the user's onboarding was
+    pinned to profile_processing permanently. Past the staleness window no
+    legitimate job can still be running, so the retry must go through."""
+    user_id = uuid4()
+    fake_pool.store.fetchrow_handler = lambda query, args: {
+        "user_id": user_id,
+        "status": "processing",
+        "updated_age_s": STALE_PROCESSING_AFTER_S + 60,
+    }
+
+    # Stub the enqueue like the other passing-path test above: the real one
+    # builds an ARQ Redis pool bound to this test's event loop, which then
+    # breaks the lifespan tests that run later in the session.
+    async def _fake_enqueue(submission_id: Any) -> str:
+        return f"job-{submission_id}"
+
+    monkeypatch.setattr("app.api.v1.admin.enqueue_quiz_insights", _fake_enqueue)
+
+    resp = await client.post(
+        f"/api/v1/admin/submissions/{uuid4()}/retry-ai", headers=_ADMIN_HEADERS
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json().get("ok") is not False, resp.text
+    queries = [q.strip() for q, _ in fake_pool.store.queries]
+    assert any(q.startswith("UPDATE quiz_submissions SET status='pending'") for q in queries)
 
 
 async def test_retry_ai_returns_503_and_resets_error_when_queue_unavailable(

@@ -29,7 +29,7 @@ export function ChoiceCard({ title, description, selected, onPress, disabled = f
         {
           borderColor: selected ? color.border.default : color.border.subtle,
           borderWidth: selected ? 2 : 1,
-          backgroundColor: selected ? color.bg.surface : color.brand.cream,
+          backgroundColor: selected ? color.bg.surface : color.bg.box,
         },
         style,
       ]}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, View } from 'react-native';
+import { Image, View, useWindowDimensions } from 'react-native';
 import { QuizScreenFrame } from '../../components/QuizScreenFrame';
 import { BrandHeading, BodyText } from '../../../../design/components/Text';
 import { PrimaryButton } from '../../../../design/components/PrimaryButton';
@@ -24,24 +24,49 @@ import { IntroStep } from '../../domain/quizDefinition';
  *  the quiz). */
 export function IntroTemplate({ step, onContinue, onBack }: { step: IntroStep; onContinue: () => void; onBack?: () => void }) {
   const art = ART_BY_STEP_ID[step.id];
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
   if (step.theme === 'maroon') {
+    // rapid_intro's flame art carries its own copy baked in (no separate
+    // heading/body render below it), and is meant to read as a full-bleed
+    // splash rather than contained artwork — full screen width, top edge
+    // flush with the physical top of the screen (status bar included).
+    // resizeMode="stretch" against an explicit width AND height (not the
+    // source's own aspect ratio) on purpose: the box tracks the actual
+    // screen's own aspect ratio — wider screens stretch it wider, taller
+    // screens stretch it taller — rather than the art keeping its native
+    // 1608:2788 proportions and leaving gaps on a differently-shaped screen.
+    const isFullBleedArt = !!art && !step.heading && !step.body;
+    // Explicit pixels, not percentages: percentage width/height inside the
+    // backdrop's absolutely-positioned (left/right-only, no literal width)
+    // container didn't resolve — the image fell back to its raw intrinsic
+    // 1608x2788 size and rendered miles off-screen.
+    const flameWidth = screenWidth;
+    const flameHeight = screenHeight - 30; // bottom pulled up 30px — less vertical stretch on the baked-in "RAPID FIRE" text
+    // Glow wash behind the flame, top edge-to-edge — its own natural aspect
+    // (804x918), not stretched like the flame above.
+    const ellipseHeight = screenWidth * (918 / 804);
     return (
       <QuizScreenFrame
         stepId={step.id}
         headerVariant="plain"
         theme="maroon"
         onBack={onBack}
-        footer={<PrimaryButton label={step.ctaLabel} onPress={onContinue} variant="milestone" style={{ width: '100%' }} />}
+        backdrop={isFullBleedArt ? (
+          <View style={{ width: screenWidth }}>
+            <Image source={ELLIPSE_43} style={{ position: 'absolute', top: 0, left: 0, width: screenWidth, height: ellipseHeight }} resizeMode="stretch" />
+            <Image source={art} style={{ width: flameWidth, height: flameHeight, marginTop: 20 }} resizeMode="stretch" />
+          </View>
+        ) : undefined}
+        footer={<PrimaryButton label={step.ctaLabel} onPress={onContinue} variant="milestone" style={{ alignSelf: 'stretch', marginHorizontal: 2.5 }} />}
       >
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
           {/* flex, NOT aspectRatio: the asset is a tall 1608x2788 portrait, so
               pinning its ratio at 86% width forced ~615dp of height and made
               the whole screen scroll. Letting it take the leftover space with
               resizeMode="contain" keeps the flame undistorted AND on one
-              screen. On rapid_intro the wording lives inside the artwork, so
-              `heading` is empty and no text renders beneath it. */}
-          {!!art && (
+              screen. */}
+          {!!art && !isFullBleedArt && (
             <View style={{ flex: 1, width: '86%', marginBottom: step.heading || step.body ? spacing.lg : 0 }}>
               <Image source={art} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
             </View>
@@ -84,5 +109,14 @@ export function IntroTemplate({ step, onContinue, onBack }: { step: IntroStep; o
 }
 
 const ART_BY_STEP_ID: Record<string, number> = {
-  rapid_intro: require('../../../../../Public/Assets/rapid fire hero.png'),
+  // WebP at the FULL 1608x2788 source resolution, deliberately not downscaled
+  // like the gradient washes below: this one is real artwork stretched to
+  // fill the whole screen, so it needs its pixels. WebP alone halves it.
+  rapid_intro: require('../../../../../Public/Assets/rapid fire hero.webp'),
 };
+
+/** Glow wash behind rapid_intro's flame, top edge-to-edge. WebP at half the
+ *  source resolution — a smooth gradient with no fine detail, so halving is
+ *  visually free even stretched full-width (438KB PNG -> 32KB). Aspect used
+ *  at the call site is the 804x918 source's. */
+const ELLIPSE_43 = require('../../../../../Public/Assets/Ellipse 43 (1).webp');

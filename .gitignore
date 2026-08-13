@@ -61,3 +61,7 @@ Current/
 # Local build/run logs
 *.log
 design/
+
+# Local DB snapshots taken before destructive cleanups. Contain phone numbers
+# and quiz answers — never commit.
+db_backup_*.json

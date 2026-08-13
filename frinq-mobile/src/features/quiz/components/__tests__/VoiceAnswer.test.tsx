@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { VoiceAnswer } from '../VoiceAnswer';
-import { uploadVoiceClip } from '../../quizSyncService';
+import { uploadVoiceClip, deleteVoiceClip } from '../../quizSyncService';
 
 const mockRequestAndStart = jest.fn();
 const mockStop = jest.fn();
@@ -36,6 +36,7 @@ jest.mock('../../../../services/audio/AudioPlayerAdapter', () => ({
 
 jest.mock('../../quizSyncService', () => ({
   uploadVoiceClip: jest.fn(),
+  deleteVoiceClip: jest.fn(),
 }));
 
 jest.mock('../../../../services/session/sessionContext', () => ({
@@ -43,6 +44,7 @@ jest.mock('../../../../services/session/sessionContext', () => ({
 }));
 
 const mockUploadVoiceClip = uploadVoiceClip as jest.Mock;
+const mockDeleteVoiceClip = deleteVoiceClip as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -138,17 +140,22 @@ describe('VoiceAnswer', () => {
     fireEvent.press(await findByLabelText('record a voice answer'));
     fireEvent.press(await findByLabelText('stop recording'));
 
-    // The circle carries the red mark and the only affordance is "retry" —
-    // both side slots stay empty (still rendered, so nothing shifts).
-    expect(await findByText('retry')).toBeTruthy();
+    // A persistent failure retries the SAME take a few times (backoff, so
+    // this needs more than the default findBy timeout) before giving up —
+    // the circle then carries the red mark and the only affordance is
+    // "retry", with both side slots staying empty (still rendered, so
+    // nothing shifts).
+    expect(await findByText('retry', {}, { timeout: 10000 })).toBeTruthy();
+    expect(mockUploadVoiceClip).toHaveBeenCalledTimes(3); // same take, retried, not re-recorded
     expect(queryByLabelText('re-record')).toBeNull();
     expect(queryByLabelText('play your recording')).toBeNull();
 
-    // Retry starts a NEW recording rather than re-uploading the dead take.
+    // Retry (after retries are exhausted) starts a NEW recording rather than
+    // re-uploading the dead take yet again.
     fireEvent.press(await findByLabelText('retry — record again'));
     await waitFor(() => expect(mockRequestAndStart).toHaveBeenCalledTimes(2));
-    expect(mockUploadVoiceClip).toHaveBeenCalledTimes(1); // the dead take is NOT re-sent
-  });
+    expect(mockUploadVoiceClip).toHaveBeenCalledTimes(3); // still just the earlier retries
+  }, 15000);
 
   it('cancels a recording without uploading', async () => {
     mockRequestAndStart.mockResolvedValue('Granted');
@@ -180,7 +187,7 @@ describe('VoiceAnswer', () => {
     resolveUpload!();
   });
 
-  it('reports onStatusChange(true) once a recording is saved, and (false) on re-record', async () => {
+  it('reports onStatusChange(true) once a recording is saved, and (false) when the mic circle re-records', async () => {
     mockRequestAndStart.mockResolvedValue('Granted');
     mockStop.mockResolvedValue({ fileUri: 'file:///cache/clip.m4a', durationSec: 4 });
     mockUploadVoiceClip.mockResolvedValue(undefined);
@@ -195,7 +202,51 @@ describe('VoiceAnswer', () => {
     fireEvent.press(await findByLabelText('stop recording'));
     await waitFor(() => expect(onStatusChange).toHaveBeenCalledWith(true));
 
-    fireEvent.press(await findByLabelText('re-record'));
+    // The right slot is now "delete", not "re-record" — the mic circle
+    // itself (same label as the initial press) is what records again.
+    fireEvent.press(await findByLabelText('record a voice answer'));
     await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith(false));
+  });
+
+  it('deletes a saved recording server-side and locally, and offers play/re-record again', async () => {
+    mockRequestAndStart.mockResolvedValue('Granted');
+    mockStop.mockResolvedValue({ fileUri: 'file:///cache/clip.m4a', durationSec: 4 });
+    mockUploadVoiceClip.mockResolvedValue(undefined);
+    mockDeleteVoiceClip.mockResolvedValue(undefined);
+
+    const { findByLabelText, queryByLabelText } = render(
+      <VoiceAnswer submissionId="sub-1" questionKey="story" />,
+    );
+    fireEvent.press(await findByLabelText('record a voice answer'));
+    fireEvent.press(await findByLabelText('stop recording'));
+    await findByLabelText('play your recording'); // confirms we've reached 'success'
+
+    fireEvent.press(await findByLabelText('delete recording'));
+
+    await waitFor(() => expect(mockDeleteVoiceClip).toHaveBeenCalledWith('the-api-client', 'sub-1', 'story'));
+    await waitFor(() => expect(mockDeleteCurrentFile).toHaveBeenCalled());
+    // Back to idle: no play/delete affordance, just the mic circle again.
+    await waitFor(() => expect(queryByLabelText('play your recording')).toBeNull());
+    expect(queryByLabelText('delete recording')).toBeNull();
+    expect(await findByLabelText('record a voice answer')).toBeTruthy();
+  });
+
+  it('still clears local state if the server-side delete fails', async () => {
+    mockRequestAndStart.mockResolvedValue('Granted');
+    mockStop.mockResolvedValue({ fileUri: 'file:///cache/clip.m4a', durationSec: 4 });
+    mockUploadVoiceClip.mockResolvedValue(undefined);
+    mockDeleteVoiceClip.mockRejectedValue(new Error('network'));
+
+    const { findByLabelText, queryByLabelText } = render(
+      <VoiceAnswer submissionId="sub-1" questionKey="story" />,
+    );
+    fireEvent.press(await findByLabelText('record a voice answer'));
+    fireEvent.press(await findByLabelText('stop recording'));
+    await findByLabelText('play your recording');
+
+    fireEvent.press(await findByLabelText('delete recording'));
+
+    await waitFor(() => expect(mockDeleteCurrentFile).toHaveBeenCalled());
+    expect(queryByLabelText('play your recording')).toBeNull();
   });
 });

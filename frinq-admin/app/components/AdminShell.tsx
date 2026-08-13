@@ -54,7 +54,11 @@ const NAV_ITEMS: {
     group: ["users", "testing", "accounts"],
     defaultTab: "users",
   },
-  { label: "community", href: "/moderation", isActive: (p) => p === "/moderation" },
+  // "community" (/moderation) is deliberately HIDDEN from the nav, not
+  // deleted: the moderation route and its backend endpoints still work for
+  // anyone who navigates there directly, it just isn't surfaced in the IA.
+  // "questions" was removed outright — route and components are gone; the
+  // backend quiz-config endpoints remain (the mobile app reads them).
   {
     label: "journey",
     href: "/?tab=journey",
@@ -62,7 +66,6 @@ const NAV_ITEMS: {
   },
   { label: "events", href: "/events", isActive: (p) => p === "/events" },
   { label: "model config", href: "/model-config", isActive: (p) => p === "/model-config" },
-  { label: "questions", href: "/questions", isActive: (p) => p === "/questions" },
 ];
 
 function NavLinks() {

@@ -47,6 +47,15 @@ class Settings(BaseSettings):
     # deployment wasn't named after the model. Unmapped ids are used as-is,
     # which is the common case (deployment named after the model).
     AZURE_OPENAI_DEPLOYMENTS: str = ""
+    # Model used to transcribe recorded voice answers. Configurable because
+    # the transcription model a resource actually has DEPLOYED varies —
+    # "whisper-1" is the classic name, but a Foundry resource may instead have
+    # gpt-4o-transcribe / gpt-4o-mini-transcribe, or nothing at all. Note that
+    # the /models catalog lists everything AVAILABLE, not what is deployed; a
+    # wrong value here surfaces as a 404 DeploymentNotFound per clip, which
+    # transcription treats as best-effort and skips (the summary is still
+    # generated, just without any voice answers' content).
+    AZURE_TRANSCRIBE_MODEL: str = "whisper-1"
 
     # Google Gemini/Gemma. Keys are backend-only and never returned by admin.
     GEMINI_API_KEY: str = ""

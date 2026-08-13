@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
     paddingVertical: 0,
     color: color.text.primary,
-    backgroundColor: color.brand.cream,
+    backgroundColor: color.bg.box,
   },
   error: { marginTop: spacing.sm },
 });

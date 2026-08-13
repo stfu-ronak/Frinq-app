@@ -102,26 +102,20 @@ async def test_existing_legacy_database_is_baselined_once() -> None:
     pool = FakeMigrationPool(state)
     executed_names = await run_migrations(pool)
     recorded_versions = sorted(state.schema_migrations.keys())
-    assert recorded_versions == list(range(1, 30))
-    assert executed_names == [
-        "010_legacy_schema_baseline.sql",
-        "011_accounts_and_sessions.sql",
-        "012_communities_and_chat.sql",
-        "013_quiz_retry_count.sql",
-        "014_admin_moderation.sql",
-        "015_legal_and_deletion.sql",
-        "016_admin_user_actions.sql",
-        "017_display_name_rate_limit.sql",
-        "018_ai_model_config.sql",
-        "019_ai_usage_log.sql",
-        "020_quiz_config.sql",
-        "021_gemini_provider.sql",
-        "022_events.sql",
-        "023_opinions_why_inline.sql",
-        "024_ai_usage_log_step_summary.sql",
-        "025_preferences_statement_wording.sql",
-        "026_social_type_plain_list.sql",
-        "027_scene_list_layout.sql",
-        "028_azure_provider.sql",
-        "029_friend_role_communities.sql",
-    ]
+
+    # Derived from the migrations actually on disk, not a hardcoded count:
+    # the assertion here is "a legacy database gets every migration recorded,
+    # and runs exactly the post-baseline ones" — pinning literal numbers made
+    # this test fail on every new migration for no real reason.
+    # discover_migrations() yields (version, filename, checksum) tuples.
+    all_migrations = discover_migrations()
+    assert recorded_versions == [version for version, _name, _sum in all_migrations]
+
+    baseline_index = next(
+        i for i, (_v, name, _s) in enumerate(all_migrations)
+        if name == "010_legacy_schema_baseline.sql"
+    )
+    assert executed_names == [name for _v, name, _s in all_migrations[baseline_index:]]
+    # Everything before the baseline is recorded but never executed against an
+    # already-populated legacy database — that is the whole point of baselining.
+    assert all(name not in executed_names for _v, name, _s in all_migrations[:baseline_index])

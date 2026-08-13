@@ -128,3 +128,39 @@ async def upload_voice(
 
     logger.info("voice.uploaded", submission_id=str(sid), key=question_key, bytes=len(content))
     return {"ok": True, "bytes": len(content)}
+
+
+@router.delete("", status_code=204)
+async def delete_voice(
+    submission_id: str,
+    question_key: str,
+    account: CurrentAccount = Depends(get_current_account),
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> Response:
+    """Remove a recorded clip — the mobile app's delete action on a saved
+    take. Without this, deleting only cleared local state and the clip stayed
+    in voice_clips, so it would still get transcribed and fed into the
+    summary as if the person had answered by voice."""
+    try:
+        sid = UUID(submission_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid submission_id")
+
+    if not _SAFE_KEY_RE.match(question_key):
+        raise HTTPException(status_code=400, detail="invalid question_key")
+
+    async with pool.acquire() as conn:
+        owned = await conn.fetchrow(
+            "SELECT id FROM quiz_submissions WHERE id = $1 AND user_id = $2",
+            sid, account.id,
+        )
+        if owned is None:
+            raise HTTPException(status_code=404, detail="submission not found")
+
+        await conn.execute(
+            "DELETE FROM voice_clips WHERE submission_id = $1 AND question_key = $2",
+            sid, question_key,
+        )
+
+    logger.info("voice.deleted", submission_id=str(sid), key=question_key)
+    return Response(status_code=204)

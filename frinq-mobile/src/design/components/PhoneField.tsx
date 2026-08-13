@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: radius.md,
     paddingHorizontal: spacing.lg,
-    backgroundColor: color.brand.cream,
+    backgroundColor: color.bg.box,
   },
   prefix: { marginRight: spacing.sm },
   input: { flex: 1, color: color.text.primary, paddingVertical: spacing.sm },

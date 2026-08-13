@@ -66,7 +66,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     paddingHorizontal: spacing.lg,
     color: color.text.primary,
-    backgroundColor: color.brand.cream,
+    backgroundColor: color.bg.box,
   },
   inputUnderline: {
     borderWidth: 0,

@@ -2,12 +2,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PanResponder, StyleSheet, View, useWindowDimensions } from 'react-native';
 import Animated, {
   Easing,
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
 import ViewShot, { ViewShotRef } from 'react-native-view-shot';
-import Svg, { Defs, G, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import { BodyText, BrandHeading } from '../../../design/components/Text';
 import { PressableScale } from '../../../design/motion/PressableScale';
 import { useReducedMotion } from '../../../design/motion/useReducedMotion';
@@ -44,22 +45,6 @@ function titleCase(text: string): string {
   return text.replace(/\S+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1));
 }
 
-/** The card's own radial sheen (Figma "summary-card-top-pattern"): a soft
- *  warm highlight off the top-left corner over the maroon gradient body. */
-function CardSheen() {
-  return (
-    <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" viewBox="0 0 367 390" preserveAspectRatio="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <Defs>
-        <RadialGradient id="cardSheen" cx="0.12" cy="0.06" r="0.62">
-          <Stop offset="0" stopColor={color.summary.sheen} stopOpacity={0.07} />
-          <Stop offset="1" stopColor={color.summary.sheen} stopOpacity={0} />
-        </RadialGradient>
-      </Defs>
-      <Rect x={0} y={0} width={367} height={390} fill="url(#cardSheen)" />
-    </Svg>
-  );
-}
-
 /** Outline heart, paired with share along the card's bottom edge (design:
  *  two thin-stroke pale-peach icons, ~16px, ~18px apart). */
 function HeartGlyph({ filled }: { filled: boolean }) {
@@ -72,36 +57,6 @@ function HeartGlyph({ filled }: { filled: boolean }) {
         strokeLinejoin="round"
         fill={filled ? color.summary.cardLabel : 'none'}
       />
-    </Svg>
-  );
-}
-
-/** Thin wavy rules just inside all four edges of the lead card, mirrored, in a
- *  slightly lighter red than the card body — the design's engraved-stationery
- *  border. Deliberately low-contrast: it frames the type, never competes with
- *  it. Only the first card gets this (the quick-read cards are plain). */
-function CardWaves() {
-  const wave = (len: number) => {
-    const step = len / 12;
-    let d = 'M0,0';
-    for (let i = 0; i < 12; i++) {
-      d += ` q${step / 4},-3 ${step / 2},0 t${step / 2},0`;
-    }
-    return d;
-  };
-  const H = wave(100);
-  return (
-    <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <G stroke={color.summary.cardWave} strokeWidth={0.5} fill="none">
-        <Path d={H} transform="translate(0,6)" />
-        <Path d={H} transform="translate(0,9)" />
-        <Path d={H} transform="translate(0,94) scale(1,-1)" />
-        <Path d={H} transform="translate(0,91) scale(1,-1)" />
-        <Path d={H} transform="rotate(90) translate(0,-6)" />
-        <Path d={H} transform="rotate(90) translate(0,-9)" />
-        <Path d={H} transform="rotate(-90) translate(-100,94)" />
-        <Path d={H} transform="rotate(-90) translate(-100,91)" />
-      </G>
     </Svg>
   );
 }
@@ -131,25 +86,27 @@ function ShareGlyph() {
 
 /** The maroon card body. Wrapped in ViewShot so the visible card itself is
  *  what gets captured for sharing — no separate off-screen duplicate to keep
- *  in sync. */
+ *  in sync. Flat, solid fill — no gradient/sheen/pattern overlay: just the
+ *  text and its two icons. */
 function CardFace({
-  card, isTop, isFirst, interactive, onShare,
+  card, isTop, depth, interactive, onShare,
 }: {
   card: SummaryCard;
   isTop: boolean;
-  /** The lead "your type" card — the only one with the engraved wave border. */
-  isFirst: boolean;
+  /** Picks the flat shade: 0 (front, lightest) through 3 (furthest back,
+   *  darkest). Never a gradient on the card itself, just a different solid
+   *  color per depth. */
+  depth: number;
   interactive: boolean;
   onShare: (ref: React.RefObject<ViewShotRef | null>, card: SummaryCard) => void;
 }) {
   const shotRef = useRef<ViewShotRef>(null);
   const [saved, setSaved] = useState(false);
+  const shade = color.summary.cardShades[Math.min(depth, color.summary.cardShades.length - 1)];
   return (
     <View style={styles.faceFill}>
       <ViewShot ref={shotRef} options={{ format: 'png', quality: 1 }} style={styles.faceFill}>
-        <View style={styles.faceBody}>
-          <CardSheen />
-          {isFirst && <CardWaves />}
+        <View style={[styles.faceBody, { backgroundColor: shade }]}>
           <View style={styles.faceContent}>
             <BodyText style={styles.cardLabel}>{titleCase(card.label)}</BodyText>
             {!!card.title && <BrandHeading variant="title" style={styles.cardTitle}>{titleCase(card.title)}</BrandHeading>}
@@ -195,18 +152,23 @@ type Props = {
  *  render, so every card behind the top one jumped a step instantly while the
  *  top card slid smoothly. Values match the web's depth*9 / 1-depth*0.038 /
  *  0.62-depth*0.27. */
-function DepthCard({ card, depth, isFirst }: { card: SummaryCard; depth: number; isFirst: boolean }) {
+function DepthCard({ card, depth }: { card: SummaryCard; depth: number }) {
   const d = useSharedValue(depth);
   useEffect(() => {
     d.value = withTiming(depth, { duration: SETTLE_MS, easing: DECK_EASING });
   }, [depth, d]);
   const style = useAnimatedStyle(() => ({
-    transform: [{ translateY: d.value * 9 }, { scale: 1 - d.value * 0.038 }],
-    opacity: Math.max(0, 0.62 - d.value * 0.27),
+    transform: [{ translateY: d.value * -20 }, { scale: 1 - d.value * 0.035 }],
+    // Fully opaque. The depth cards used to fade (0.7 down to 0.16), which
+    // let the page bleed through and made the stack look washed out — depth
+    // is already carried by the translateY offset, the scale step, and each
+    // card's own darker shade from cardShades. Opacity was a fourth cue that
+    // only cost solidity.
+    opacity: 1,
   }));
   return (
     <Animated.View style={[styles.card, { zIndex: 10 - depth }, style]} pointerEvents="none">
-      <CardFace card={card} isTop={false} isFirst={isFirst} interactive={false} onShare={() => {}} />
+      <CardFace card={card} isTop={false} depth={depth} interactive={false} onShare={() => {}} />
     </Animated.View>
   );
 }
@@ -226,17 +188,34 @@ export function SummaryCardStack({ cards, interactive = true, onShare }: Props) 
   // 300ms slide). Without it the card stayed fully opaque until it was cut
   // off screen, which is most of why the change read as a jump.
   const topOpacity = useSharedValue(1);
-  const isLast = active >= cards.length - 1;
+  // True from the moment an exit animation starts until it has committed.
+  // `active` (and therefore `isLast`) doesn't update until the commit lands,
+  // so without this a second swipe inside the ~300ms exit window re-entered
+  // advance() on the SAME card: it overwrote the in-flight animation but
+  // still queued a second commit, and each commit incremented `active`
+  // independently — two swipes, two increments, only one card seen leaving.
+  // A quick-read card silently vanished from the deck.
+  const exiting = useRef(false);
 
+  // Wraps back to the first card instead of stopping at the last. The deck
+  // had no way back once swiped through — the final card was a dead end with
+  // no prev control, so an accidental swipe lost a quick-read permanently.
   const commitAdvance = useCallback(() => {
-    setActive((i) => Math.min(cards.length - 1, i + 1));
+    exiting.current = false;
+    setActive((i) => (i + 1) % cards.length);
     translateX.value = 0;
     topOpacity.value = 1;
   }, [cards.length, translateX, topOpacity]);
 
   const advance = useCallback(
     (direction: -1 | 1) => {
-      if (isLast) {
+      // Mid-exit: leave the in-flight animation strictly alone. Snapping
+      // translateX back to 0 here would yank the departing card back on
+      // screen before its commit lands.
+      if (exiting.current) return;
+      // A single-card deck has nothing to cycle to — spring back instead of
+      // animating a card out and straight back in.
+      if (cards.length < 2) {
         translateX.value = withTiming(0, { duration: SETTLE_MS, easing: DECK_EASING });
         return;
       }
@@ -244,22 +223,22 @@ export function SummaryCardStack({ cards, interactive = true, onShare }: Props) 
         commitAdvance();
         return;
       }
-      translateX.value = withTiming(direction * screenWidth * 1.2, { duration: EXIT_MS, easing: DECK_EASING });
+      exiting.current = true;
       topOpacity.value = withTiming(0, { duration: 240, easing: DECK_EASING });
-      setTimeout(commitAdvance, EXIT_MS);
+      // Commit from the animation's OWN completion callback rather than a
+      // parallel setTimeout — one source of truth for "the exit finished",
+      // and nothing left running after unmount. `finished` guards the case
+      // where the animation is interrupted rather than completed.
+      translateX.value = withTiming(
+        direction * screenWidth * 1.2,
+        { duration: EXIT_MS, easing: DECK_EASING },
+        (finished) => {
+          if (finished) runOnJS(commitAdvance)();
+        },
+      );
     },
-    [isLast, reduced, screenWidth, translateX, topOpacity, commitAdvance],
+    [cards.length, reduced, screenWidth, translateX, topOpacity, commitAdvance],
   );
-
-  const goBack = useCallback(() => {
-    if (active === 0) return;
-    setActive((i) => Math.max(0, i - 1));
-    if (reduced) return;
-    translateX.value = -screenWidth * 0.25;
-    topOpacity.value = 0;
-    translateX.value = withTiming(0, { duration: SETTLE_MS, easing: DECK_EASING });
-    topOpacity.value = withTiming(1, { duration: 260, easing: DECK_EASING });
-  }, [active, reduced, screenWidth, translateX, topOpacity]);
 
   // PanResponder, not react-native-gesture-handler's Gesture API: this is a
   // single straightforward horizontal drag, and PanResponder is core React
@@ -268,18 +247,22 @@ export function SummaryCardStack({ cards, interactive = true, onShare }: Props) 
   const panResponder = useMemo(
     () =>
       PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gesture) => interactive && !isLast && Math.abs(gesture.dx) > 4,
-        onPanResponderMove: (_, gesture) => { translateX.value = gesture.dx; },
+        // `!exiting.current` keeps a new drag from grabbing the card while
+        // the previous one is still animating out — the drag would fight the
+        // exit animation for translateX and leave the deck mid-flight.
+        onMoveShouldSetPanResponder: (_, gesture) => interactive && cards.length > 1 && !exiting.current && Math.abs(gesture.dx) > 4,
+        onPanResponderMove: (_, gesture) => { if (!exiting.current) translateX.value = gesture.dx; },
         onPanResponderRelease: (_, gesture) => {
+          if (exiting.current) return;
           if (Math.abs(gesture.dx) > SWIPE_THRESHOLD) {
             advance(gesture.dx < 0 ? -1 : 1);
           } else {
             translateX.value = withTiming(0, { duration: SETTLE_MS, easing: DECK_EASING });
           }
         },
-        onPanResponderTerminate: () => { translateX.value = withTiming(0, { duration: SETTLE_MS, easing: DECK_EASING }); },
+        onPanResponderTerminate: () => { if (!exiting.current) translateX.value = withTiming(0, { duration: SETTLE_MS, easing: DECK_EASING }); },
       }),
-    [interactive, isLast, translateX, advance],
+    [interactive, cards.length, translateX, advance],
   );
 
   const topCardStyle = useAnimatedStyle(() => ({
@@ -291,51 +274,23 @@ export function SummaryCardStack({ cards, interactive = true, onShare }: Props) 
     <View style={styles.wrap}>
       <View style={styles.stage}>
         {cards.map((card, i) => {
-          const depth = i - active;
-          if (depth < 0 || depth > 2) return null;
+          // Modulo, not a plain subtraction: the deck cycles, so once the
+          // last card is on top the earlier ones must stack up BEHIND it
+          // again (a raw `i - active` goes negative and hides them, leaving
+          // the final card floating alone with no deck under it).
+          const depth = (i - active + cards.length) % cards.length;
+          if (depth > 3) return null;
           const isTop = depth === 0;
           if (isTop) {
             return (
               <Animated.View key={card.key} style={[styles.card, styles.cardTop, topCardStyle]} {...panResponder.panHandlers}>
-                <CardFace card={card} isTop isFirst={i === 0} interactive={interactive} onShare={onShare ?? (() => {})} />
+                <CardFace card={card} isTop depth={0} interactive={interactive} onShare={onShare ?? (() => {})} />
               </Animated.View>
             );
           }
-          return <DepthCard key={card.key} card={card} depth={depth} isFirst={i === 0} />;
+          return <DepthCard key={card.key} card={card} depth={depth} />;
         })}
       </View>
-
-      {interactive && (
-        <View style={styles.controls}>
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="Previous card"
-            accessibilityState={{ disabled: active === 0 }}
-            disabled={active === 0}
-            haptic={false}
-            onPress={goBack}
-            style={[styles.navButton, active === 0 && styles.navDisabled]}
-          >
-            <BodyText style={styles.navGlyph}>‹</BodyText>
-          </PressableScale>
-          <View style={styles.dots}>
-            {cards.map((card, i) => (
-              <View key={card.key} style={[styles.dot, i === active && styles.dotActive]} />
-            ))}
-          </View>
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="Next card"
-            accessibilityState={{ disabled: isLast }}
-            disabled={isLast}
-            haptic={false}
-            onPress={() => advance(-1)}
-            style={[styles.navButton, isLast && styles.navDisabled]}
-          >
-            <BodyText style={styles.navGlyph}>›</BodyText>
-          </PressableScale>
-        </View>
-      )}
     </View>
   );
 }
@@ -346,24 +301,17 @@ const styles = StyleSheet.create({
   card: { ...StyleSheet.absoluteFill, borderRadius: radius.xl },
   cardTop: { zIndex: 10 },
   faceFill: { flex: 1 },
-  faceBody: { flex: 1, borderRadius: radius.xl, overflow: 'hidden', backgroundColor: color.summary.cardBg },
+  faceBody: { flex: 1, borderRadius: radius.xl, overflow: 'hidden' },
   // Web: 26px 24px 22px.
   faceContent: { paddingHorizontal: spacing.xl, paddingTop: 26, paddingBottom: 22 },
-  cardLabel: { fontFamily: fontFamily.bodyMedium, fontSize: 14, lineHeight: 18, letterSpacing: 0.3, color: color.summary.cardLabel },
+  cardLabel: { fontFamily: fontFamily.bodyMedium, fontSize: 15, lineHeight: 20, letterSpacing: 0.3, color: color.summary.cardLabel },
   // lineHeight 34 on a 30px face left the descenders tight and the title
   // reading as a cramped slab; the web runs 1.1 on a serif that can take it.
-  cardTitle: { marginTop: spacing.md, fontSize: 30, lineHeight: 38, letterSpacing: -0.5, color: color.brand.cream },
-  cardText: { marginTop: spacing.md, fontFamily: fontFamily.bodyLight, fontSize: 17, lineHeight: 26, color: color.brand.cream },
+  cardTitle: { marginTop: spacing.md, fontSize: 28, lineHeight: 36, letterSpacing: -0.5, color: color.brand.cream },
+  cardText: { marginTop: spacing.md, fontFamily: fontFamily.bodyLight, fontSize: 17, lineHeight: 25, color: color.brand.cream },
   // No title above it (the quick-read cards), so the body gets more headroom.
-  cardTextRoomy: { marginTop: spacing.lg, fontFamily: fontFamily.bodyLight, fontSize: 17, lineHeight: 26, color: color.brand.cream },
+  cardTextRoomy: { marginTop: spacing.lg, fontFamily: fontFamily.bodyLight, fontSize: 17, lineHeight: 25, color: color.brand.cream },
   // Bottom-left pair, ~18px apart (design). Was a single share button.
   cardActions: { position: 'absolute', left: spacing.md, bottom: spacing.lg, flexDirection: 'row', alignItems: 'center' },
   cardAction: { width: touchTarget.min, height: touchTarget.min, alignItems: 'center', justifyContent: 'center' },
-  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.lg, marginTop: spacing.lg },
-  navButton: { width: 36, height: 36, borderRadius: radius.pill, borderWidth: 1, borderColor: color.border.pill, alignItems: 'center', justifyContent: 'center' },
-  navDisabled: { opacity: 0.3 },
-  navGlyph: { fontSize: 20, lineHeight: 24, color: color.brand.maroon },
-  dots: { flexDirection: 'row', gap: spacing.xs },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: color.summary.dotIdle },
-  dotActive: { width: 16, backgroundColor: color.brand.maroon },
 });

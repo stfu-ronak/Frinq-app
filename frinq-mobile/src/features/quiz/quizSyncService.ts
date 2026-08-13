@@ -99,3 +99,12 @@ export async function uploadVoiceClip(
   form.append('audio', { uri: fileUri, name: 'clip.m4a', type: 'audio/mp4' } as unknown as Blob);
   await apiClient.request({ path: '/api/v1/voice', method: 'POST', body: form });
 }
+
+/** DELETE /api/v1/voice — removes a recorded clip server-side. Without this,
+ *  "delete" only cleared local state and the clip stayed in voice_clips,
+ *  still getting transcribed into the summary as if the person had answered
+ *  by voice. */
+export async function deleteVoiceClip(apiClient: ApiClient, submissionId: string, questionKey: string): Promise<void> {
+  const query = `submission_id=${encodeURIComponent(submissionId)}&question_key=${encodeURIComponent(questionKey)}`;
+  await apiClient.request({ path: `/api/v1/voice?${query}`, method: 'DELETE' });
+}

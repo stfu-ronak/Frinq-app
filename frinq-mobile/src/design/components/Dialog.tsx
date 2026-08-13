@@ -45,7 +45,7 @@ export function Dialog({ visible, title, message, confirm, cancel, onRequestClos
 
 const styles = StyleSheet.create({
   scrim: { flex: 1, backgroundColor: color.bg.scrim, justifyContent: 'center', paddingHorizontal: spacing.xl },
-  card: { backgroundColor: color.brand.cream, borderRadius: radius.lg, padding: spacing.xl },
+  card: { backgroundColor: color.bg.box, borderRadius: radius.lg, padding: spacing.xl },
   message: { marginTop: spacing.sm },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: spacing.xl },
   action: { marginLeft: spacing.sm },

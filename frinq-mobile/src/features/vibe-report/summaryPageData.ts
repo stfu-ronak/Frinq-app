@@ -19,17 +19,36 @@ export interface SummaryPageData {
 }
 
 /** The Page-2 contract fields the new backend pipeline writes directly. They
- *  aren't in the generated `DeepSummary` contract type yet (that still
- *  describes the legacy deep-report shape), so they're read off a widened
- *  view of the same object rather than by casting the whole thing to `any`. */
+ *  aren't in the generated `DeepSummary`/`ShareCard` contract types yet (those
+ *  still describe the legacy deep-report/share-card shapes), so they're read
+ *  off a widened view of the object rather than by casting to `any`.
+ *
+ *  page2_summary._to_db_shape (backend) always writes deep_summary=null for a
+ *  Page-2 result and puts the same fields on share_card instead, aliasing
+ *  typeName -> archetype and typeDefinition -> archetype_desc for legacy
+ *  clients. So a Page-2 report's rich fields can show up on EITHER object —
+ *  checking only deep_summary (as this used to) silently drops straight to
+ *  the sparse legacy mapping below for every current-pipeline report. */
 type Page2Fields = {
   typeName?: unknown;
+  archetype?: unknown;
   typeDefinition?: unknown;
+  archetype_desc?: unknown;
   quickRows?: Partial<Record<keyof QuickRows, unknown>>;
   detailedOpening?: unknown;
   portrait?: unknown;
   shareCaption?: unknown;
 };
+
+type Page2Result = { typeName: string; typeDefinition: string; quickRows: Partial<Record<keyof QuickRows, unknown>>; detailedOpening: unknown; portrait: unknown[]; shareCaption: unknown };
+
+function extractPage2(source: Page2Fields | null | undefined): Page2Result | null {
+  if (!source) return null;
+  const typeName = source.typeName ?? source.archetype;
+  const typeDefinition = source.typeDefinition ?? source.archetype_desc;
+  if (typeof typeName !== 'string' || typeof typeDefinition !== 'string' || !source.quickRows || !Array.isArray(source.portrait)) return null;
+  return { typeName, typeDefinition, quickRows: source.quickRows, detailedOpening: source.detailedOpening, portrait: source.portrait, shareCaption: source.shareCaption };
+}
 
 function asText(value: unknown): string {
   if (value == null) return '';
@@ -43,6 +62,18 @@ function asText(value: unknown): string {
     return Object.values(o).filter((v): v is string => typeof v === 'string').join(' ');
   }
   return String(value);
+}
+
+/** First candidate that is both truthy and not already claimed by another
+ *  field — the sparse legacy shape has several fields fall back through the
+ *  same handful of source values (narrative[0], mirror, report_quote), and
+ *  without this two unrelated UI slots (a quick-row card, the pull-quote)
+ *  can end up showing the identical sentence. */
+function firstUnclaimed(claimed: ReadonlySet<string>, ...candidates: string[]): string {
+  for (const c of candidates) {
+    if (c && !claimed.has(c)) return c;
+  }
+  return '';
 }
 
 function firstNameOf(name: string | null | undefined): string {
@@ -70,16 +101,17 @@ export function toSummaryPageData(report: VibeReport): SummaryPageData {
   const deep: DeepSummary & Page2Fields = report.deep_summary ?? {};
   const share = report.share_card ?? null;
 
-  if (typeof deep.typeName === 'string' && typeof deep.typeDefinition === 'string' && deep.quickRows && Array.isArray(deep.portrait)) {
-    const q = deep.quickRows;
+  const page2 = extractPage2(deep) ?? extractPage2(share as Page2Fields | null);
+  if (page2) {
+    const q = page2.quickRows;
     return {
       firstName: firstNameOf(report.name),
-      typeName: deep.typeName,
-      typeDefinition: deep.typeDefinition,
+      typeName: page2.typeName,
+      typeDefinition: page2.typeDefinition,
       quickRows: { bring: asText(q.bring), notice: asText(q.notice), connect: asText(q.connect), care: asText(q.care) },
-      detailedOpening: asText(deep.detailedOpening),
-      portrait: deep.portrait.map(asText).filter(Boolean),
-      shareCaption: asText(deep.shareCaption),
+      detailedOpening: asText(page2.detailedOpening),
+      portrait: page2.portrait.map(asText).filter(Boolean),
+      shareCaption: asText(page2.shareCaption),
     };
   }
 
@@ -95,10 +127,17 @@ export function toSummaryPageData(report: VibeReport): SummaryPageData {
   const detailedOpening = reportQuote || narrative[0] || mirror || report.headline || '';
   const typeDefinition = mirror || share?.description || share?.archetype_desc || detailedOpening;
 
-  const seen = new Set<string>();
+  // Seeded with detailedOpening only: several legacy fields fall back
+  // through the same handful of source values, and without this a sparse
+  // record can show the identical sentence in two unrelated slots — once as
+  // the pull-quote and again as a quick-row card or portrait paragraph.
+  // (typeDefinition sharing a value with one of these is fine and expected —
+  // e.g. bring legitimately reusing `mirror` the same way typeDefinition
+  // does — so it's deliberately not included here.)
+  const claimed = new Set<string>([detailedOpening].filter(Boolean));
   const portrait = [firstImpression, hiddenPattern, unspokenNeed, ...narrative, ...readNotes, closingLine].filter((p) => {
-    if (!p || seen.has(p)) return false;
-    seen.add(p);
+    if (!p || claimed.has(p)) return false;
+    claimed.add(p);
     return true;
   });
 
@@ -106,8 +145,12 @@ export function toSummaryPageData(report: VibeReport): SummaryPageData {
     firstName: firstNameOf(report.name),
     typeName: typeNameOf(report.archetype ?? report.spirit_animal),
     typeDefinition,
+    // bring deliberately never falls back to detailedOpening/headline itself
+    // (a bare archetype label showing up as an "answer" reads as nonsense) —
+    // firstUnclaimed additionally skips any candidate already used by
+    // detailedOpening/typeDefinition above, so it can't duplicate those either.
     quickRows: {
-      bring: mirror || narrative[0] || detailedOpening,
+      bring: firstUnclaimed(claimed, mirror, narrative[0], firstImpression),
       notice: firstImpression,
       connect: hiddenPattern,
       care: unspokenNeed,

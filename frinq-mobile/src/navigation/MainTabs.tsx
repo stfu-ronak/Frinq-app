@@ -1,6 +1,7 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { useNavigation } from '@react-navigation/native';
 import { color } from '../design/tokens/colors';
 import { VibeReportScreen } from '../features/vibe-report/screens/VibeReportScreen';
 import { ProfileScreen } from '../features/profile/screens/ProfileScreen';
@@ -44,12 +45,22 @@ export type ProfileStackParamList = {
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 const ProfileStack = createNativeStackNavigator<ProfileStackParamList>();
 
+/** Wraps VibeReportScreen so Continue has something to do when opened from
+ *  Profile (no reservation flow behind it, and unlike the post-quiz reveal —
+ *  rendered outside any Navigator by RootNavigator's own state machine, where
+ *  useNavigation() would throw — this usage IS a real registered screen, so
+ *  it can safely go back). */
+function VibeReportFromProfile() {
+  const navigation = useNavigation();
+  return <VibeReportScreen onContinue={() => navigation.goBack()} />;
+}
+
 function ProfileNavigator() {
   return (
     <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
       <ProfileStack.Screen name="ProfileHome" component={ProfileScreen} />
       <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} />
-      <ProfileStack.Screen name="VibeReport" component={VibeReportScreen} />
+      <ProfileStack.Screen name="VibeReport" component={VibeReportFromProfile} />
       <ProfileStack.Screen name="SettingsHome" component={SettingsScreen} />
       <ProfileStack.Screen name="CommunitySettings" component={CommunitySettingsScreen} />
       <ProfileStack.Screen name="Notifications" component={NotificationSettingsScreen} />

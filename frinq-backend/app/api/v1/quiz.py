@@ -42,6 +42,7 @@ from app.schemas.quiz import (
 )
 from app.utils.logger import logger
 from app.workers.queue import enqueue_quiz_insights
+from app.workers.tasks.quiz_insights import STALE_PROCESSING_AFTER_S
 
 router = APIRouter(prefix="/quiz", tags=["quiz"])
 
@@ -390,8 +391,10 @@ async def retry_quiz(
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict:
     """Requeue a submission that failed durable processing. Only the owner
-    may retry, only while status='error' (an active/processing submission
-    can't be duplicated this way), and only up to 3 total attempts."""
+    may retry, only while status='error' — or 'processing' if that row has
+    gone stale, i.e. a worker died without marking it (an actually-live
+    submission still can't be duplicated this way) — and only up to 3 total
+    attempts."""
     try:
         uid = UUID(submission_id)
     except ValueError:
@@ -399,10 +402,19 @@ async def retry_quiz(
 
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # Accepting a STALE 'processing' row here is what makes a
+            # strand recoverable by the user themselves. Without it, a worker
+            # killed mid-job (OOM/deploy/job_timeout) left the only in-app
+            # retry returning 404 forever, with onboarding pinned to
+            # profile_processing. The interval guard keeps a genuinely
+            # in-flight job safe from being duplicated.
             row = await conn.fetchrow(
                 "SELECT retry_count FROM quiz_submissions "
-                "WHERE id = $1 AND user_id = $2 AND status = 'error' FOR UPDATE",
-                uid, account.id,
+                "WHERE id = $1 AND user_id = $2 AND ("
+                "  status = 'error'"
+                "  OR (status = 'processing' AND updated_at < now() - make_interval(secs => $3))"
+                ") FOR UPDATE",
+                uid, account.id, float(STALE_PROCESSING_AFTER_S),
             )
             if row is None:
                 raise HTTPException(status_code=404, detail="submission not found or not in error state")

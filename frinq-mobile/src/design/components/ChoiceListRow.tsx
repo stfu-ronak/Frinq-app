@@ -26,7 +26,7 @@ export function ChoiceListRow({ label, selected, onPress, disabled = false, styl
       haptic={!disabled}
       style={[
         styles.base,
-        { borderColor: selected ? color.border.default : color.border.subtle, backgroundColor: selected ? color.bg.surface : color.brand.cream },
+        { borderColor: selected ? color.border.default : color.border.subtle, backgroundColor: selected ? color.bg.surface : color.bg.box },
         style,
       ]}
     >

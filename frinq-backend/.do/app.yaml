@@ -108,6 +108,20 @@ services:
         type: SECRET
       - key: DUMMY_OTP
         type: SECRET
+      # Deliberate: lets the SINGLE DEV_PHONE account log in with DUMMY_OTP on
+      # live, so the owner can run manual test passes against production.
+      # Scope is one account only — it is NOT a global OTP skip, and the two
+      # broad bypasses (SKIP_OTP_VERIFICATION, TEST_PHONES) stay hard-blocked
+      # by the production boot guard. Set DUMMY_OTP to a high-entropy value,
+      # not 123456: this phone/code pair is a working login to that account
+      # for anyone who guesses it. Turn this off when live testing is done.
+      - key: ALLOW_TEST_OTP_IN_PROD
+        value: "true"
+      # Must be explicitly empty. TEST_PHONES defaults to a non-empty dev list
+      # in config.py, and the production boot guard rejects a non-empty value
+      # — without this line the production app fails to start outright.
+      - key: TEST_PHONES
+        value: ""
       - key: TWILIO_ACCOUNT_SID
         type: SECRET
       - key: TWILIO_AUTH_TOKEN

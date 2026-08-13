@@ -107,10 +107,12 @@ describe('navigation: reachability, no dead ends, first/last', () => {
 
 describe('stepProgress', () => {
   // Mirrors quizDefinition.ts's own unitsForStep — Rapid Fire counts once per
-  // pair, Opinions counts once per pick PLUS once per pair with a whyPrompt.
+  // pair, Opinions counts once per pick PLUS once per pair with a whyPrompt,
+  // Preferences counts once per slider.
   function unitsFor(s: QuizStep): number {
     if (s.kind === 'rapidFire') return s.pairs.length;
     if (s.kind === 'opinions') return s.pairs.length + s.pairs.filter((p) => p.whyPrompt).length;
+    if (s.kind === 'preferences') return s.sliders.length;
     return 1;
   }
 
@@ -150,6 +152,22 @@ describe('stepProgress', () => {
     const last = stepProgress(opinions.id, units - 1);
     expect(first.step).toBe(before + 1);
     expect(last.step).toBe(before + units);
+    expect(first.total).toBe(last.total);
+  });
+
+  it('a preferences step counts one number per slider, via subIndex — regression: subIndex was never wired up, so every slider reported the same step number', () => {
+    const contentSteps = DEFAULT_CONTENT_STEPS.filter((s) => s.kind !== 'intro');
+    const prefsPos = contentSteps.findIndex((s) => s.kind === 'preferences');
+    const preferences = contentSteps[prefsPos];
+    if (preferences.kind !== 'preferences') throw new Error('unreachable');
+    const before = contentSteps.slice(0, prefsPos).reduce((sum, s) => sum + unitsFor(s), 0);
+    const units = unitsFor(preferences);
+    expect(units).toBe(preferences.sliders.length);
+    const first = stepProgress(preferences.id, 0);
+    const last = stepProgress(preferences.id, units - 1);
+    expect(first.step).toBe(before + 1);
+    expect(last.step).toBe(before + units);
+    expect(first.step).not.toBe(last.step); // each slider must report a distinct number
     expect(first.total).toBe(last.total);
   });
 

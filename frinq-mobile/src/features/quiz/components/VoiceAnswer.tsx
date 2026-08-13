@@ -4,7 +4,7 @@ import Svg, { Circle, Defs, Path, RadialGradient, Rect, Stop } from 'react-nativ
 import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { AudioRecorderAdapter, RecordingResult } from '../../../services/audio/AudioRecorderAdapter';
 import { AudioPlayerAdapter } from '../../../services/audio/AudioPlayerAdapter';
-import { uploadVoiceClip } from '../quizSyncService';
+import { uploadVoiceClip, deleteVoiceClip } from '../quizSyncService';
 import { useSession } from '../../../services/session/sessionContext';
 import { PressableScale } from '../../../design/motion/PressableScale';
 import { useReducedMotion } from '../../../design/motion/useReducedMotion';
@@ -13,6 +13,14 @@ import { spacing, radius, touchTarget } from '../../../design/tokens/spacing';
 import { color } from '../../../design/tokens/colors';
 
 type Phase = 'idle' | 'requesting' | 'recording' | 'uploading' | 'success' | 'error' | 'permissionDenied';
+
+// A transient network blip during upload used to permanently lose the take
+// (the only recovery was recording an entirely new one) — most upload
+// failures are exactly that kind of blip, not a bad file, so retrying the
+// SAME already-recorded bytes a couple of times first fixes the common case
+// before ever falling back to "record again".
+const UPLOAD_MAX_ATTEMPTS = 3;
+const UPLOAD_RETRY_DELAY_MS = 1000;
 
 type Props = {
   submissionId: string;
@@ -92,10 +100,17 @@ function PlayGlyph() {
   );
 }
 
-function RecordGlyph() {
+function DeleteGlyph() {
   return (
     <Svg width={20} height={20} viewBox="0 0 24 24" accessibilityElementsHidden importantForAccessibility="no">
-      <Circle cx={12} cy={12} r={7} fill={color.brand.maroon} />
+      <Path
+        d="M5 7h14M10 7V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2M7 7l1 13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-13"
+        stroke={color.brand.maroon}
+        strokeWidth={1.7}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
     </Svg>
   );
 }
@@ -147,6 +162,7 @@ export function VoiceAnswer({ submissionId, questionKey, onStatusChange }: Props
 
   const phaseRef = useRef<Phase>('idle');
   phaseRef.current = phase;
+  const unmountedRef = useRef(false);
 
   useEffect(() => {
     onStatusChange?.(phase === 'success');
@@ -155,6 +171,7 @@ export function VoiceAnswer({ submissionId, questionKey, onStatusChange }: Props
 
   useEffect(() => {
     return () => {
+      unmountedRef.current = true;
       clearInterval(timerRef.current);
       player.stop();
       // Skip disposal mid-upload — dispose() deletes the cache file, which
@@ -180,11 +197,19 @@ export function VoiceAnswer({ submissionId, questionKey, onStatusChange }: Props
   async function upload(result: RecordingResult) {
     pendingRef.current = result;
     setPhase('uploading');
-    try {
-      await uploadVoiceClip(apiClient, submissionId, questionKey, result.fileUri, result.durationSec);
-      setPhase('success');
-    } catch {
-      setPhase('error');
+    for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt++) {
+      try {
+        await uploadVoiceClip(apiClient, submissionId, questionKey, result.fileUri, result.durationSec);
+        if (!unmountedRef.current) setPhase('success');
+        return;
+      } catch {
+        if (attempt === UPLOAD_MAX_ATTEMPTS) {
+          if (!unmountedRef.current) setPhase('error');
+          return;
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, UPLOAD_RETRY_DELAY_MS * attempt));
+        if (unmountedRef.current) return;
+      }
     }
   }
 
@@ -252,6 +277,23 @@ export function VoiceAnswer({ submissionId, questionKey, onStatusChange }: Props
     stopTimer();
     setPaused(false);
     await adapter.cancel();
+    setPhase('idle');
+  }
+
+  /** Removes a saved take entirely — server-side (so it's never transcribed
+   *  into the summary), the local cache file, and this component's own
+   *  state. Best-effort on the network call: a delete failing offline still
+   *  clears the local state, since the person's clear intent is "get rid of
+   *  this" — re-recording afterwards overwrites whatever's left server-side
+   *  anyway (upsert), so a stray un-deleted row self-heals on the next take. */
+  async function handleDeletePress() {
+    try {
+      await deleteVoiceClip(apiClient, submissionId, questionKey);
+    } catch {
+      // fall through — still clear local state below
+    }
+    await adapter.deleteCurrentFile();
+    pendingRef.current = null;
     setPhase('idle');
   }
 
@@ -327,8 +369,12 @@ export function VoiceAnswer({ submissionId, questionKey, onStatusChange }: Props
         <StopGlyph />
       </PressableScale>
     ) : phase === 'success' ? (
-      <PressableScale accessibilityRole="button" accessibilityLabel="re-record" onPress={handleRecordPress} style={styles.sideButton}>
-        <RecordGlyph />
+      // Delete, not re-record: the mic circle itself already re-records on
+      // press (accessibilityLabel "record a voice answer" stays the same in
+      // this phase), so this slot's own job is the one thing the mic can't
+      // do — get rid of the saved take.
+      <PressableScale accessibilityRole="button" accessibilityLabel="delete recording" onPress={handleDeletePress} style={styles.sideButton}>
+        <DeleteGlyph />
       </PressableScale>
     ) : null;
 
@@ -419,7 +465,7 @@ const styles = StyleSheet.create({
     width: 104,
     height: 104,
     borderRadius: 52,
-    backgroundColor: color.brand.cream,
+    backgroundColor: color.bg.box,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -428,7 +474,7 @@ const styles = StyleSheet.create({
     width: touchTarget.min,
     height: touchTarget.min,
     borderRadius: touchTarget.min / 2,
-    backgroundColor: color.brand.cream,
+    backgroundColor: color.bg.box,
     borderWidth: 1,
     borderColor: color.border.subtle,
     alignItems: 'center',

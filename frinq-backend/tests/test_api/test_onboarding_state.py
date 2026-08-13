@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 from httpx import AsyncClient
 
+from app.workers.tasks.quiz_insights import STALE_PROCESSING_AFTER_S
 from tests.conftest import FakePool
 
 
@@ -75,9 +76,15 @@ async def test_retry_binds_the_callers_own_account_id_as_the_owner_filter(
     assert len(select_calls) == 1
     query, args = select_calls[0]
     assert "user_id = $2" in query
-    bound_submission_id, bound_user_id = args
+    # $3 is the staleness window: the filter accepts status='error' OR a
+    # status='processing' row older than that, so a submission stranded by a
+    # dead worker stays recoverable while a live one still can't be
+    # duplicated. Ownership binding is what this test actually guards.
+    bound_submission_id, bound_user_id, bound_stale_after = args
     assert bound_submission_id == submission_id
     assert bound_user_id == current_account.id
+    assert bound_stale_after == float(STALE_PROCESSING_AFTER_S)
+    assert "status = 'processing'" in query
 
 
 async def test_retry_resets_submission_to_error_when_queue_unavailable(

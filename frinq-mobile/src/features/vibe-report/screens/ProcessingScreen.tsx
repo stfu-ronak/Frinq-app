@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Screen } from '../../../design/components/Screen';
 import { BrandHeading, BodyText } from '../../../design/components/Text';
 import { ErrorState } from '../../../design/components/ErrorState';
+import { WaveFillLoader } from '../../../design/components/WaveFillLoader';
 import { spacing } from '../../../design/tokens/spacing';
-import { color } from '../../../design/tokens/colors';
 import { useSession } from '../../../services/session/sessionContext';
 import { UserResponse } from '../../../services/api/contracts';
 import { getEncryptedStore } from '../../../storage/encryptedStorage';
@@ -115,7 +115,11 @@ export function ProcessingScreen({ onComplete }: Props) {
   return (
     <Screen>
       <View style={styles.center} testID="screen-processing">
-        <ActivityIndicator size="large" color={color.state.selected} />
+        <WaveFillLoader accessibilityLabel="Building your vibe report" />
+        {/* No numberOfLines / adjustsFontSizeToFit on either of these on
+            purpose: both are fixed copy that must wrap freely and never
+            ellipsize. The width cap keeps the measure readable instead of
+            letting lines run edge to edge on a wide screen. */}
         <BrandHeading variant="title" style={styles.heading}>
           Building your vibe…
         </BrandHeading>
@@ -128,7 +132,9 @@ export function ProcessingScreen({ onComplete }: Props) {
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  heading: { marginTop: spacing.lg, textAlign: 'center' },
-  note: { marginTop: spacing.sm, textAlign: 'center' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl },
+  heading: { marginTop: spacing.xl, textAlign: 'center' },
+  // maxWidth, not a line cap: the copy wraps to as many lines as it needs and
+  // is never truncated, it just doesn't stretch to a full tablet width.
+  note: { marginTop: spacing.sm, textAlign: 'center', maxWidth: 340 },
 });

@@ -38,6 +38,7 @@ from app.core.redis_client import get_redis
 from app.core.session import revoke_all_sessions
 from app.utils.logger import logger
 from app.workers.queue import enqueue_quiz_insights
+from app.workers.tasks.quiz_insights import STALE_PROCESSING_AFTER_S
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -283,13 +284,28 @@ async def retry_ai(
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT user_id, status FROM quiz_submissions WHERE id = $1", uid
+            "SELECT user_id, status, EXTRACT(EPOCH FROM (now() - updated_at)) AS updated_age_s "
+            "FROM quiz_submissions WHERE id = $1",
+            uid,
         )
 
     if not row:
         raise HTTPException(status_code=404, detail="not found")
     if row["status"] == "processing":
-        return {"ok": False, "msg": "already processing"}
+        # Only refuse while a job could genuinely still be running. Past the
+        # staleness window the row was stranded by a worker that died without
+        # running its handlers, and this endpoint was the last escape hatch
+        # that could free it — refusing unconditionally (as it used to) left
+        # the user's onboarding stuck at profile_processing with no recovery
+        # path from either the app or the admin.
+        age_s = float(row["updated_age_s"] or 0.0)
+        if age_s < STALE_PROCESSING_AFTER_S:
+            return {"ok": False, "msg": "already processing"}
+        logger.warning(
+            "admin.retry_ai.forcing_stale_processing",
+            submission_id=submission_id,
+            age_s=round(age_s),
+        )
     if row["user_id"] is None:
         raise HTTPException(
             status_code=400,

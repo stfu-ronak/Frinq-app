@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any, Final
 
 
-PAGE2_PROMPT_VERSION: Final[str] = "frinq-page2-2026-07-30-terra-v4-direct-sentences"
+PAGE2_PROMPT_VERSION: Final[str] = "frinq-page2-2026-08-12-terra-v7-crisp-cards"
 PAGE2_MODEL: Final[str] = "gpt-5.6-terra"
 PAGE2_REASONING_EFFORT: Final[str] = "medium"
 
@@ -269,26 +269,34 @@ SELECTION
 
 FIELD MAPPING
 - typeName is the selected role's exact display_name.
-- typeDefinition is 2 full sentences, 32-48 words. It is the one clear
-  description under the type title. Explain both sides of the person using a
-  natural turn such as "although", "but", or "when".
-- quickRows.bring is for the card headed "what you bring to the table". Say
-  what friends get from them in real life: energy, plans, calm, honesty, help,
-  fun, or follow-through. Write 2 full sentences, 30-48 words.
-- quickRows.notice is for the card headed "what you notice about people".
-  Say the things they pick up on in a room or friendship, such as effort,
-  silence, mood, honesty, who is left out, or who means what they say. Write
-  2 full sentences, 30-48 words. Never describe how other people see them.
-- quickRows.connect is for the card headed "how you get close to people".
-  Describe how a new friendship goes from meeting to feeling real. Give a
-  small situation or setting. Write 2 full sentences, 30-48 words.
-- quickRows.care is for the card headed "what you care about in friendship".
-  Say what they protect, expect, or do not compromise on. Write 2 full
-  sentences, 30-48 words. It must match this heading, not describe care work.
-- detailedOpening is exactly two descriptive sentences, 40-62 words total.
-  It should feel like someone has put the person's main pattern into words.
-  It must include one contrast, tension, or "although" turn and must not
-  repeat the quick-row content.
+- typeDefinition is exactly ONE sentence, 14-20 words — a fixed short length,
+  not a range to fill. It sits inside a small fixed-size card, so it must
+  never run long. One clean line of thought only; do not chain a second
+  clause with "although"/"but"/"when" just to add nuance — save the contrast
+  for detailedOpening instead, which has room for it.
+- Each quickRows field pairs with a two-word card label that is NOT part of
+  your output ("you bring" / "you notice" / "you connect" / "you care"). Write
+  the field so it reads as the direct grammatical continuation of that label —
+  do not repeat "you" as the first word, and do not restate the label's verb.
+  Each field is 2 short sentences, 14-26 words total. Write it as a crisp,
+  quotable point someone would screenshot — not a mini-story. Lead with the
+  concrete noun or moment, skip throat-clearing setup, and cut anything a
+  reader would skim past.
+- quickRows.bring continues "you bring ___". Say what friends get from them in
+  real life: energy, plans, calm, honesty, help, fun, or follow-through. Start
+  with the thing itself, e.g. "energy when a plan needs a reset."
+- quickRows.notice continues "you notice ___". Say the things they pick up on
+  in a room or friendship, such as effort, silence, mood, honesty, who is left
+  out, or who means what they say. Never describe how other people see them.
+- quickRows.connect continues "you connect ___". Describe how a new
+  friendship goes from meeting to feeling real. Give a small situation or
+  setting.
+- quickRows.care continues "you care ___". Say what they protect, expect, or
+  do not compromise on. It must match this heading, not describe care work.
+- detailedOpening is exactly two short sentences, 20-34 words total. It should
+  feel like someone has put the person's main pattern into words in one
+  breath. It must include one contrast, tension, or "although" turn and must
+  not repeat the quick-row content.
 - portrait contains exactly six flowing paragraphs in this order:
   0. how people may first read them, then the fuller picture underneath
   1. how friendship begins and then becomes real for them
@@ -343,10 +351,12 @@ VOICE AND FIT
 - Do not quote private answer text in public copy.
 - Use complete sentences. No chips, fragments, headings, bullets, em dashes,
   semicolons, emoji, hashtags.
-- Most sentences should be 12-24 words and explain a full thought.
-- The quick-row cards should feel full but easy to scan: 2 sentences each,
-  never a slogan or a list.
-- detailedOpening is two sentences. Each portrait paragraph is 38-58 words.
+- Portrait sentences should be 12-24 words and explain a full thought; the
+  typeDefinition, quickRows, and detailedOpening fields stay short and
+  punchy per their own word counts above — do not stretch them to 12-24 words.
+- The quick-row cards should feel tight and scannable: 2 short sentences each,
+  reading on from their label, never a slogan or a list.
+- Each portrait paragraph is 38-58 words.
 - Total portrait length is 270-350 words.
 - Do not repeat the selected role as the explanation for every field.
 
@@ -408,8 +418,10 @@ Before returning:
 4. verify the 13 evidenceMap field names occur exactly once;
 5. run every cold-reading check;
 6. verify lowercase, full sentences, six portrait paragraphs, 270-350 portrait
-   words, a 32-48 word typeDefinition, a 40-62 word detailedOpening, and four
-   30-48 word quick-row cards. The cards must be descriptive, not empty.
+   words, a 14-20 word ONE-SENTENCE typeDefinition, a 20-34 word
+   detailedOpening, and four 14-26 word quick-row cards that read on from
+   their label without repeating "you". The cards must be descriptive, not
+   empty.
 7. read the report aloud in your head. Replace every abstract phrase with a
    complete friend-to-friend sentence and one recognisable moment from the
    ledger. The result should make the person think "that is exactly me".

@@ -69,14 +69,14 @@ def _words(n: int, seed: int) -> str:
 def _valid_report(**overrides) -> dict:
     report = {
         "typeName": FRIEND_ROLE_NAMES[0],
-        "typeDefinition": _words(40, 0),
+        "typeDefinition": _words(17, 0),
         "quickRows": {
-            "bring": _words(38, 1),
-            "notice": _words(38, 2),
-            "connect": _words(38, 3),
-            "care": _words(38, 4),
+            "bring": _words(20, 1),
+            "notice": _words(20, 2),
+            "connect": _words(20, 3),
+            "care": _words(20, 4),
         },
-        "detailedOpening": _words(50, 5),
+        "detailedOpening": _words(28, 5),
         "portrait": [_words(50, i + 6) for i in range(6)],
         "shareCaption": _words(10, 12),
     }

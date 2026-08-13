@@ -79,14 +79,18 @@ export const QUESTION_HEADING_SLOT_H =
  *  INSIDE the reserved slot (tag questions' subtext) so it can't push the
  *  options down either. */
 export function QuestionHeading({ children, extra, testID, fluid = false }: { children: React.ReactNode; extra?: React.ReactNode; testID?: string; fluid?: boolean }) {
+  // fluid's whole premise is "height follows the prompt" — but numberOfLines
+  // still capped it at 3 and adjustsFontSizeToFit still shrank it down to
+  // fit that cap, so a fourth line just got clipped/shrunk exactly like the
+  // fixed-slot variant it's supposed to differ from.
   return (
     <View testID={testID} style={fluid ? questionHeadingFluid : questionHeadingSlot}>
       <BrandHeading
         variant="display"
         tone="brand"
-        numberOfLines={QUESTION_HEADING_LINES}
-        adjustsFontSizeToFit
-        minimumFontScale={0.6}
+        numberOfLines={fluid ? undefined : QUESTION_HEADING_LINES}
+        adjustsFontSizeToFit={!fluid}
+        minimumFontScale={fluid ? undefined : 0.6}
         style={questionHeadingStyle}
       >
         {children}

@@ -1,11 +1,24 @@
 import React from 'react';
-import { ScrollView, StatusBar, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image, ScrollView, StatusBar, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { QuizHeader } from '../../../design/components/QuizHeader';
 import { NextArrowButton } from '../../../design/components/NextArrowButton';
 import { color } from '../../../design/tokens/colors';
 import { spacing, touchTarget } from '../../../design/tokens/spacing';
 import { stepProgress } from '../domain/quizDefinition';
+
+/** Top-of-screen glow behind every counted quiz question's header — shown
+ *  exactly where the "Question N out of M" counter shows, never on
+ *  milestone/break/'plain' screens. Explicit pixels from the real screen
+ *  width, not aspectRatio + percentage — the recurring Fabric bug where that
+ *  combination falls back to the image's raw intrinsic size.
+ *
+ *  WebP at half the source resolution (402x437 from an 804x874 PNG): this is
+ *  a soft radial gradient with no high-frequency detail, so halving it is
+ *  visually free, and it renders on EVERY question screen — the PNG was
+ *  600KB, this is 30KB. Aspect ratio below is the source's, unchanged. */
+const ELLIPSE_QUESTION_GLOW = require('../../../../Public/Assets/Ellipse 40 (2).webp');
+const ELLIPSE_QUESTION_ASPECT = 804 / 874;
 
 type Props = {
   stepId: string;
@@ -48,6 +61,13 @@ type Props = {
    *  the one consumer, so it still sits at the exact same height as every
    *  other question's Next control. Takes precedence over continueLabel. */
   footer?: React.ReactNode;
+  /** Art that reaches the physical screen's top/left/right edges — status
+   *  bar included — same technique as ReferenceJourneyFrame's own
+   *  `backdrop`: negative insets cancel the SafeAreaView's own padding, and
+   *  it renders as a normal child so the maroon fill still shows through
+   *  anywhere the art doesn't cover (e.g. below it, if shorter than the
+   *  screen). */
+  backdrop?: React.ReactNode;
 };
 
 /** Shared chrome for every quiz template: a FIXED header (back arrow +
@@ -59,8 +79,10 @@ type Props = {
  *  the header/Next stay put). */
 export function QuizScreenFrame({
   stepId, onBack, headerVariant, theme = 'cream', subIndex, children, aboveScroll, belowScroll,
-  continueLabel, onContinue, continueDisabled, continueBusy, footer,
+  continueLabel, onContinue, continueDisabled, continueBusy, footer, backdrop,
 }: Props) {
+  const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
   const progress = stepProgress(stepId, subIndex);
   // Every real quiz question shows the counter now, in the same spot,
   // regardless of headerVariant — only 'plain' (milestone/break screens) and
@@ -81,6 +103,23 @@ export function QuizScreenFrame({
   return (
     <SafeAreaView style={[styles.fill, maroon && styles.fillMaroon]} edges={['top', 'bottom', 'left', 'right']}>
       <StatusBar barStyle={maroon ? 'light-content' : 'dark-content'} backgroundColor={maroon ? color.bg.milestone : color.bg.canvas} />
+      {(!!backdrop || !!counterLabel) && (
+        <View
+          pointerEvents="none"
+          style={[styles.backdrop, { top: -insets.top, left: -insets.left, right: -insets.right }]}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          {backdrop}
+          {!!counterLabel && (
+            <Image
+              source={ELLIPSE_QUESTION_GLOW}
+              style={{ width: screenWidth + 10, height: screenWidth / ELLIPSE_QUESTION_ASPECT, marginTop: -65, marginLeft: -5 }}
+              resizeMode="stretch"
+            />
+          )}
+        </View>
+      )}
       <QuizHeader onBack={onBack} counterLabel={counterLabel} tone={theme} progress={waveProgress} />
       {!!aboveScroll && <View style={styles.aboveScroll}>{aboveScroll}</View>}
       <ScrollView
@@ -112,6 +151,11 @@ export function QuizScreenFrame({
 const styles = StyleSheet.create({
   fill: { flex: 1, backgroundColor: color.bg.canvas },
   fillMaroon: { backgroundColor: color.bg.milestone },
+  // top/left/right get overridden inline with -insets.top/-insets.left/
+  // -insets.right; no `bottom` here on purpose — the art's own height (from
+  // its aspectRatio at 100% width) decides where it ends, it isn't stretched
+  // to the screen's full height.
+  backdrop: { position: 'absolute', zIndex: -1 },
   scroll: { flex: 1 },
   scrollContent: { flexGrow: 1, alignItems: 'center', paddingHorizontal: spacing.xl, paddingTop: spacing.lg },
   scrollContentUnderHeader: { paddingTop: 0 },

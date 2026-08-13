@@ -42,6 +42,7 @@ export function PreferencesTemplate({ step, values, onChange, onContinue, onBack
   return (
     <QuizScreenFrame
       stepId={step.id}
+      subIndex={index}
       onBack={index > 0 || onBack ? handleBack : undefined}
       headerVariant="counter"
       continueLabel="continue"

@@ -32,10 +32,17 @@ from app.core.ai.insights import generate_insights as _ORIGINAL_GENERATE_INSIGHT
 from app.core.ai.model_config import InvalidModelConfigError, get_active_model_config
 from app.core.ai.model_pricing import compute_cost
 from app.core.ai.openai_client import generate_deep_report as _ORIGINAL_GENERATE_DEEP_REPORT
+from app.core.ai.transcription import transcribe_submission_voice_clips
 from app.core.communities import assign_user_to_community, get_user_community
 from app.core import metrics
 from app.database import get_pool
 from app.utils.logger import logger
+
+# A row sitting at status='processing' longer than this is not in flight — it
+# was stranded by a worker that died without running its handlers. Must stay
+# comfortably ABOVE WorkerSettings.job_timeout (420s), or a healthy but slow
+# job could be reclaimed underneath itself and billed twice.
+STALE_PROCESSING_AFTER_S = 900
 
 # Explicit injection seams for existing worker adapters. Production leaves
 # these untouched and uses the combined one-call generator.
@@ -94,6 +101,7 @@ async def _generate_summary(
     primary_usage_recorder: Any,
     fallback_usage_recorder: Any,
     submission_id: str | None = None,
+    transcripts: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     # Existing tests/adapters can inject legacy callables. Normal runtime uses
     # the page2 two-stage pipeline with fallback handled by page2_summary.
@@ -118,6 +126,7 @@ async def _generate_summary(
         primary_usage_recorder=primary_usage_recorder,
         fallback_usage_recorder=fallback_usage_recorder,
         submission_id=submission_id,
+        transcripts=transcripts,
     )
 
 
@@ -152,7 +161,11 @@ async def generate_quiz_insights(ctx: dict[str, Any], submission_id: str) -> Non
             async with conn.transaction():
                 row = await conn.fetchrow(
                     "SELECT id, user_id, answers, status, share_card, headline, spirit_animal, "
-                    "spirit_desc, insights, tags, deep_summary FROM quiz_submissions "
+                    "spirit_desc, insights, tags, deep_summary, "
+                    # Age of the row's last write, used below to tell a job
+                    # that is genuinely in flight from one that was stranded.
+                    "EXTRACT(EPOCH FROM (now() - updated_at)) AS updated_age_s "
+                    "FROM quiz_submissions "
                     "WHERE id = $1 FOR UPDATE",
                     sid,
                 )
@@ -175,11 +188,26 @@ async def generate_quiz_insights(ctx: dict[str, Any], submission_id: str) -> Non
                     # lock serialises us behind that job's first txn, so seeing
                     # 'processing' means "in flight, skip" — running the paid AI
                     # calls again would double-charge and can reclassify the user.
-                    # ponytail: a hard-killed worker (no except runs) can strand a
-                    # row in 'processing'; the user's own /quiz/retry resets to
-                    # 'error' first, so it stays recoverable.
-                    logger.info("quiz_insights.already_processing", submission_id=submission_id)
-                    return
+                    #
+                    # UNLESS the row is stale. A worker killed hard (OOM, deploy
+                    # restart, or ARQ's own job_timeout, which raises
+                    # CancelledError — a BaseException that our `except Exception`
+                    # handlers below never caught) leaves the row at 'processing'
+                    # forever: /quiz/retry only accepts status='error', and the
+                    # admin retry_ai no-ops on 'processing', so nothing could ever
+                    # move it and the user's onboarding stuck at
+                    # profile_processing permanently. Past the job timeout no
+                    # legitimate job can still be running, so take the row over
+                    # rather than skipping it.
+                    age_s = float(row["updated_age_s"] or 0.0)
+                    if age_s < STALE_PROCESSING_AFTER_S:
+                        logger.info("quiz_insights.already_processing", submission_id=submission_id)
+                        return
+                    logger.warning(
+                        "quiz_insights.reclaiming_stale_processing",
+                        submission_id=submission_id,
+                        age_s=round(age_s),
+                    )
 
                 share_card = _parse_jsonb(row["share_card"])
                 usable_result = row["status"] == "done" and bool(share_card and share_card.get("archetype_slug"))
@@ -230,6 +258,12 @@ async def generate_quiz_insights(ctx: dict[str, Any], submission_id: str) -> Non
 
     if not usable_result:
         try:
+            # Best-effort: a Whisper outage must not fail the whole
+            # generation job — transcribe_submission_voice_clips already
+            # swallows per-clip failures, so this only raises on something
+            # structural (DB down), which the outer except already handles
+            # the same as any other generation failure.
+            transcripts = await transcribe_submission_voice_clips(pool, sid)
             insights_recorder = _make_usage_recorder(pool, sid, "insights", insights_config)
             fallback_recorder = _make_usage_recorder(pool, sid, "deep_report", deep_report_config)
             result = await _generate_summary(
@@ -239,6 +273,7 @@ async def generate_quiz_insights(ctx: dict[str, Any], submission_id: str) -> Non
                 primary_usage_recorder=insights_recorder,
                 fallback_usage_recorder=fallback_recorder,
                 submission_id=submission_id,
+                transcripts=transcripts,
             )
             ai_route = result.pop("_ai_route", "primary")
             deep_summary_result = result.get("deep_summary")
@@ -246,6 +281,15 @@ async def generate_quiz_insights(ctx: dict[str, Any], submission_id: str) -> Non
         except Exception as exc:
             await _mark_error(pool, sid, user_id, _error_code(exc))
             return
+        except BaseException:
+            # ARQ enforces job_timeout by CANCELLING the task, and
+            # asyncio.CancelledError is a BaseException — so the handler above
+            # never saw it and the row stayed at 'processing' forever. Mark it
+            # error so the ordinary retry paths can pick it up, then re-raise:
+            # cancellation must never be swallowed, ARQ still needs to see the
+            # task die so it can retry or give up.
+            await _mark_error(pool, sid, user_id, "job_cancelled")
+            raise
 
     share_card = result.get("share_card") or {}
     slug = share_card.get("archetype_slug")
@@ -281,9 +325,45 @@ async def generate_quiz_insights(ctx: dict[str, Any], submission_id: str) -> Non
                     slug,
                 )
                 await assign_user_to_community(conn, user_id, slug)
+                # Backfill the profile columns from the quiz answers, but only
+                # where they are still NULL — COALESCE means an explicit value
+                # the user set via PATCH /users/me always wins, and a re-run
+                # can never overwrite it.
+                #
+                # These columns are otherwise written ONLY by PATCH /users/me
+                # during onboarding, while the summary reads the name from
+                # quiz answers instead. Two sources for the same fact: if that
+                # PATCH ever fails or is skipped, the app happily greets the
+                # user by name on the summary while their profile shows
+                # "your profile" and a column of em-dashes, permanently, with
+                # no path to self-heal.
+                # gender is guarded by an inner CHECK-matching filter, NOT
+                # written raw: users.gender has CHECK (gender IN
+                # ('male','female','non_binary','other')), so an answer
+                # outside that set would raise CheckViolationError *inside
+                # this final transaction* and dump an otherwise-successful,
+                # already-paid-for summary into 'error'. A backfill must never
+                # be able to fail the job it is decorating.
+                #
+                # ncr_zone is deliberately NOT backfilled: it is a constrained
+                # NCR-only enum ('gurgaon','south_delhi',...) while the quiz's
+                # city list includes Mumbai/Pune/Bangalore, which have no valid
+                # value at all. Guessing a mapping would write wrong data; the
+                # profile's Area stays blank until the user sets it.
                 await conn.execute(
-                    "UPDATE users SET onboarding_state = 'active', updated_at = now() WHERE id = $1",
+                    """UPDATE users SET
+                        onboarding_state = 'active',
+                        display_name = COALESCE(display_name, NULLIF(TRIM($2), '')),
+                        gender = COALESCE(
+                            gender,
+                            (SELECT g FROM (SELECT LOWER(TRIM($3)) AS g) s
+                              WHERE s.g IN ('male','female','non_binary','other'))
+                        ),
+                        updated_at = now()
+                       WHERE id = $1""",
                     user_id,
+                    str(answers.get("name") or ""),
+                    str(answers.get("gender") or ""),
                 )
     except Exception as exc:
         # Deliberately broad: a DB error, a lost connection, or a race on

@@ -57,7 +57,7 @@ describe('ReferenceOnboardingTemplate', () => {
     const choice = StyleSheet.flatten(getByRole('radio', { name: step.options[0].label }).props.style as never) as Record<string, number | string | undefined>;
     // No explicit lineHeight — Borel's natural metrics reserve descender room;
     // maxWidth must fit the authored line break or the wrap gets clipped.
-    expect(heading).toMatchObject({ color: '#621407', fontSize: 24, width: '100%' });
+    expect(heading).toMatchObject({ color: '#621407', fontSize: 27, width: '100%' });
     expect(choice).toMatchObject({ width: '55%', minHeight: 52, borderRadius: 999 });
   });
 });

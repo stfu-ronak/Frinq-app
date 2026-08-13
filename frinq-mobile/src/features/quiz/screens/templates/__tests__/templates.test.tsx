@@ -16,6 +16,7 @@ import { QuizScreenFrame } from '../../../components/QuizScreenFrame';
 import {
   IntroStep, TextStep, DateStep, SingleChoiceCardStep, SingleChoiceListStep,
   MultiChoiceTagsStep, RapidFireStep, OpinionsStep, PreferencesStep, VoiceOrTextStep,
+  VOICE_ANSWER_PLACEHOLDER,
   SocialVerificationStep, SliderStep,
 } from '../../../domain/quizDefinition';
 
@@ -458,6 +459,57 @@ describe('VoiceOrTextTemplate', () => {
     expect(getByRole('button', { name: 'continue' }).props.accessibilityState.disabled).toBe(true);
     act(() => mockVoiceAnswerStatus?.(true));
     expect(getByRole('button', { name: 'continue' }).props.accessibilityState.disabled).toBe(false);
+  });
+
+  it('records the voice placeholder as the ANSWER VALUE for a voice-only response', () => {
+    // Regression (shipped bug): saving a recording only flipped local
+    // `hasRecording` state, which enabled Continue but never wrote anything
+    // into the answers dict. QuizSubmissionService.finalize() requires every
+    // answer key to be present and returns 'invalid' WITHOUT making any
+    // network call when one is missing — so a voice-only answer made the
+    // whole quiz unsubmittable at the very last step ("Couldn't submit your
+    // answers"), with no /quiz/complete request ever reaching the server.
+    // The sentinel matches the backend's own _VOICE_PLACEHOLDER, which
+    // build_page2_input already knows how to swap for a real transcript.
+    mockVoiceAnswerStatus = undefined;
+    const onChange = jest.fn();
+    render(
+      <VoiceOrTextTemplate step={step} submissionId="sub-1" value="" onChange={onChange} onContinue={jest.fn()} />,
+    );
+    act(() => mockVoiceAnswerStatus?.(true));
+    expect(onChange).toHaveBeenCalledWith(VOICE_ANSWER_PLACEHOLDER);
+  });
+
+  it('does not overwrite typed text when a recording is also saved', () => {
+    mockVoiceAnswerStatus = undefined;
+    const onChange = jest.fn();
+    render(
+      <VoiceOrTextTemplate step={step} submissionId="sub-1" value="typed answer" onChange={onChange} onContinue={jest.fn()} />,
+    );
+    act(() => mockVoiceAnswerStatus?.(true));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('clears the placeholder when the recording is deleted, so a stale sentinel is not submitted', () => {
+    mockVoiceAnswerStatus = undefined;
+    const onChange = jest.fn();
+    const { rerender } = render(
+      <VoiceOrTextTemplate step={step} submissionId="sub-1" value="" onChange={onChange} onContinue={jest.fn()} />,
+    );
+    act(() => mockVoiceAnswerStatus?.(true));
+    rerender(
+      <VoiceOrTextTemplate step={step} submissionId="sub-1" value={VOICE_ANSWER_PLACEHOLDER} onChange={onChange} onContinue={jest.fn()} />,
+    );
+    onChange.mockClear();
+    act(() => mockVoiceAnswerStatus?.(false));
+    expect(onChange).toHaveBeenCalledWith('');
+  });
+
+  it('never shows the placeholder sentinel to the user in the text box', () => {
+    const { queryByDisplayValue } = render(
+      <VoiceOrTextTemplate step={step} submissionId="sub-1" value={VOICE_ANSWER_PLACEHOLDER} onChange={jest.fn()} onContinue={jest.fn()} />,
+    );
+    expect(queryByDisplayValue(VOICE_ANSWER_PLACEHOLDER)).toBeNull();
   });
 });
 

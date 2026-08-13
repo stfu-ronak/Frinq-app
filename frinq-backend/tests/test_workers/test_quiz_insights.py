@@ -45,6 +45,8 @@ class _FakeQuizInsightsConnection:
         self.submission = submission
         self.user_states = user_states
         self.communities: dict[Any, dict[str, Any]] = {}
+        # display_name/gender/ncr_zone backfilled from answers on activation.
+        self.user_profile: dict[Any, dict[str, Any]] = {}
         self.model_configs = model_configs if model_configs is not None else dict(_DEFAULT_MODEL_CONFIGS)
         self.usage_log_inserts: list[tuple[Any, ...]] = []
 
@@ -97,9 +99,22 @@ class _FakeQuizInsightsConnection:
                 "deep_summary": deep_summary,
                 "archetype_slug": slug,
             })
-        elif q.startswith("UPDATE users SET onboarding_state = 'active'"):
-            (user_id,) = args
+        elif q.startswith("UPDATE users SET") and "onboarding_state = 'active'" in q:
+            # Activation also backfills display_name/gender/ncr_zone from the
+            # quiz answers (COALESCE, so only where still NULL) — match on the
+            # activation clause rather than the literal prefix so the double
+            # doesn't break every time a column is added to that one statement.
+            user_id = args[0]
             self.user_states[user_id] = "active"
+            if len(args) >= 3:
+                name, gender = args[1], args[2]
+                g = (gender or "").strip().lower()
+                self.user_profile[user_id] = {
+                    "display_name": (name or "").strip() or None,
+                    # Mirrors the SQL's CHECK-matching filter: anything outside
+                    # the allowed set is dropped rather than written.
+                    "gender": g if g in ("male", "female", "non_binary", "other") else None,
+                }
         elif q.startswith("UPDATE quiz_submissions SET status='error'"):
             sid, error_msg = args
             self.submission["status"] = "error"
@@ -110,6 +125,14 @@ class _FakeQuizInsightsConnection:
         elif q.startswith("INSERT INTO ai_usage_log"):
             self.usage_log_inserts.append(args)
         return "OK"
+
+    async def fetch(self, query: str, *args: Any) -> list[dict[str, Any]]:
+        # transcribe_submission_voice_clips's lookup — no fixture here ever
+        # records a voice clip, so there's nothing to transcribe.
+        q = query.strip()
+        if q.startswith("SELECT question_key, audio_data, mime_type FROM voice_clips"):
+            return []
+        return []
 
 
 class _FakeCtx:
@@ -147,6 +170,11 @@ def _submission_row(user_id: Any, **overrides: Any) -> dict[str, Any]:
         "insights": None,
         "tags": [],
         "deep_summary": None,
+        # Age of the row's last write. Defaults to "just written", i.e. a
+        # status='processing' row is treated as genuinely in flight; override
+        # it to something past STALE_PROCESSING_AFTER_S to model a row
+        # stranded by a worker that died without marking it.
+        "updated_age_s": 0.0,
     }
     row.update(overrides)
     return row
@@ -271,6 +299,76 @@ async def test_processing_status_skips_to_avoid_double_charge(
     assert call_count["n"] == 0
     assert conn.submission["status"] == "processing"  # left untouched for the live job
     assert user_id not in conn.communities
+
+
+async def test_activation_backfills_profile_columns_from_the_quiz_answers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """users.display_name/gender/ncr_zone are otherwise written ONLY by
+    PATCH /users/me during onboarding, while the summary reads the name from
+    the quiz answers. Two sources for one fact: when that PATCH is skipped or
+    fails, the summary greets the user by name while the profile screen shows
+    'your profile' and a column of em-dashes forever, with no way to recover.
+    Activation backfills the NULLs from the answers we already have."""
+    user_id = uuid4()
+    submission = _submission_row(
+        user_id,
+        answers=json.dumps({"name": "Dhairya", "gender": "male", "city": "Gurgaon"}),
+    )
+    conn = _FakeQuizInsightsConnection(submission, {})
+    pool = _FakeQuizInsightsPool(conn)
+    monkeypatch.setattr(quiz_insights_module, "get_pool", lambda: pool)
+
+    async def _fake_insights(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        return _ai_result("quiet-storm")
+
+    async def _fake_deep_report(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        return {}
+
+    monkeypatch.setattr(quiz_insights_module, "generate_insights", _fake_insights)
+    monkeypatch.setattr(quiz_insights_module, "generate_deep_report", _fake_deep_report)
+
+    await generate_quiz_insights({}, str(submission["id"]))
+
+    assert conn.user_states[user_id] == "active"
+    assert conn.user_profile[user_id] == {"display_name": "Dhairya", "gender": "male"}
+
+
+async def test_stale_processing_row_is_reclaimed_not_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: the in-flight guard skipped on status='processing' with no
+    staleness check. A worker killed hard (OOM, deploy restart, or ARQ's own
+    job_timeout — which cancels via CancelledError, a BaseException that the
+    `except Exception` handlers never caught) left the row at 'processing'
+    forever, and every recovery path refused it: /quiz/retry required
+    'error', admin retry-ai no-opped on 'processing'. The user's onboarding
+    stayed pinned at profile_processing permanently. Past the staleness
+    window no legitimate job can still be running, so a redelivered job must
+    take the row over and finish it."""
+    user_id = uuid4()
+    submission = _submission_row(
+        user_id,
+        status="processing",
+        updated_age_s=quiz_insights_module.STALE_PROCESSING_AFTER_S + 60,
+    )
+    conn = _FakeQuizInsightsConnection(submission, {})
+    pool = _FakeQuizInsightsPool(conn)
+    monkeypatch.setattr(quiz_insights_module, "get_pool", lambda: pool)
+
+    async def _fake_insights(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        return _ai_result("quiet-storm")
+
+    async def _fake_deep_report(answers: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        return {}
+
+    monkeypatch.setattr(quiz_insights_module, "generate_insights", _fake_insights)
+    monkeypatch.setattr(quiz_insights_module, "generate_deep_report", _fake_deep_report)
+
+    await generate_quiz_insights({}, str(submission["id"]))
+
+    assert conn.submission["status"] == "done"
+    assert user_id in conn.communities
 
 
 class _FakeConnectionThatFailsFinalCommit(_FakeQuizInsightsConnection):

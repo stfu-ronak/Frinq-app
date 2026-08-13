@@ -34,13 +34,14 @@ _JARGON = re.compile(r"\b(social intensity|relational evidence|cross-family|moda
 _HARD_WORDS = re.compile(r"\b(nuanced|concrete|tendency|reciprocal|prolonged|categorical|corroboration|eligibility|adjudicate)\b", re.I)
 _LETTER_STRETCH = re.compile(r"\b[a-z]*([a-z])\1{3,}[a-z]*\b", re.I)
 _FIELDS = ("typeDefinition", "quickRows.bring", "quickRows.notice", "quickRows.connect", "quickRows.care", "detailedOpening", "portrait.0", "portrait.1", "portrait.2", "portrait.3", "portrait.4", "portrait.5", "shareCaption")
-_QUICK_ROW_WORDS = {"bring": (30, 48), "notice": (30, 48), "connect": (30, 48), "care": (30, 48)}
+_QUICK_ROW_WORDS = {"bring": (14, 26), "notice": (14, 26), "connect": (14, 26), "care": (14, 26)}
 # The frontend writes this literal sentinel (story/opinions_why pages) when
-# someone answers by voice and never types a transcript -- there is no
-# speech-to-text step anywhere in this pipeline yet (the `transcripts` param
-# below is real plumbing, but no live call site ever passes it). Without
-# this filter the sentinel string itself gets sent to the model as if it
-# were the person's actual answer.
+# someone answers by voice and never types a transcript. app/workers/tasks/
+# quiz_insights.py now runs transcribe_submission_voice_clips (Azure Whisper)
+# before generation and passes the result as `transcripts` below, which
+# build_page2_input prefers over this sentinel for any field it covers — but
+# a field with no recorded clip, or one Whisper failed to transcribe, still
+# falls through to this placeholder, so the filter stays.
 _VOICE_PLACEHOLDER = "[voice response]"
 # Base output-token ceilings, raised from the original 5200/7200: "medium"
 # reasoning effort can spend a large, variable share of the budget on
@@ -81,13 +82,20 @@ def build_page2_input(answers: dict[str, Any], transcripts: dict[str, Any] | Non
     transcript_values = transcripts or {}
     rows = []
     for field, value in enriched.items():
-        if field not in SOURCE_FIELDS:
+        if field not in SOURCE_FIELDS or field in _IDENTITY:
             continue
-        if field in _IDENTITY or value in (None, "", [], _VOICE_PLACEHOLDER):
+        transcript = transcript_values.get(field)
+        # The placeholder-skip must run AFTER the transcript check, not
+        # before: a voice answer with no typed transcript is stored as
+        # exactly this placeholder, so checking it first discarded every
+        # transcribed voice answer before it ever reached the transcript
+        # branch below — the override was unreachable.
+        if transcript:
+            value, modality = transcript, "voice_transcript"
+        elif value in (None, "", [], _VOICE_PLACEHOLDER):
             continue
-        modality = "voice_transcript" if field in transcript_values and transcript_values[field] else "text"
-        if modality == "voice_transcript":
-            value = transcript_values[field]
+        else:
+            modality = "text"
         rows.append({"source_field": field, "source_modality": modality, "value": _clean(value, pii)})
     return {"prompt_version": PAGE2_PROMPT_VERSION, "privacy": "identity fields removed; missing values are unknown", "questionnaire": rows}
 
@@ -135,8 +143,8 @@ def validate_stage2(data: dict[str, Any], evidence: dict[str, Any]) -> list[str]
     if report.get("typeName") != role_name: errors.append("typeName does not match selected role")
     portrait = report.get("portrait", [])
     if len(portrait) != 6 or not 270 <= sum(len(x.split()) for x in portrait) <= 350: errors.append("portrait must have six paragraphs and 270-350 words")
-    if not 32 <= len(str(report.get("typeDefinition") or "").split()) <= 48: errors.append("typeDefinition must be 32-48 words")
-    if not 40 <= len(str(report.get("detailedOpening") or "").split()) <= 62: errors.append("detailedOpening must be 40-62 words")
+    if not 14 <= len(str(report.get("typeDefinition") or "").split()) <= 20: errors.append("typeDefinition must be 14-20 words")
+    if not 20 <= len(str(report.get("detailedOpening") or "").split()) <= 34: errors.append("detailedOpening must be 20-34 words")
     for key, (minimum, maximum) in _QUICK_ROW_WORDS.items():
         value = str((report.get("quickRows") or {}).get(key) or "")
         if not minimum <= len(value.split()) <= maximum: errors.append(f"quickRows.{key} must be {minimum}-{maximum} words")
@@ -175,8 +183,8 @@ def validate_public_report(report: dict[str, Any]) -> list[str]:
         if not bounds[0] <= len(text.split()) <= bounds[1]:
             errors.append(f"quickRows.{key} must be {bounds[0]}-{bounds[1]} words")
     for key, minimum, maximum in (
-        ("typeDefinition", 32, 48),
-        ("detailedOpening", 40, 62),
+        ("typeDefinition", 14, 20),
+        ("detailedOpening", 20, 34),
         ("shareCaption", 8, 30),
     ):
         text = str(report.get(key) or "")
@@ -252,15 +260,30 @@ async def _run_page2_pipeline(
     source = build_page2_input(answers, transcripts)
     safety_id = hashlib.sha256((submission_id or "preview").encode()).hexdigest()[:32]
 
-    stage1 = await _call_structured(
-        provider=provider, model_id=model_id, effort=_STAGE1_REASONING_EFFORT,
-        system=STAGE1_SYSTEM, user=STAGE1_USER.replace("{{ANONYMIZED_ANSWERS_JSON}}", json.dumps(source)),
-        schema_name="frinq_page2_evidence_v1", schema=STAGE1_SCHEMA, max_output_tokens=_STAGE1_BASE_TOKENS,
-        safety_id=safety_id, usage_recorder=usage_recorder,
-    )
-    stage1_errors = validate_stage1(stage1, source)
+    # Retry stage1 on the SAME provider before giving up. Previously this ran
+    # exactly once and raised on any validation slip (e.g. 7 evidence items
+    # instead of 8-10, or a reused id) — which sent the whole call into
+    # generate_page2_summary_with_fallback's fallback provider, re-running
+    # BOTH stages from scratch. That made a cheap, usually-transient stage1
+    # wobble cost a full second pipeline; a same-model retry fixes most of
+    # them for one stage1 call. `_STAGE1_MAX_ROUNDS` was already declared for
+    # exactly this and had never been wired up.
+    stage1_user = STAGE1_USER.replace("{{ANONYMIZED_ANSWERS_JSON}}", json.dumps(source))
+    stage1: dict[str, Any] = {}
+    stage1_errors: list[str] = []
+    for attempt in range(1, _STAGE1_MAX_ROUNDS + 1):
+        stage1 = await _call_structured(
+            provider=provider, model_id=model_id, effort=_STAGE1_REASONING_EFFORT,
+            system=STAGE1_SYSTEM, user=stage1_user,
+            schema_name="frinq_page2_evidence_v1", schema=STAGE1_SCHEMA,
+            max_output_tokens=_STAGE1_BASE_TOKENS,
+            safety_id=safety_id, usage_recorder=usage_recorder,
+        )
+        stage1_errors = validate_stage1(stage1, source)
+        if not stage1_errors:
+            break
+        logger.warning("page2.stage1_invalid", attempt=attempt, errors=stage1_errors)
     if stage1_errors:
-        logger.warning("page2.stage1_invalid", errors=stage1_errors)
         raise ValueError("Page 2 evidence validation failed: " + "; ".join(stage1_errors))
 
     taxonomy = rotated_taxonomy(submission_id)

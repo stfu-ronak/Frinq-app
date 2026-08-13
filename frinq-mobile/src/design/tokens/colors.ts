@@ -12,6 +12,9 @@
 export const palette = {
   maroon: '#621407',
   cream: '#FFFBF7',
+  // Screen/page background — distinct from `cream` (which stays a text/icon
+  // color on maroon surfaces) so this can change without touching that.
+  pageBg: '#FCF8F7',
   peach: '#FFE8D6',
   // Quiz progress wave: an unfilled track a shade lighter than `peach`, and
   // a filled portion a shade deeper — deliberately still soft, not the full
@@ -38,16 +41,18 @@ export const palette = {
   onNextStep: 'rgba(244,238,226,0.85)',
   // Summary/vibe-report palette (Figma "summary-v2" set) — the deck's cards
   // and the envelope reveal use warmer, deeper reds than the quiz chrome.
-  summaryCardBg: '#82201F', // deck card body
-  summaryCardWave: 'rgba(255,206,173,0.30)', // engraved wave border, lead card only
+  summaryCardBg: '#82201F', // deck card body (legacy single-tone fallback)
+  // Deck depth shades, lightest (front, most forward) to darkest (furthest
+  // back) — flat solid fills, no gradient/texture on the cards themselves.
+  summaryCardShade0: '#A8382F',
+  summaryCardShade1: '#8F2A22',
+  summaryCardShade2: '#7A2019',
+  summaryCardShade3: '#5C130D',
   summaryCardLabel: '#FFCEAD', // peach eyebrow label + share glyph on a card
-  summarySheen: '#7C1C0B', // radial highlight over the card body
-  summaryDotIdle: 'rgba(98,20,7,0.25)', // inactive deck pagination dot
-  summaryQuoteWash: 'rgba(98,20,7,0.05)', // tint behind the pull-quote block
   summarySealRed: '#86201B', // wax seal fill; also the hero card body + pull-quote text (Figma node 518:239)
-  summaryHeroFrame: '#FFFFD9', // pale-yellow frame around the lead hero card
-  summaryQuoteBoxBg: '#FFF4F3', // solid pale-pink box behind the pull-quote (Figma Rectangle 204)
-  summaryFieldNoteGray: '#737373', // masthead "friend field note no. NNN" caption
+  summaryQuoteBoxBg: '#FFF6F4', // pull-quote box gradient, left edge (pale pink)
+  summaryQuoteBoxBgDeep: '#F6DAD5', // pull-quote box gradient, right edge (dustier rose)
+  summaryQuoteBorder: '#D67A73', // pull-quote box's left accent border
   envelopePaper: '#E6E0D5', // envelope side flaps
   envelopePaperDeep: '#D9D0C2', // envelope bottom flap (darkest crease)
   envelopePaperLight: '#FBF9F5', // top flap highlight
@@ -68,7 +73,8 @@ export const color = {
     brown: palette.brown,
   },
   bg: {
-    canvas: palette.cream, // default screen background
+    canvas: palette.pageBg, // default screen background
+    box: palette.white, // solid input/box surfaces (text fields, OTP boxes, voice circle) — pure white, not the page's off-white
     surface: palette.peach, // action/card surfaces
     milestone: palette.maroon, // full-screen milestone states
     scrim: palette.scrim,
@@ -110,15 +116,12 @@ export const color = {
   /** Vibe-report summary screen: the card deck and the envelope reveal. */
   summary: {
     cardBg: palette.summaryCardBg,
-    cardWave: palette.summaryCardWave,
+    cardShades: [palette.summaryCardShade0, palette.summaryCardShade1, palette.summaryCardShade2, palette.summaryCardShade3] as const,
     cardLabel: palette.summaryCardLabel,
-    sheen: palette.summarySheen,
-    dotIdle: palette.summaryDotIdle,
-    quoteWash: palette.summaryQuoteWash,
     sealRed: palette.summarySealRed,
-    heroFrame: palette.summaryHeroFrame,
     quoteBoxBg: palette.summaryQuoteBoxBg,
-    fieldNoteGray: palette.summaryFieldNoteGray,
+    quoteBoxBgDeep: palette.summaryQuoteBoxBgDeep,
+    quoteBorder: palette.summaryQuoteBorder,
     envelopePaper: palette.envelopePaper,
     envelopePaperDeep: palette.envelopePaperDeep,
     envelopePaperLight: palette.envelopePaperLight,

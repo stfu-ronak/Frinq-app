@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { useQuery } from '@tanstack/react-query';
 import { ViewShotRef } from 'react-native-view-shot';
@@ -33,25 +33,14 @@ const GRID_GAP = 25;
 /** The four quick-read cards that follow the lead "your type" card, in order.
  *  Labels are the exact Page-2 design copy. */
 const QUICK_ROWS = [
-  { key: 'bring', label: 'what you bring to the table' },
-  { key: 'notice', label: 'what you notice about people' },
-  { key: 'connect', label: 'how you get close to people' },
-  { key: 'care', label: 'what you care about in friendship' },
+  { key: 'bring', label: 'you bring' },
+  { key: 'notice', label: 'you notice' },
+  { key: 'connect', label: 'you connect' },
+  { key: 'care', label: 'you care' },
 ] as const;
 
 function capitalize(text: string): string {
   return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : text;
-}
-
-/** Figma's masthead reads "friend field note no. 077" — a stamped dispatch
- *  number, not a real sequence we track anywhere. Deriving a stable 3-digit
- *  value from the submission id keeps the same read always showing the same
- *  number (so it doesn't look like a bug that reopening it changed) without
- *  inventing a counter this app has no reason to maintain. */
-function fieldNoteNumber(submissionId: string): string {
-  let hash = 0;
-  for (let i = 0; i < submissionId.length; i++) hash = (hash * 31 + submissionId.charCodeAt(i)) >>> 0;
-  return String((hash % 999) + 1).padStart(3, '0');
 }
 
 /**
@@ -73,6 +62,7 @@ type VibeReportScreenProps = {
 
 export function VibeReportScreen({ onContinue }: VibeReportScreenProps = {}) {
   const { width: windowWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { apiClient } = useSession();
   const reduced = useReducedMotion();
   const [submissionId, setSubmissionId] = useState<string | null>(null);
@@ -80,6 +70,22 @@ export function VibeReportScreen({ onContinue }: VibeReportScreenProps = {}) {
 
   const [reportMounted, setReportMounted] = useState(false);
   const [envelopeVisible, setEnvelopeVisible] = useState(true);
+  const [ctaSize, setCtaSize] = useState({ width: 0, height: 0 });
+  const [quoteSize, setQuoteSize] = useState({ width: 0, height: 0 });
+  // Explicit pixel width AND margin, not percentage width + alignItems/
+  // alignSelf centering: both resolved unpredictably through the
+  // Animated.View + heroSection negative-margin wrapper chain above this
+  // (once ~11% too wide and left-shifted, then still off-center even at the
+  // right width). Computing both numbers directly and applying them as a
+  // plain marginHorizontal sidesteps that chain's flex/percentage
+  // resolution entirely.
+  // The "bigger picture" reading paragraphs sitting flush against
+  // scrollContent's own 24dp padding read as too tight against the edge —
+  // 4% of the screen width extra, on top of that.
+  const readingInset = windowWidth * 0.04;
+  const heroContentWidth = windowWidth - spacing.xl * 2;
+  const heroCardWidth = Math.min(heroContentWidth * 0.9, 360);
+  const heroCardMargin = Math.max(0, (heroContentWidth - heroCardWidth) / 2);
 
   const headerIn = useSharedValue(0);
   const deckIn = useSharedValue(0);
@@ -140,14 +146,9 @@ export function VibeReportScreen({ onContinue }: VibeReportScreenProps = {}) {
     [query.data],
   );
 
-  // The hero card (Figma node 518:362) is its own static plaque, not the
-  // first page of the swipeable deck — see SummaryHeroCard's docstring. The
-  // deck itself now holds only the four quick-read cards below "what stands
-  // out about you".
-  const heroCard: SummaryCard | null = useMemo(
-    () => (data ? { key: 'type', label: 'your type', title: data.typeName, text: data.typeDefinition, shareCaption: data.shareCaption } : null),
-    [data],
-  );
+  // The hero card is its own static plaque, not the first page of the
+  // swipeable deck — see SummaryHeroCard's docstring. The deck itself only
+  // holds the four quick-read cards below "what stands out about you".
   const cards: SummaryCard[] = useMemo(() => {
     if (!data) return [];
     return QUICK_ROWS.map(({ key, label }) => ({
@@ -194,8 +195,12 @@ export function VibeReportScreen({ onContinue }: VibeReportScreenProps = {}) {
 
   return (
     <View style={styles.fill}>
+      {/* No 'bottom' edge: SafeAreaView's own bottom inset is padding
+          outside every child, so nothing paints there — the maroon CTA
+          block, meant to reach the true screen edge, stopped short of it
+          with a bare gap in between. nextStep adds the inset itself. */}
       {reportMounted && (
-        <SafeAreaView style={styles.fill} edges={['top', 'bottom', 'left', 'right']}>
+        <SafeAreaView style={styles.fill} edges={['top', 'left', 'right']}>
           {/* Faint vertical rules behind everything — the design's ruled-paper
               ground. Spacing is fixed in dp (not a fraction of the width) so
               the texture reads the same on a 360dp phone and a 430dp one. */}
@@ -207,26 +212,24 @@ export function VibeReportScreen({ onContinue }: VibeReportScreenProps = {}) {
             </Svg>
           </View>
           <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            <Animated.View style={headerStyle}>
-              {/* Masthead: wordmark left, field-note number right. */}
-              <View style={styles.masthead}>
+            <View style={styles.heroSection}>
+              <Animated.View style={headerStyle}>
                 <BrandHeading variant="display" tone="brand" style={styles.wordmark}>frinq</BrandHeading>
-                <BodyText style={styles.fieldNote}>friend field note no. {fieldNoteNumber(submissionId ?? '')}</BodyText>
-              </View>
-              {/* Lowercase throughout — the design's editorial voice. */}
-              <BrandHeading variant="display" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={styles.greeting}>
-                hey {(data.firstName || 'friend').toLowerCase()},
-              </BrandHeading>
-              <BodyText variant="intro" tone="secondary" style={styles.subcopy}>
-                here&apos;s your quick read.
-              </BodyText>
-            </Animated.View>
-
-            {!!heroCard && (
-              <Animated.View style={[styles.hero, headerStyle]}>
-                <SummaryHeroCard typeName={heroCard.title ?? ''} typeDefinition={heroCard.text} />
+                {/* Lowercase throughout — the design's editorial voice. Sans,
+                    not Borel: the script face is reserved for the "frinq"
+                    wordmark and small section headings, not body headlines. */}
+                <BrandHeading variant="title" tone="brand" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.greeting}>
+                  hey {(data.firstName || 'friend').toLowerCase()},
+                </BrandHeading>
+                <BodyText variant="intro" tone="secondary" style={styles.subcopy}>
+                  here&apos;s your quick read.
+                </BodyText>
               </Animated.View>
-            )}
+
+              <Animated.View style={[styles.hero, headerStyle, { marginHorizontal: heroCardMargin }]}>
+                <SummaryHeroCard typeName={data.typeName} typeDefinition={data.typeDefinition} width={heroCardWidth} />
+              </Animated.View>
+            </View>
 
             <Animated.View style={[styles.deck, deckStyle]}>
               <BrandHeading variant="display" tone="brand" numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.standsOut}>
@@ -237,30 +240,71 @@ export function VibeReportScreen({ onContinue }: VibeReportScreenProps = {}) {
 
             <Animated.View style={portraitStyle}>
               {!!data.detailedOpening && (
-                <View style={styles.pullQuote}>
+                <View
+                  style={styles.pullQuote}
+                  onLayout={(e) => setQuoteSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
+                >
+                  {/* Explicit pixel size for the same reason as the CTA
+                      gradient below: percentage-sized absoluteFill SVGs
+                      inside a content-driven-height box measure short on
+                      Android. */}
+                  {quoteSize.height > 0 && (
+                    <Svg style={StyleSheet.absoluteFill} width={quoteSize.width} height={quoteSize.height} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+                      <Defs>
+                        <LinearGradient id="pullQuote" x1="0" y1="0" x2="1" y2="0">
+                          <Stop offset="0" stopColor={color.summary.quoteBoxBg} stopOpacity={1} />
+                          <Stop offset="1" stopColor={color.summary.quoteBoxBgDeep} stopOpacity={1} />
+                        </LinearGradient>
+                      </Defs>
+                      <Rect x={0} y={0} width={quoteSize.width} height={quoteSize.height} fill="url(#pullQuote)" />
+                    </Svg>
+                  )}
                   <BodyText style={styles.pullQuoteText}>{capitalize(data.detailedOpening)}</BodyText>
                 </View>
               )}
 
-              <BodyText style={styles.sectionLabel}>the bigger picture</BodyText>
+              {/* Extra inset on top of scrollContent's own 24dp: the long
+                  reading paragraphs sitting flush against that alone read as
+                  too tight against the edge for a body-text measure. */}
+              <BodyText style={{ ...styles.sectionLabel, paddingHorizontal: readingInset }}>the bigger picture</BodyText>
               {data.portrait.map((paragraph, i) => (
-                <BodyText key={i} style={styles.paragraph}>{capitalize(paragraph)}</BodyText>
+                <BodyText key={i} style={{ ...styles.paragraph, paddingHorizontal: readingInset }}>{capitalize(paragraph)}</BodyText>
               ))}
-              {/* Closing block, mirroring the web's "the next step" card —
-                  minus its "reserve a seat … your details are already filled
-                  in" copy and its two-button reserve/dismiss row. One
-                  Continue, which is the only thing this app does next. */}
-              <View style={styles.nextStep}>
-                <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-                  <Defs>
-                    <LinearGradient id="nextStep" x1="0" y1="0" x2="0" y2="1">
-                      <Stop offset="0" stopColor={color.summary.nextStepTop} stopOpacity={0} />
-                      <Stop offset="0.635" stopColor={color.summary.nextStepBottom} stopOpacity={1} />
-                      <Stop offset="1" stopColor={color.summary.nextStepBottom} stopOpacity={1} />
-                    </LinearGradient>
-                  </Defs>
-                  <Rect x="0" y="0" width="100%" height="100%" fill="url(#nextStep)" />
-                </Svg>
+            </Animated.View>
+            {/* Closing block, mirroring the web's "the next step" card — kept
+                to one centered Continue rather than its two-button reserve/
+                dismiss row: there's no reservation flow behind this app yet,
+                so a single hand-off is the honest action.
+                A plain View, not nested inside the Animated.View above (and
+                without its own fade-in): a width wider than its container,
+                from inside a Reanimated Animated.View, measured as if the
+                extra width had no effect at all — the same class of bug as
+                the hero card's percentage width, but this time even an
+                explicit number inside that wrapper chain didn't survive it.
+                Bleeding as a plain view avoids it entirely. */}
+            <View
+              style={[styles.nextStep, { width: windowWidth, marginLeft: -spacing.xl, paddingBottom: 34 + spacing.xxxl + insets.bottom }]}
+              onLayout={(e) => setCtaSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
+            >
+                {/* Explicit pixel width/height, not "100%": this box's height
+                    is content-driven (the eyebrow/title/subcopy/button stack
+                    it, no fixed height), and an absoluteFill SVG sized by
+                    percentage inside an intrinsically-sized parent measured
+                    smaller than the parent on Android — the gradient (and
+                    its dark fill) stopped short of the real box, leaving the
+                    subcopy sitting on the bare page background. */}
+                {ctaSize.height > 0 && (
+                  <Svg style={StyleSheet.absoluteFill} width={ctaSize.width} height={ctaSize.height} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+                    <Defs>
+                      <LinearGradient id="nextStep" x1="0" y1="0" x2="0" y2="1">
+                        <Stop offset="0" stopColor={color.summary.nextStepTop} stopOpacity={0} />
+                        <Stop offset="0.635" stopColor={color.summary.nextStepBottom} stopOpacity={1} />
+                        <Stop offset="1" stopColor={color.summary.nextStepBottom} stopOpacity={1} />
+                      </LinearGradient>
+                    </Defs>
+                    <Rect x={0} y={0} width={ctaSize.width} height={ctaSize.height} fill="url(#nextStep)" />
+                  </Svg>
+                )}
                 <BodyText style={styles.nextStepEyebrow}>THE NEXT STEP</BodyText>
                 <BrandHeading variant="title" numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.nextStepTitle}>
                   want to meet people{`
@@ -270,7 +314,6 @@ export function VibeReportScreen({ onContinue }: VibeReportScreenProps = {}) {
                   <PrimaryButton label="Continue" onPress={onContinue} variant="secondary" style={styles.continueButton} />
                 )}
               </View>
-            </Animated.View>
           </ScrollView>
         </SafeAreaView>
       )}
@@ -280,7 +323,8 @@ export function VibeReportScreen({ onContinue }: VibeReportScreenProps = {}) {
         <View style={styles.envelopeOverlay}>
           <SummaryEnvelopeFlow
             firstName={data.firstName}
-            cards={heroCard ? [heroCard, ...cards] : cards}
+            typeName={data.typeName}
+            typeDefinition={data.typeDefinition}
             onRevealStart={() => setReportMounted(true)}
             onRevealComplete={() => setEnvelopeVisible(false)}
           />
@@ -291,45 +335,81 @@ export function VibeReportScreen({ onContinue }: VibeReportScreenProps = {}) {
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1, backgroundColor: color.bg.canvas },
+  // White below the hero backdrop — heroSection paints its own maroon wash
+  // over the top of this.
+  fill: { flex: 1, backgroundColor: color.bg.box },
   envelopeOverlay: { ...StyleSheet.absoluteFill, zIndex: 100 },
-  scrollContent: { paddingHorizontal: spacing.xl, paddingTop: spacing.xl, paddingBottom: spacing.xxxl },
+  // No paddingBottom: nextStep is the last thing on the page and needs to
+  // paint its maroon all the way to the bottom edge — its own paddingBottom
+  // supplies the equivalent breathing room, inside the colored box instead
+  // of as a bare-page-background gap after it.
+  scrollContent: { paddingHorizontal: spacing.xl },
+  // Bleeds full-width past scrollContent's own horizontal padding (negative
+  // margin exactly cancels it), then reapplies the same inset for its
+  // content so the wordmark/greeting/card line up exactly as before.
+  heroSection: {
+    marginHorizontal: -spacing.xl,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.xxxl + spacing.xl,
+    backgroundColor: color.bg.canvas,
+  },
+  // Full-bleed to the bottom of the page — no radius, and paddingBottom
+  // reaches past the safe-area inset so the maroon fill (not the bare page
+  // background) is the last thing before the screen edge. Width/marginLeft
+  // are applied inline as explicit pixel values (see the JSX) rather than
+  // marginHorizontal here: a negative margin one level inside the
+  // Animated.View wrapper above this measured as if it had no effect at
+  // all, the same class of issue the hero card and heroSection bleed hit.
   nextStep: {
-    marginTop: spacing.xxxl,
-    borderRadius: radius.lg,
+    marginTop: spacing.xxxl + spacing.xl,
     overflow: 'hidden',
     alignItems: 'center',
     paddingHorizontal: 26,
-    paddingVertical: 34,
+    paddingTop: 34,
+    // paddingBottom is set inline (see JSX) — it needs the device's actual
+    // safe-area bottom inset added in.
   },
   nextStepEyebrow: { fontFamily: fontFamily.bodyMedium, fontSize: 11, letterSpacing: 1, color: color.summary.onNextStep },
   nextStepTitle: { marginTop: spacing.md, fontSize: 26, lineHeight: 34, textAlign: 'center', color: color.brand.cream },
   continueButton: { width: '100%', marginTop: spacing.xl },
-  masthead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   wordmark: { fontSize: 22, lineHeight: 34 },
-  fieldNote: { fontFamily: fontFamily.bodyLight, fontSize: 11, letterSpacing: 0.4, color: color.text.muted },
-  standsOut: { fontSize: 24, lineHeight: 34, textAlign: 'center', marginBottom: spacing.xl },
-  // lineHeight well above fontSize — Borel's ascenders/descenders clip
-  // otherwise. 36/54 matches the Figma greeting exactly (36px, #621407).
-  greeting: { marginTop: spacing.sm, fontSize: 36, lineHeight: 54 },
+  // Extra clearance below the heading: the back cards in the stack peek up
+  // to 60dp above the front card (3 depths x 20dp) — a plain spacing.xl left
+  // them crowding the heading text.
+  standsOut: { fontSize: 24, lineHeight: 34, textAlign: 'center', marginBottom: spacing.xxxl + spacing.sm },
+  greeting: { marginTop: spacing.sm, fontSize: 30, lineHeight: 38 },
   // Figma's second line is a lighter brown (#725f55, tone="secondary" already
   // resolves close to that), 16px.
   subcopy: { marginTop: spacing.xs, fontSize: 16 },
   hero: { marginTop: spacing.xxl },
-  deck: { marginTop: spacing.xxxl, marginBottom: spacing.xxxl },
-  // Figma (562:2217/562:2219): a plain rounded box, solid pale pink, no rule —
-  // the previous left-border/wash treatment wasn't in the design.
+  deck: { marginTop: spacing.xxxl + spacing.xl, marginBottom: spacing.xxxl },
   pullQuote: {
-    marginTop: spacing.lg,
+    marginTop: spacing.xxl,
     borderRadius: radius.md,
+    overflow: 'hidden',
+    borderLeftWidth: 2,
+    borderLeftColor: color.summary.quoteBorder,
     paddingVertical: spacing.lg,
     paddingHorizontal: spacing.xl,
-    backgroundColor: color.summary.quoteBoxBg,
   },
   pullQuoteText: { fontFamily: fontFamily.bodyMedium, fontSize: 22, lineHeight: 30, color: color.summary.sealRed },
   // Figma: Motive (our Borel display face), #86201b, 13px — bumped to 15 for
   // real-device legibility; the reference's 13px is measured off a design
   // canvas, not a floor for actual body type.
-  sectionLabel: { marginTop: spacing.xxl, fontFamily: fontFamily.display, fontSize: 15, color: color.summary.sealRed },
+  // Borel (fontFamily.display) is a script face whose loops overshoot a
+  // normal line box in BOTH directions — the 'b'/'th' ascenders above and the
+  // 'g'/'p' descenders below. At a default lineHeight "the bigger picture"
+  // was cropped top and bottom. ~2x lineHeight plus explicit vertical padding
+  // gives the glyphs their real room; same fix as the quiz's contextLine.
+  sectionLabel: {
+    marginTop: spacing.xxxl,
+    fontFamily: fontFamily.display,
+    fontSize: 15,
+    lineHeight: 30,
+    paddingTop: 6,
+    paddingBottom: 6,
+    color: color.summary.sealRed,
+  },
   paragraph: { marginTop: spacing.md, fontSize: 15, lineHeight: 24, color: color.text.primary },
 });

@@ -206,7 +206,7 @@ describe('VibeReportScreen', () => {
     const { findByRole } = renderScreen();
     fireEvent.press(await findByRole('button', { name: /open your friend read/i }));
 
-    fireEvent.press(await findByRole('button', { name: /share this card: what you bring to the table/i }));
+    fireEvent.press(await findByRole('button', { name: /share this card: you bring/i }));
 
     await waitFor(() =>
       expect(mockShareVibeCard).toHaveBeenCalledWith(

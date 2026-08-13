@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { QuizScreenFrame } from '../../components/QuizScreenFrame';
 import { TextField } from '../../../../design/components/TextField';
@@ -6,7 +6,7 @@ import { BodyText, BrandHeading } from '../../../../design/components/Text';
 import { fontFamily } from '../../../../design/tokens/typography';
 import { color } from '../../../../design/tokens/colors';
 import { spacing } from '../../../../design/tokens/spacing';
-import { VoiceOrTextStep } from '../../domain/quizDefinition';
+import { VOICE_ANSWER_PLACEHOLDER, VoiceOrTextStep } from '../../domain/quizDefinition';
 import { VoiceAnswer } from '../../components/VoiceAnswer';
 
 type Props = {
@@ -40,7 +40,31 @@ type Props = {
  */
 export function VoiceOrTextTemplate({ step, submissionId, value, onChange, onContinue, onBack, stepIdOverride, subIndex, contextLine }: Props) {
   const [hasRecording, setHasRecording] = useState(false);
+  const isPlaceholder = value === VOICE_ANSWER_PLACEHOLDER;
   const valid = value.trim().length > 0 || hasRecording;
+
+  // A saved recording must write a real VALUE into the answers dict, not just
+  // flip local state. QuizSubmissionService.finalize() requires every answer
+  // key to be present and bails out WITHOUT any network call if one is
+  // missing — so a voice-only answer used to leave its key absent and made
+  // the entire quiz unsubmittable at the final step. The sentinel is the
+  // backend's own _VOICE_PLACEHOLDER, which build_page2_input already
+  // replaces with the Whisper transcript (and skips when there isn't one).
+  const handleRecordingStatus = useCallback(
+    (has: boolean) => {
+      setHasRecording(has);
+      if (has) {
+        // Never clobber something the user actually typed — the typed text is
+        // the better answer, and the clip is uploaded independently anyway.
+        if (value.trim().length === 0) onChange(VOICE_ANSWER_PLACEHOLDER);
+      } else if (value === VOICE_ANSWER_PLACEHOLDER) {
+        // Recording deleted and nothing typed: drop the sentinel rather than
+        // submitting a placeholder that stands for no audio at all.
+        onChange('');
+      }
+    },
+    [value, onChange],
+  );
   return (
     <QuizScreenFrame
       stepId={stepIdOverride ?? step.id}
@@ -61,25 +85,31 @@ export function VoiceOrTextTemplate({ step, submissionId, value, onChange, onCon
           {step.heading}
         </BrandHeading>
         {!!step.subtext && (
-          <BodyText variant="body" tone="secondary" numberOfLines={2} style={styles.subtext}>
+          <BodyText variant="body" tone="secondary" numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.subtext}>
             {step.subtext}
           </BodyText>
         )}
         {!!contextLine && (
           // Borel's tall ascenders/loops overflow a tight line box and get
           // clipped at the top — lineHeight well above fontSize plus explicit
-          // padding gives them room instead.
-          <BodyText tone="muted" numberOfLines={2} style={styles.contextLine}>
+          // padding gives them room instead. contextLine echoes a
+          // previously-picked option of arbitrary length, so it also needs
+          // adjustsFontSizeToFit — the fixed 2-line cap alone just hard-
+          // truncated a long pick with no fallback.
+          <BodyText tone="muted" numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.contextLine}>
             {contextLine}
           </BodyText>
         )}
       </View>
-      <VoiceAnswer submissionId={submissionId} questionKey={step.answerKey} onStatusChange={setHasRecording} />
+      <VoiceAnswer submissionId={submissionId} questionKey={step.answerKey} onStatusChange={handleRecordingStatus} />
       <View style={styles.divider} />
       <TextField
         label={step.heading}
         hideLabel
-        value={value}
+        // The sentinel is a storage detail, never user-facing copy — show an
+        // empty box so the placeholder prompt stays visible and typing
+        // replaces the sentinel rather than appending to it.
+        value={isPlaceholder ? '' : value}
         onChangeText={onChange}
         placeholder={step.placeholder}
         multiline

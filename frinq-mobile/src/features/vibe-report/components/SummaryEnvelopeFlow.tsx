@@ -14,7 +14,7 @@ import { color } from '../../../design/tokens/colors';
 import { radius, spacing } from '../../../design/tokens/spacing';
 import { fontFamily } from '../../../design/tokens/typography';
 import { useReducedMotion } from '../../../design/motion/useReducedMotion';
-import { SummaryCardStack, SummaryCard } from './SummaryCardStack';
+import { SummaryHeroCard } from './SummaryHeroCard';
 
 /** Total sequence length; each beat below is expressed as an offset into it,
  *  mirroring the web original's keyframe fractions of its 3600ms timeline. */
@@ -43,6 +43,11 @@ const APEX_Y = 52;
 const ENVELOPE_ASPECT = 345 / 267;
 /** The deck's inset from the top of the envelope scene (web: top 16%). */
 const DECK_TOP_FRACTION = 0.16;
+/** Card width as a fraction of the envelope. Slightly narrower than the
+ *  envelope, like a real letter inside its sleeve. Read together with the
+ *  centring at the call site — size and offset must always change as a pair,
+ *  or the card drifts off the envelope's middle. */
+const CARD_W_FRACTION = 0.86;
 /** Gap between the intro copy and the envelope, closed as it opens. */
 const SCENE_GAP = 48;
 /** Web uses 150vmax for the wash circle. */
@@ -99,7 +104,8 @@ function WaxSeal() {
 
 type Props = {
   firstName: string;
-  cards: SummaryCard[];
+  typeName: string;
+  typeDefinition: string;
   /** Fires as the card clears the envelope, while the scene is still fading —
    *  the report mounts underneath so there's no blank frame between them. */
   onRevealStart: () => void;
@@ -120,7 +126,7 @@ type Props = {
  * `withDelay(withTiming(...))` chains, since Reanimated has no keyframe-array
  * equivalent.
  */
-export function SummaryEnvelopeFlow({ firstName, cards, onRevealStart, onRevealComplete }: Props) {
+export function SummaryEnvelopeFlow({ firstName, typeName, typeDefinition, onRevealStart, onRevealComplete }: Props) {
   const reduced = useReducedMotion();
   const [opening, setOpening] = useState(false);
   const [pocketOpen, setPocketOpen] = useState(false);
@@ -134,6 +140,13 @@ export function SummaryEnvelopeFlow({ firstName, cards, onRevealStart, onRevealC
   // read the same on a small phone and a large one.
   const deckHeight = useSharedValue(0);
   const sceneHeight = useSharedValue(0);
+  // Plain state, not a shared value: only used to compute deckHolder's own
+  // explicit width/left below, never read from a worklet. deckHolder's
+  // width:'78%'/left:'11%' resolved against the wrong box once it became an
+  // Animated.View (deckStyle) — the same class of bug as the hero card's
+  // percentage width elsewhere in this screen, here making the card come out
+  // measurably too far right and clipped against the envelope's own edge.
+  const [sceneWidth, setSceneWidth] = useState(0);
   // Measured, because the flap's hinge maths needs its real pixel height.
   const flapHeight = useSharedValue(0);
 
@@ -287,7 +300,11 @@ export function SummaryEnvelopeFlow({ firstName, cards, onRevealStart, onRevealC
   return (
     <View style={styles.root}>
       <Animated.View style={[styles.intro, introStyle]}>
-        <BodyText style={styles.greeting}>Hi {firstName || 'friend'},</BodyText>
+        {/* Lowercase "hi" to match the name beside it: firstNameOf()
+            deliberately lowercases (the summary's whole voice is lowercase —
+            "hey dhairya", "the initiator"), so a capital "Hi" next to a
+            lowercase name read as a casing bug rather than a style. */}
+        <BodyText style={styles.greeting}>hi {firstName || 'friend'},</BodyText>
         <BrandHeading variant="display" tone="brand" numberOfLines={3} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.headline}>
           Frinq has read between your lines.
         </BrandHeading>
@@ -298,7 +315,10 @@ export function SummaryEnvelopeFlow({ firstName, cards, onRevealStart, onRevealC
 
       <Animated.View
         style={[styles.scene, sceneStyle]}
-        onLayout={(e) => { sceneHeight.value = e.nativeEvent.layout.height; }}
+        onLayout={(e) => {
+          sceneHeight.value = e.nativeEvent.layout.height;
+          setSceneWidth(e.nativeEvent.layout.width);
+        }}
       >
         <Animated.View style={[styles.glow, glowStyle]} pointerEvents="none">
           <EnvelopeGlow />
@@ -313,10 +333,40 @@ export function SummaryEnvelopeFlow({ firstName, cards, onRevealStart, onRevealC
             never appear below the envelope. */}
         <View style={styles.deckWindow} pointerEvents="none">
           <Animated.View
-            style={[styles.deckHolder, deckStyle]}
+            // Centred on the envelope: (1 - 0.67) / 2.
+            //
+            // This was previously a tiny left offset, tuned by eye to make the
+            // card LOOK centred — but it was compensating for a rendering bug
+            // (the plaque image ignored its box, drew ~1.4x too wide and
+            // re-centred itself on the screen). With the image fixed to
+            // explicit pixels the box and the visible card finally coincide,
+            // so honest centring is both correct and what actually looks
+            // right. Don't reintroduce an eyeball offset here.
+            style={[
+              styles.deckHolder,
+              deckStyle,
+              sceneWidth > 0 && { width: sceneWidth * CARD_W_FRACTION, left: (sceneWidth * (1 - CARD_W_FRACTION)) / 2 },
+            ]}
             onLayout={(e) => { deckHeight.value = e.nativeEvent.layout.height; }}
           >
-            <SummaryCardStack cards={cards} interactive={false} />
+            {/* Rendered only once the scene has been measured. Passing
+                width={undefined} on the first frame sent the card down its
+                own fallback path (a windowWidth * 0.7 guess plus a '100%'
+                frame), which is WIDER than this holder — the card overflowed
+                and its centred text ended up offset from the card's real
+                centre. There is nothing to show before the envelope opens
+                anyway, so waiting for the measurement costs nothing. */}
+            {sceneWidth > 0 && (
+              <SummaryHeroCard
+                typeName={typeName}
+                typeDefinition={typeDefinition}
+                width={sceneWidth * CARD_W_FRACTION}
+                // Name only during the reveal — the definition would be
+                // unreadable in a ~1s beat, and half of it sits behind the
+                // envelope anyway. The report page renders the full card.
+                titleOnly
+              />
+            )}
           </Animated.View>
         </View>
 

@@ -18,13 +18,34 @@ jest.mock('react-native-reanimated', () => {
     View,
     useSharedValue: (initial) => ({ value: initial }),
     useAnimatedStyle: () => ({}),
-    withTiming: identity,
+    // Fires the completion callback synchronously with finished=true, so
+    // code that commits state from an animation's own callback (rather than
+    // a parallel timer) still progresses under test. Without this the
+    // callback form silently never resolves.
+    withTiming: (value, _config, callback) => {
+      if (typeof callback === 'function') callback(true);
+      return value;
+    },
+    // On the real thing this schedules fn on the JS thread from a worklet;
+    // in tests everything is already the JS thread, so hand back fn itself.
+    runOnJS: (fn) => fn,
     withDelay: (_delay, value) => value,
     withSpring: identity,
     withRepeat: (value) => value,
     withSequence: (...values) => values[values.length - 1],
     interpolateColor: (_v, _input, output) => output[output.length - 1],
-    Easing: { bezier: () => identity, linear: identity, ease: identity },
+    Easing: {
+      bezier: () => identity,
+      linear: identity,
+      ease: identity,
+      // Easing combinators take an easing fn and return one — the mock's
+      // easings are all identity, so hand identity straight back.
+      inOut: () => identity,
+      in: () => identity,
+      out: () => identity,
+      quad: identity,
+      cubic: identity,
+    },
   };
 });
 

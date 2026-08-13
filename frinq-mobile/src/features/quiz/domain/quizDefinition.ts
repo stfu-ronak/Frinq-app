@@ -185,6 +185,18 @@ export type QuizStep =
   | SliderStep
   | VoiceOrTextStep;
 
+/** Stored as the answer value when a question is answered by VOICE ONLY, with
+ *  no typed text. It marks "there is a recording for this key" so the answer
+ *  is present (finalize requires every key) without inventing text the user
+ *  never wrote.
+ *
+ *  MUST stay byte-identical to the backend's `_VOICE_PLACEHOLDER` in
+ *  app/core/ai/page2_summary.py — build_page2_input swaps it for the Whisper
+ *  transcript, and drops the answer entirely when no transcript exists, so a
+ *  mismatch here would feed the literal sentinel to the model as if it were
+ *  the user's own words. */
+export const VOICE_ANSWER_PLACEHOLDER = '[voice response]';
+
 // ---------------------------------------------------------------------------
 // The compiled step list — linear order, verified against the web reference's
 // actual router.push/nextHref targets. No conditional branching exists in the
@@ -245,10 +257,10 @@ export const DEFAULT_CONTENT_STEPS: readonly QuizStep[] = [
     allowCustom: true, customPlaceholder: 'vintage collecting, fermenting things...',
     options: [
       'vintage collecting', 'urban exploring', 'hot sauce making', 'competitive crosswords', 'foraging',
-      'rewatching shows', 'solving puzzles', 'open mics', 'zine-making', 'dumpster diving for gems',
+      'rewatching shows', 'solving puzzles', 'open mics', 'zine-making', 'bonsai', 'dumpster diving for gems',
       'astrology deep dives', 'learning accents', 'thrifting', 'film photography', 'journaling',
       'meme archaeology', 'niche wikipedia rabbit holes', 'community radio', 'amateur astronomy',
-      'fermenting things', 'bonsai', 'escape rooms', 'speedrunning games',
+      'fermenting things', 'escape rooms', 'speedrunning games',
     ],
   },
   {
@@ -478,10 +490,15 @@ export function previousStep(id: StepId): StepId | null {
  *  screen = one question. Rapid Fire re-renders once per pair (one screen
  *  per question); Opinions re-renders once per pick PLUS once more per
  *  pair that has a whyPrompt follow-up (each pick and each why-follow-up is
- *  now its own counted screen, not batched under one number). */
+ *  now its own counted screen, not batched under one number); Preferences
+ *  re-renders once per slider — same pattern, previously missed here, which
+ *  left every slider screen reporting the SAME "Question N" (subIndex had
+ *  nowhere to go, clamped to a single unit) and undercounted the total by
+ *  the other 3 sliders. */
 function unitsForStep(s: QuizStep): number {
   if (s.kind === 'rapidFire') return s.pairs.length;
   if (s.kind === 'opinions') return s.pairs.length + s.pairs.filter((p) => p.whyPrompt).length;
+  if (s.kind === 'preferences') return s.sliders.length;
   return 1;
 }
 

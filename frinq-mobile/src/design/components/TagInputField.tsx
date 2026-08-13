@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ScrollView, StyleSheet, TextInput, View, ViewStyle } from 'react-native';
 import { color } from '../tokens/colors';
 import { radius, spacing, touchTarget } from '../tokens/spacing';
-import { typeScale } from '../tokens/typography';
+import { fontFamily } from '../tokens/typography';
 import { BodyText } from './Text';
 import { PressableScale } from '../motion/PressableScale';
 
@@ -77,7 +77,11 @@ const styles = StyleSheet.create({
   container: { width: '100%' },
   line: { borderBottomWidth: 1 },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: touchTarget.min, paddingVertical: spacing.xxs },
+  // Same font/padding/height as ChoicePill's own chip — this is an echo of
+  // an option picked there (or an equivalent typed-in entry), so it should
+  // read as the identical size of "answer", not a differently-scaled copy.
   tag: {
+    minHeight: touchTarget.min - 2,
     backgroundColor: color.state.selected,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.sm,
@@ -85,14 +89,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Same size as the input text (typeScale.body) — a chip reads as "this is
-  // one of your answers", not a caption/footnote, so it shouldn't be smaller.
-  tagText: { color: color.text.onMaroon, ...typeScale.body, lineHeight: 22 },
+  tagText: { color: color.text.onMaroon, fontFamily: fontFamily.bodyLight, fontSize: 14, lineHeight: 20 },
   input: {
     minWidth: 120,
     textAlignVertical: 'center',
     color: color.text.primary,
-    ...typeScale.body,
-    lineHeight: 22,
+    fontFamily: fontFamily.bodyLight,
+    fontSize: 14,
+    lineHeight: 20,
   },
 });

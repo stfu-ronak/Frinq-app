@@ -119,3 +119,34 @@ async def test_ownership_checked_before_format_sniff(client: AsyncClient, fake_p
         files={"audio": ("clip.webm", b"not-a-real-container", "audio/webm")},
     )
     assert response.status_code == 404
+
+
+async def test_delete_removes_the_clip(client: AsyncClient, fake_pool: FakePool) -> None:
+    sid = uuid4()
+    _own_submission(fake_pool, sid)
+
+    response = await client.request(
+        "DELETE", "/api/v1/voice", params={"submission_id": str(sid), "question_key": "q1"},
+    )
+    assert response.status_code == 204
+    delete_queries = [q for q, _ in fake_pool.store.queries if q.strip().startswith("DELETE FROM voice_clips")]
+    assert len(delete_queries) == 1
+
+
+async def test_delete_404s_for_a_submission_that_is_not_the_caller_s(client: AsyncClient, fake_pool: FakePool) -> None:
+    fake_pool.store.fetchrow_handler = lambda query, args: None
+
+    response = await client.request(
+        "DELETE", "/api/v1/voice", params={"submission_id": str(uuid4()), "question_key": "q1"},
+    )
+    assert response.status_code == 404
+
+
+async def test_delete_rejects_invalid_question_key(client: AsyncClient, fake_pool: FakePool) -> None:
+    sid = uuid4()
+    _own_submission(fake_pool, sid)
+
+    response = await client.request(
+        "DELETE", "/api/v1/voice", params={"submission_id": str(sid), "question_key": "../etc"},
+    )
+    assert response.status_code == 400

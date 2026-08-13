@@ -12,7 +12,7 @@ describe('color tokens', () => {
   });
 
   it('maps semantic roles onto the brand palette', () => {
-    expect(color.bg.canvas).toBe(palette.cream);
+    expect(color.bg.canvas).toBe(palette.pageBg); // page background, distinct from `cream` (still a text/icon color)
     expect(color.bg.milestone).toBe(palette.maroon);
     expect(color.text.primary).toBe(palette.brown);
     expect(color.text.onMaroon).toBe(palette.cream);

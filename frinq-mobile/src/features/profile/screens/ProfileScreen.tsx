@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import Svg, { Path, Rect } from 'react-native-svg';
 import { Screen } from '../../../design/components/Screen';
 import { BodyText, BrandHeading } from '../../../design/components/Text';
 import { ErrorState } from '../../../design/components/ErrorState';
@@ -33,23 +33,20 @@ function RuledGround({ width }: { width: number }) {
   );
 }
 
-/** Settings, as a labelled pill rather than a bare 22px gear floating in the
- *  corner. The glyph alone was a generic control with no relationship to the
- *  rest of the app's language; pairing it with the word and the same outlined-
- *  pill shape the quiz uses for every other choice makes it belong here. */
+/** Icon-only settings glyph — no pill, no label. A prior version drew the
+ *  gear's teeth as thin straight radiating lines, which reads as a sun/
+ *  brightness toggle rather than settings; this is an actual gear outline
+ *  (a ring with real notched teeth around it) in solid maroon so it's
+ *  unambiguous and doesn't wash out against the cream background. */
 function SettingsButton({ onPress }: { onPress: () => void }) {
   return (
-    <PressableScale accessibilityRole="button" accessibilityLabel="settings" onPress={onPress} style={styles.settingsPill}>
-      <Svg width={16} height={16} viewBox="0 0 22 22" accessibilityElementsHidden importantForAccessibility="no">
-        <Circle cx={11} cy={11} r={3.2} stroke={color.brand.maroon} strokeWidth={1.6} fill="none" />
+    <PressableScale accessibilityRole="button" accessibilityLabel="settings" onPress={onPress} style={styles.settingsIcon}>
+      <Svg width={24} height={24} viewBox="0 0 24 24" accessibilityElementsHidden importantForAccessibility="no">
         <Path
-          d="M11 1.5V4M11 18V20.5M20.5 11H18M4 11H1.5M17.6 4.4L15.8 6.2M6.2 15.8L4.4 17.6M17.6 17.6L15.8 15.8M6.2 6.2L4.4 4.4"
-          stroke={color.brand.maroon}
-          strokeWidth={1.6}
-          strokeLinecap="round"
+          fill={color.brand.maroon}
+          d="M19.14,12.94c0.04,-0.3,0.06,-0.61,0.06,-0.94c0,-0.32,-0.02,-0.64,-0.07,-0.94l2.03,-1.58c0.18,-0.14,0.23,-0.41,0.12,-0.61l-1.92,-3.32c-0.12,-0.22,-0.37,-0.29,-0.59,-0.22l-2.39,0.96c-0.5,-0.38,-1.03,-0.7,-1.62,-0.94L14.4,2.81c-0.04,-0.24,-0.24,-0.41,-0.48,-0.41h-3.84c-0.24,0,-0.43,0.17,-0.47,0.41L9.25,5.35c-0.59,0.24,-1.13,0.57,-1.62,0.94L5.24,5.33c-0.22,-0.08,-0.47,0,-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.82,11.69,4.82,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14,-0.23,0.41,-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39,-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44,-0.17,0.47,-0.41l0.36,-2.54c0.59,-0.24,1.13,-0.56,1.62,-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59,-0.22l1.92,-3.32c0.12,-0.22,0.07,-0.47,-0.12,-0.61L19.14,12.94z M12,15.6c-1.98,0,-3.6,-1.62,-3.6,-3.6s1.62,-3.6,3.6,-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"
         />
       </Svg>
-      <BodyText style={styles.settingsLabel}>settings</BodyText>
     </PressableScale>
   );
 }
@@ -178,17 +175,12 @@ export function ProfileScreen() {
 const styles = StyleSheet.create({
   masthead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xxl },
   wordmark: { fontSize: 22, lineHeight: 34 },
-  settingsPill: {
-    flexDirection: 'row',
+  settingsIcon: {
+    width: touchTarget.min,
+    height: touchTarget.min,
     alignItems: 'center',
-    gap: spacing.xs,
-    minHeight: touchTarget.min,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: color.border.pill,
+    justifyContent: 'center',
   },
-  settingsLabel: { fontFamily: fontFamily.bodyLight, fontSize: 13, color: color.brand.maroon },
   eyebrow: { fontFamily: fontFamily.bodyMedium, fontSize: 12, letterSpacing: 1, color: color.summary.sealRed },
   nameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, marginBottom: spacing.xxl },
   // Borel needs a line box well above its point size or the ascenders clip.

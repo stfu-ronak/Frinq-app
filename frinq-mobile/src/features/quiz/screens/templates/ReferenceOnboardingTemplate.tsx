@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Image, StyleSheet, TextInput, View } from 'react-native';
+import { Image, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import Svg, { Defs, LinearGradient, RadialGradient, Stop, Path, Circle, Ellipse, G, Polygon, Rect } from 'react-native-svg';
 import { QuizStep } from '../../domain/quizDefinition';
 import { ReferenceJourneyFrame } from '../../../../design/components/ReferenceJourneyFrame';
@@ -11,15 +11,31 @@ import { radius, spacing, touchTarget } from '../../../../design/tokens/spacing'
 
 const REFERENCE_STEP_IDS = new Set(['welcome', 'gender', 'pronoun', 'city', 'age', 'social_verification', 'ready']);
 
+/** Soft glow behind the Continue arrow on the cream onboarding pages.
+ *  WebP at half the source resolution — a smooth gradient, so downscaling is
+ *  visually free (132KB PNG -> 7KB). Aspect below is the 402x374 source's. */
+const ELLIPSE_40 = require('../../../../../Public/Assets/Ellipse 40 (1).webp');
+const ELLIPSE_40_ASPECT = 402 / 374;
+
 /** Disco backdrop geometry — declared up here because `styles` (evaluated at
  *  module load) sizes the backdrop box off DISCO_H. See DiscoBackground. */
 const DISCO_H = 420;
 const BALL_X = 195;
-const BALL_Y = 118; // low enough that the whole ball clears the status bar
+const BALL_Y = 145; // pulled down a bit further from the status bar
 const BALL_R = 58;
 
 export function isReferenceOnboardingStep(id: string): boolean {
   return REFERENCE_STEP_IDS.has(id);
+}
+
+/** Edge-to-edge, bottom-anchored glow behind the footer arrow — used by
+ *  gender/pronoun/city/age/social_verification. Explicit pixels from the
+ *  real screen width (not a fixed box or aspectRatio + percentage), so it
+ *  reaches both edges and keeps its own proportions on any screen size. */
+function GlowBackdrop() {
+  const { width: screenWidth } = useWindowDimensions();
+  const glowHeight = screenWidth / ELLIPSE_40_ASPECT;
+  return <Image source={ELLIPSE_40} style={{ position: 'absolute', bottom: -10, width: screenWidth, height: glowHeight }} resizeMode="stretch" />;
 }
 
 type Props = {
@@ -35,6 +51,7 @@ type Props = {
  * deliberately restricted to fixed onboarding ids: configured quiz content
  * remains rendered by the generic templates. */
 export function ReferenceOnboardingTemplate({ step, value, answers, onAnswer, onContinue, onBack }: Props) {
+  const { width: screenWidth } = useWindowDimensions();
   const heading = useMemo(() => {
     if (step.id === 'gender') return 'how do you\nidentify yourself';
     if (step.id === 'pronoun') return 'your pronounce';
@@ -88,10 +105,16 @@ export function ReferenceOnboardingTemplate({ step, value, answers, onAnswer, on
   }
 
   if (step.id === 'gender' && step.kind === 'singleChoiceList') {
+    // Edge-to-edge, bottom-anchored, aspect-preserved regardless of screen
+    // size — explicit pixels from the real screen width, not a fixed 220dp
+    // box: that got clipped on the left/right on anything narrower, and
+    // never actually reached either edge on anything wider.
+    const glowHeight = screenWidth / ELLIPSE_40_ASPECT;
     return (
       <ReferenceJourneyFrame
         onBack={onBack}
         scroll
+        backdrop={<Image source={ELLIPSE_40} style={{ position: 'absolute', bottom: -10, width: screenWidth, height: glowHeight }} resizeMode="stretch" />}
         footer={<><Arrow label="Continue identity" onPress={onContinue} disabled={!value} /><View style={styles.skipSpacer} /></>}
       >
         <View style={styles.creamBody}>
@@ -109,6 +132,7 @@ export function ReferenceOnboardingTemplate({ step, value, answers, onAnswer, on
       <ReferenceJourneyFrame
         onBack={onBack}
         scroll
+        backdrop={<GlowBackdrop />}
         footer={<><Arrow label="Continue pronouns" onPress={onContinue} /><View style={styles.skipSpacer} /></>}
       >
         <View style={styles.creamBody}>
@@ -125,6 +149,7 @@ export function ReferenceOnboardingTemplate({ step, value, answers, onAnswer, on
       <ReferenceJourneyFrame
         onBack={onBack}
         scroll
+        backdrop={<GlowBackdrop />}
         footer={<><Arrow label="Continue city" onPress={onContinue} disabled={typeof value !== 'string' || value.trim().length < 2} /><View style={styles.skipSpacer} /></>}
       >
         <View style={styles.creamBody}>
@@ -155,6 +180,7 @@ export function ReferenceOnboardingTemplate({ step, value, answers, onAnswer, on
       <ReferenceJourneyFrame
         onBack={onBack}
         scroll
+        backdrop={<GlowBackdrop />}
         footer={<><Arrow label="Continue birthday" onPress={onContinue} disabled={!day || !month || !year || year.length < 4} /><View style={styles.skipSpacer} /></>}
       >
         <View style={styles.creamBody}>
@@ -185,6 +211,7 @@ export function ReferenceOnboardingTemplate({ step, value, answers, onAnswer, on
       <ReferenceJourneyFrame
         onBack={onBack}
         scroll
+        backdrop={<GlowBackdrop />}
         footer={(
           <>
             <Arrow label="Continue social verification" onPress={onContinue} />
@@ -277,7 +304,7 @@ const styles = StyleSheet.create({
   disco: { width: '100%', height: DISCO_H },
   // Raised from 130: pushes the heading block up so a 2-3 line script
   // heading has room to breathe instead of crowding what follows it.
-  creamBody: { flex: 1, alignItems: 'center', paddingTop: 104, paddingBottom: spacing.xl },
+  creamBody: { flex: 1, alignItems: 'center', paddingTop: 92, paddingBottom: spacing.xl },
   // Borel's descenders (the 'y' loops in "identify") drop well below the
   // baseline, so a 1.5x lineHeight clipped them. 1.7x + bottom padding gives
   // the tails room; the wider maxWidth stops "yourself" being forced onto a
@@ -295,7 +322,7 @@ const styles = StyleSheet.create({
   // line which then didn't lay out at all — the word simply vanished.
   // width:'100%' uses the full column instead of shrink-to-fit, and no
   // explicit lineHeight so Borel's own metrics reserve its descender room.
-  heading: { fontSize: 24, textAlign: 'center', width: '100%', paddingHorizontal: 4, paddingBottom: 20 },
+  heading: { fontSize: 27, textAlign: 'center', width: '100%', paddingHorizontal: 4, paddingBottom: 26 },
   // alignItems centres the 55%-wide pills; without it they hugged the left.
   options: { width: '100%', marginTop: spacing.xxxl, gap: 24, paddingHorizontal: 40, alignItems: 'center' },
   choice: { width: '55%', minHeight: 52, borderRadius: radius.pill, borderWidth: 1, borderColor: '#7E3024', justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.lg },

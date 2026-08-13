@@ -33,7 +33,7 @@ export function Sheet({ visible, onClose, title, children }: Props) {
 const styles = StyleSheet.create({
   scrim: { flex: 1, backgroundColor: color.bg.scrim, justifyContent: 'flex-end' },
   panelWrap: { width: '100%' },
-  panel: { backgroundColor: color.brand.cream, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.lg },
+  panel: { backgroundColor: color.bg.box, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.lg },
   grabber: { alignSelf: 'center', width: 40, height: 4, borderRadius: radius.pill, backgroundColor: color.border.subtle, marginBottom: spacing.lg },
   title: { marginBottom: spacing.md },
 });
