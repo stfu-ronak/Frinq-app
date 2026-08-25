@@ -7,6 +7,12 @@ file's contents. A recorded checksum that no longer matches the on-disk
 file fails closed (RuntimeError) rather than silently re-applying or
 silently drifting from what's recorded as applied.
 
+The one exception is the legacy baseline (see below): rows recorded
+without ever executing their SQL are flagged `adopted`, and their
+checksum describes a file this database never ran. Drift there says
+nothing about the schema, so it is re-recorded with a warning instead
+of wedging every future deploy.
+
 Never logs SQL contents or environment values — only filenames/versions.
 """
 
@@ -63,8 +69,8 @@ async def _adopt_legacy_baseline(
     async with conn.transaction():
         for version, filename, checksum in legacy:
             await conn.execute(
-                "INSERT INTO schema_migrations (version, filename, checksum) "
-                "VALUES ($1, $2, $3) ON CONFLICT (version) DO NOTHING",
+                "INSERT INTO schema_migrations (version, filename, checksum, adopted) "
+                "VALUES ($1, $2, $3, TRUE) ON CONFLICT (version) DO NOTHING",
                 version, filename, checksum,
             )
     logger.info("migrations.legacy_baseline_adopted", versions=[m[0] for m in legacy])
@@ -87,8 +93,31 @@ async def run_migrations(pool: Any) -> list[str]:
                 "applied_at TIMESTAMPTZ NOT NULL DEFAULT now())"
             )
 
+            # `adopted` distinguishes rows recorded-but-not-executed (the
+            # legacy baseline) from rows whose SQL this database actually ran.
+            # Only the latter carry a meaningful checksum.
+            adopted_column_existed = await conn.fetchrow(
+                "SELECT 1 AS present FROM information_schema.columns "
+                "WHERE table_name = 'schema_migrations' AND column_name = 'adopted'"
+            )
+            await conn.execute(
+                "ALTER TABLE schema_migrations "
+                "ADD COLUMN IF NOT EXISTS adopted BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+            if not adopted_column_existed and await _legacy_tables_exist(conn):
+                # A database baselined before this column existed: its 001-009
+                # rows were adopted, not executed. One-time, on upgrade only.
+                await conn.execute(
+                    "UPDATE schema_migrations SET adopted = TRUE WHERE version <= $1",
+                    max(_LEGACY_BASELINE_VERSIONS),
+                )
+                logger.info(
+                    "migrations.adopted_backfilled",
+                    versions=sorted(_LEGACY_BASELINE_VERSIONS),
+                )
+
             applied_rows = await conn.fetch(
-                "SELECT version, filename, checksum FROM schema_migrations"
+                "SELECT version, filename, checksum, adopted FROM schema_migrations"
             )
             applied: dict[int, dict[str, Any]] = {row["version"]: row for row in applied_rows}
 
@@ -96,7 +125,7 @@ async def run_migrations(pool: Any) -> list[str]:
                 if await _legacy_tables_exist(conn):
                     await _adopt_legacy_baseline(conn, migrations)
                     applied_rows = await conn.fetch(
-                        "SELECT version, filename, checksum FROM schema_migrations"
+                        "SELECT version, filename, checksum, adopted FROM schema_migrations"
                     )
                     applied = {row["version"]: row for row in applied_rows}
 
@@ -104,9 +133,25 @@ async def run_migrations(pool: Any) -> list[str]:
                 existing = applied.get(version)
                 if existing is not None:
                     if existing["checksum"] != checksum:
-                        raise RuntimeError(
-                            f"checksum mismatch for {filename} (version {version}): "
-                            "recorded checksum no longer matches the file on disk"
+                        if not existing.get("adopted"):
+                            raise RuntimeError(
+                                f"checksum mismatch for {filename} (version {version}): "
+                                "recorded checksum no longer matches the file on disk"
+                            )
+                        # Adopted rows record a file that was never executed
+                        # against this database, so a changed checksum means
+                        # the file drifted — not the schema. Re-record it;
+                        # failing closed here would block every deploy with
+                        # no in-code way back.
+                        await conn.execute(
+                            "UPDATE schema_migrations SET filename = $2, checksum = $3 "
+                            "WHERE version = $1",
+                            version, filename, checksum,
+                        )
+                        logger.warning(
+                            "migrations.adopted_checksum_rerecorded",
+                            version=version,
+                            filename=filename,
                         )
                     continue
 
